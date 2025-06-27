@@ -10,10 +10,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 st.set_page_config(page_title="App Admin TD", layout="wide")
 
 # --- CONFIGURACIÓN DE GOOGLE SHEETS ---
-# Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
-# NEW: Function to get gspread client from Streamlit secrets
 @st.cache_resource
 def get_google_sheets_client():
     """
@@ -38,7 +36,6 @@ def get_google_sheets_client():
 
 # --- CONFIGURACIÓN DE AWS S3 ---
 try:
-    # Accediendo a las claves de AWS directamente desde st.secrets (sin la sección [aws])
     AWS_ACCESS_KEY_ID = st.secrets["aws_access_key_id"]
     AWS_SECRET_ACCESS_KEY = st.secrets["aws_secret_access_key"]
     AWS_REGION_NAME = st.secrets["aws_region"]
@@ -59,8 +56,6 @@ st.write("Panel de administración para revisar y confirmar comprobantes de pago
 
 # --- FUNCIONES DE AUTENTICACIÓN Y CARGA DE DATOS ---
 
-# Eliminamos la función load_credentials_from_file ya que ahora las credenciales de Google Sheets se cargan desde st.secrets.
-
 @st.cache_resource
 def get_s3_client():
     """Initializes and returns an S3 client."""
@@ -74,7 +69,7 @@ def get_s3_client():
         return s3
     except Exception as e:
         st.error(f"❌ Error al inicializar el cliente S3: {e}")
-        return None # Devuelve None para que se detenga la ejecución si no se inicializa correctamente
+        return None
 
 def find_pedido_subfolder_prefix(s3_client, parent_prefix, folder_name):
     if not s3_client:
@@ -83,7 +78,7 @@ def find_pedido_subfolder_prefix(s3_client, parent_prefix, folder_name):
     possible_prefixes = [
         f"{parent_prefix}{folder_name}/",
         f"{parent_prefix}{folder_name}",
-        f"adjuntos_pedidos/{folder_name}/", # Considera el prefijo explícito si es necesario
+        f"adjuntos_pedidos/{folder_name}/",
         f"adjuntos_pedidos/{folder_name}",
         f"{folder_name}/",
         folder_name
@@ -135,9 +130,9 @@ def get_files_in_s3_prefix(s3_client, prefix):
         files = []
         if 'Contents' in response:
             for item in response['Contents']:
-                if not item['Key'].endswith('/'): # Asegurarse de que no sea una "carpeta"
+                if not item['Key'].endswith('/'):
                     file_name = item['Key'].split('/')[-1]
-                    if file_name: # Asegurarse de que el nombre del archivo no esté vacío
+                    if file_name:
                         files.append({
                             'title': file_name,
                             'key': item['Key'],
@@ -157,7 +152,7 @@ def get_s3_file_download_url(s3_client, object_key):
         url = s3_client.generate_presigned_url(
             'get_object',
             Params={'Bucket': S3_BUCKET_NAME, 'Key': object_key},
-            ExpiresIn=7200 # URL válida por 2 horas
+            ExpiresIn=7200
         )
         return url
     except Exception as e:
@@ -166,7 +161,7 @@ def get_s3_file_download_url(s3_client, object_key):
 
 # --- Inicializar clientes de Gspread y S3 ---
 try:
-    gc = get_google_sheets_client() # Usar la nueva función para obtener el cliente de Google Sheets
+    gc = get_google_sheets_client()
     s3_client = get_s3_client()
     if not s3_client:
         st.error("❌ No se pudo inicializar el cliente de AWS S3. Deteniendo la ejecución.")
@@ -183,7 +178,7 @@ except Exception as e:
 
 
 # --- Cargar datos desde Google Sheets ---
-@st.cache_data(ttl=60) # Cachea los datos por 60 segundos
+@st.cache_data(ttl=60)
 def load_data():
     try:
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
@@ -191,40 +186,33 @@ def load_data():
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
 
-        # Convertir columnas relevantes a tipo datetime si existen
         date_columns = ['Fecha_Entrega', 'Fecha_Completado', 'Hora_Registro']
         for col in date_columns:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
         
-        # Asegurarse de que 'Adjuntos' exista y rellenar NaN con cadena vacía
         if 'Adjuntos' not in df.columns:
             df['Adjuntos'] = ''
         df['Adjuntos'] = df['Adjuntos'].fillna('')
 
-        # Asegurarse de que 'Comprobante_Confirmado' exista y rellenar NaN con 'No'
         if 'Comprobante_Confirmado' not in df.columns:
             df['Comprobante_Confirmado'] = 'No'
         df['Comprobante_Confirmado'] = df['Comprobante_Confirmado'].fillna('No')
-
+        
         return df
     except Exception as e:
         st.error(f"❌ Error al cargar datos del Google Sheet: {e}")
         st.info("ℹ️ Asegúrate de que el Google Sheet ID y los permisos de la cuenta de servicio sean correctos.")
-        return pd.DataFrame() # Retorna un DataFrame vacío en caso de error
+        return pd.DataFrame()
 
 df_pedidos = load_data()
 
 # --- INTERFAZ PRINCIPAL ---
 st.header("💳 Comprobantes de Pago Pendientes de Confirmar")
 
-# Filtrar pedidos con estado de pago "✅ Pagado" y comprobante "No" confirmado
-# MODIFICACIÓN: Mostrar también aquellos que tienen comprobante_pago_url pero aún no están confirmados
 comprobantes_pendientes_df = df_pedidos[
     (df_pedidos['Estado_Pago'] == '✅ Pagado') &
-    (df_pedidos['Comprobante_Confirmado'] == 'No') &
-    (df_pedidos['Comprobante_Pago_URL'].notna()) & 
-    (df_pedidos['Comprobante_Pago_URL'] != '')
+    (df_pedidos['Comprobante_Confirmado'] == 'No')
 ].copy()
 
 if comprobantes_pendientes_df.empty:
@@ -232,13 +220,12 @@ if comprobantes_pendientes_df.empty:
 else:
     st.write(f"Se encontraron {len(comprobantes_pendientes_df)} comprobante(s) pendiente(s).")
     st.dataframe(comprobantes_pendientes_df[[
-        'ID_Pedido', 'Folio_Factura', 'Cliente', 'Vendedor', 'Estado_Pago', 'Comprobante_Pago_URL', 'Comprobante_Confirmado'
+        'ID_Pedido', 'Folio_Factura', 'Cliente', 'Vendedor', 'Estado_Pago', 'Comprobante_Confirmado'
     ]].sort_values(by='ID_Pedido', ascending=False), use_container_width=True)
 
     st.markdown("---")
     st.subheader("🔍 Confirmar o Rechazar Comprobante por ID de Pedido")
 
-    # Asegurarse de que st.session_state.referencia_pago esté inicializado
     if 'referencia_pago' not in st.session_state:
         st.session_state.referencia_pago = ""
 
@@ -263,15 +250,8 @@ else:
             pedido_gestionar = pedido_a_gestionar_df.iloc[0]
             st.write("---")
             st.subheader(f"Detalles del Pedido: `{pedido_gestionar['ID_Pedido']}`")
-            st.json(pedido_gestionar.to_dict()) # Muestra todos los detalles del pedido
+            st.json(pedido_gestionar.to_dict())
 
-            comprobante_url = pedido_gestionar.get('Comprobante_Pago_URL', '')
-            if comprobante_url:
-                st.markdown(f"**🔗 Comprobante de Pago:** [Ver Comprobante]({comprobante_url})")
-            else:
-                st.info("ℹ️ No hay URL de comprobante de pago registrada para este pedido.")
-            
-            # --- Archivos Adjuntos del Pedido ---
             st.markdown("---")
             st.subheader("📎 Archivos Adjuntos del Pedido (S3)")
             adjuntos_del_pedido_str = pedido_gestionar.get('Adjuntos', '')
@@ -280,7 +260,7 @@ else:
             if adjuntos_urls:
                 st.write("Archivos adjuntos encontrados en S3:")
                 for url in adjuntos_urls:
-                    file_name = url.split('/')[-1] # Obtener el nombre del archivo de la URL
+                    file_name = url.split('/')[-1]
                     st.markdown(f"- [{file_name}]({url})")
             else:
                 st.info("ℹ️ No hay archivos adjuntos en S3 para este pedido.")
@@ -291,7 +271,6 @@ else:
                 if st.button("✅ Confirmar Comprobante", type="primary", use_container_width=True):
                     if pedido_gestionar['Estado_Pago'] == '✅ Pagado' and pedido_gestionar['Comprobante_Confirmado'] == 'No':
                         try:
-                            # Encontrar la fila del pedido
                             all_data = gc.open_by_key(GOOGLE_SHEET_ID).worksheet('datos_pedidos').get_all_values()
                             headers = all_data[0]
                             data_rows = all_data[1:]
@@ -300,23 +279,20 @@ else:
                             for i, row in enumerate(data_rows):
                                 row_dict = dict(zip(headers, row))
                                 if row_dict.get('ID_Pedido') == pedido_gestionar['ID_Pedido']:
-                                    target_row_index = i + 2 # +2 porque get_all_values() es 0-index y encabezados es fila 1
+                                    target_row_index = i + 2
                                     break
                             
                             if target_row_index != -1:
-                                # Actualizar el estado de confirmación
                                 worksheet = gc.open_by_key(GOOGLE_SHEET_ID).worksheet('datos_pedidos')
                                 
-                                # Encontrar el índice de la columna 'Comprobante_Confirmado'
-                                col_index = headers.index('Comprobante_Confirmado') + 1 # +1 para gspread (1-index)
+                                col_index = headers.index('Comprobante_Confirmado') + 1
                                 worksheet.update_cell(target_row_index, col_index, 'Sí')
                                 st.success(f"✔️ Comprobante del pedido `{pedido_gestionar['ID_Pedido']}` confirmado con éxito.")
                                 
-                                # Limpiar el input y recargar los datos
                                 st.session_state.referencia_pago = ""
-                                st.cache_data.clear() # Limpiar caché para forzar la recarga de datos
-                                time.sleep(1) # Pequeña pausa para que el mensaje sea visible
-                                st.rerun() # Recargar la app para mostrar los datos actualizados
+                                st.cache_data.clear()
+                                time.sleep(1)
+                                st.rerun()
                             else:
                                 st.error("❌ Error: No se pudo encontrar la fila del pedido en Google Sheets.")
                         except Exception as e:
@@ -325,10 +301,10 @@ else:
                         st.info("ℹ️ Este pedido ya ha sido confirmado o no está marcado como 'Pagado' con un comprobante pendiente.")
 
             with col3:
+                # MODIFICADO: Se implementó la funcionalidad de rechazo
                 if st.button("❌ Rechazar Comprobante", type="secondary", use_container_width=True):
                     if pedido_gestionar['Estado_Pago'] == '✅ Pagado' and pedido_gestionar['Comprobante_Confirmado'] == 'No':
                         try:
-                            # Encontrar la fila del pedido
                             all_data = gc.open_by_key(GOOGLE_SHEET_ID).worksheet('datos_pedidos').get_all_values()
                             headers = all_data[0]
                             data_rows = all_data[1:]
@@ -337,40 +313,31 @@ else:
                             for i, row in enumerate(data_rows):
                                 row_dict = dict(zip(headers, row))
                                 if row_dict.get('ID_Pedido') == pedido_gestionar['ID_Pedido']:
-                                    target_row_index = i + 2 # +2 porque get_all_values() es 0-index y encabezados es fila 1
+                                    target_row_index = i + 2
                                     break
                             
                             if target_row_index != -1:
-                                # Actualizar el estado de confirmación a 'No' y limpiar la URL del comprobante si es necesario, 
-                                # y cambiar Estado_Pago a '🔴 No Pagado'
                                 worksheet = gc.open_by_key(GOOGLE_SHEET_ID).worksheet('datos_pedidos')
                                 
-                                # Índice de la columna 'Comprobante_Confirmado'
                                 col_index_confirmado = headers.index('Comprobante_Confirmado') + 1
-                                worksheet.update_cell(target_row_index, col_index_confirmado, 'No') # Rechazado = No confirmado
+                                worksheet.update_cell(target_row_index, col_index_confirmado, 'No')
 
-                                # Índice de la columna 'Estado_Pago'
                                 col_index_estado_pago = headers.index('Estado_Pago') + 1
-                                worksheet.update_cell(target_row_index, col_index_estado_pago, '🔴 No Pagado') # Marcar como no pagado
-
-                                # Opcional: Limpiar la URL del comprobante de pago si se rechaza
-                                if 'Comprobante_Pago_URL' in headers:
-                                    col_index_comprobante_url = headers.index('Comprobante_Pago_URL') + 1
-                                    worksheet.update_cell(target_row_index, col_index_comprobante_url, '') # Limpiar URL
+                                worksheet.update_cell(target_row_index, col_index_estado_pago, '🔴 No Pagado')
 
                                 st.success(f"✔️ Comprobante del pedido `{pedido_gestionar['ID_Pedido']}` rechazado y pedido marcado como 'No Pagado'.")
                                 
-                                # Limpiar el input y recargar los datos
                                 st.session_state.referencia_pago = ""
-                                st.cache_data.clear() # Limpiar caché para forzar la recarga de datos
-                                time.sleep(1) # Pequeña pausa para que el mensaje sea visible
-                                st.rerun() # Recargar la app para mostrar los datos actualizados
+                                st.cache_data.clear()
+                                time.sleep(1)
+                                st.rerun()
                             else:
                                 st.error("❌ Error: No se pudo encontrar la fila del pedido en Google Sheets.")
                         except Exception as e:
                             st.error(f"❌ Error al rechazar el comprobante: {e}")
                     else:
                         st.info("ℹ️ Este pedido no tiene un comprobante 'Pagado' y pendiente de confirmar para rechazar.")
+
 
 # --- ESTADÍSTICAS GENERALES ---
 st.markdown("---")
@@ -390,11 +357,7 @@ if not df_pedidos.empty:
     with col3:
         pedidos_confirmados = len(df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí']) if 'Comprobante_Confirmado' in df_pedidos.columns else 0
         st.metric("Comprobantes Confirmados", pedidos_confirmados)
-
+    
     with col4:
-        pedidos_pendientes = len(df_pedidos[df_pedidos.get('Estado') == '🟡 Pendiente']) if 'Estado' in df_pedidos.columns else 0
-        st.metric("Pedidos Pendientes", pedidos_pendientes)
-
-    st.markdown("---")
-    st.subheader("Detalle de Pedidos")
-    st.dataframe(df_pedidos.sort_values(by='ID_Pedido', ascending=False), use_container_width=True)
+        pedidos_pendientes_confirmacion = len(comprobantes_pendientes_df) if 'comprobantes_pendientes_df' in locals() else 0
+        st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
