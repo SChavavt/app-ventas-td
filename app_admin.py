@@ -1,24 +1,25 @@
 import streamlit as st
-import json # Asegúrate de que esta línea esté al principio del archivo
+import json
 import time
 import pandas as pd
 import boto3
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from datetime import timedelta # Asegúrate de que timedelta también esté importado
+from oauth2client.service_account import ServiceAccountCredentials # MANTENER ESTA IMPORTACIÓN
+from datetime import timedelta
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
 
 # --- CONFIGURACIÓN DE GOOGLE SHEETS ---
-# SERVICE_ACCOUNT_FILE = 'sistema-pedidos-td-e80e1a9633c2.json' # Ya no se usa
+# SERVICE_ACCOUNT_FILE = 'sistema-pedidos-td-e80e1a9633c2.json' # Puedes eliminar esta línea, no se usa.
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
 # --- CONFIGURACIÓN DE AWS S3 ---
 try:
-    AWS_ACCESS_KEY_ID = st.secrets["aws_access_key_id"]
-    AWS_SECRET_ACCESS_KEY = st.secrets["aws_secret_access_key"]
-    AWS_REGION_NAME = st.secrets["aws_region"]
-    S3_BUCKET_NAME = st.secrets["s3_bucket_name"]
+    # ASEGURARSE DE ACCEDER A st.secrets["aws"]["clave"] COMO EN app_v.py y secrets.toml
+    AWS_ACCESS_KEY_ID = st.secrets["aws"]["aws_access_key_id"]
+    AWS_SECRET_ACCESS_KEY = st.secrets["aws"]["aws_secret_access_key"]
+    AWS_REGION_NAME = st.secrets["aws"]["aws_region"]
+    S3_BUCKET_NAME = st.secrets["aws"]["s3_bucket_name"]
 except KeyError as e:
     st.error(f"❌ Error: Las credenciales de AWS S3 no se encontraron en Streamlit secrets. Asegúrate de que tu archivo .streamlit/secrets.toml esté configurado correctamente. Clave faltante: {e}")
     st.info("Asegúrate de que tus claves en secrets.toml estén bajo la sección [aws] y se llamen:")
@@ -30,15 +31,24 @@ except KeyError as e:
 
 # --- Funciones de Google Sheets ---
 @st.cache_resource
-def get_gspread_client(credentials_json):
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_json, scope)
-    client = gspread.authorize(creds)
-    return client
+def get_gspread_client(): # SIN PARÁMETROS, como en app_v.py
+    try:
+        # Cargar credenciales DENTRO de la función cacheada, como en app_v.py
+        google_credentials_dict = json.loads(st.secrets["google_credentials"])
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(google_credentials_dict, scope)
+        client = gspread.authorize(creds)
+        return client
+    except Exception as e:
+        st.error(f"❌ Error al inicializar cliente de Google Sheets: {e}")
+        st.info("ℹ️ Asegúrate de que las credenciales de Google en Streamlit secrets sean correctas y estén parseadas como JSON.")
+        st.stop()
+        return None # Retorna None si hay un error
 
 @st.cache_data(ttl=600) # Cachear datos por 10 minutos
 def load_data_from_sheet():
     try:
+        # Aquí se asume que 'gc' ya está inicializado globalmente
         sheet = gc.open_by_id(GOOGLE_SHEET_ID).worksheet('pedidos')
         df = pd.DataFrame(sheet.get_all_records())
         # Asegurarse de que las columnas de fecha sean tipo datetime
@@ -90,12 +100,13 @@ def generate_s3_presigned_url(object_name, expiration=3600):
 
 # --- Inicializar clientes de Gspread y S3 ---
 try:
-    # MODIFICACIÓN CLAVE AQUÍ: Usar json.loads() para parsear la cadena JSON
-    google_credentials_dict = json.loads(st.secrets["google_credentials"])
-    gc = get_gspread_client(google_credentials_dict) # Pasar el diccionario parseado
+    gc = get_gspread_client() # LLAMADA SIN PARÁMETROS, como en app_v.py
     
     s3_client = get_s3_client()
     
+    if not gc: # Verificar si gc se inicializó correctamente
+        st.stop()
+
     if not s3_client:
         st.error("❌ No se pudo inicializar el cliente de AWS S3.")
         st.stop()
