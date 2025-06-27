@@ -1,9 +1,11 @@
 import streamlit as st
+import json # Asegúrate de que esta línea esté al principio del archivo
 import time
 import pandas as pd
 import boto3
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from datetime import timedelta # Asegúrate de que timedelta también esté importado
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
 
@@ -26,30 +28,7 @@ except KeyError as e:
     st.info("s3_bucket_name = \"tu-bucket-name\"")
     st.stop()
 
-S3_ATTACHMENT_PREFIX = 'adjuntos_pedidos/'
-
-st.title("👨‍💼 App de Administración TD")
-st.write("Panel de administración para revisar y confirmar comprobantes de pago.")
-
-# --- FUNCIONES DE AUTENTICACIÓN Y CARGA DE DATOS ---
-
-# La función load_credentials_from_file ya no es necesaria, ya que las credenciales se cargarán directamente desde st.secrets.
-# @st.cache_resource
-# def load_credentials_from_file(file_path):
-#    try:
-#        with open(file_path, 'r') as f:
-#            creds = json.load(f)
-#        return creds
-#    except FileNotFoundError:
-#        st.error(f"❌ Error: El archivo de credenciales '{file_path}' no fue encontrado. Asegúrate de que el nombre sea correcto y esté en la misma carpeta que 'app_admin.py'.")
-#        st.stop()
-#    except json.JSONDecodeError:
-#        st.error(f"❌ Error: El archivo de credenciales '{file_path}' no es un JSON válido o está corrupto. Revisa el formato del archivo.")
-#        st.stop()
-#    except Exception as e:
-#        st.error(f"❌ Error al leer el archivo de credenciales '{file_path}': {e}")
-#        st.stop()
-
+# --- Funciones de Google Sheets ---
 @st.cache_resource
 def get_gspread_client(credentials_json):
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -57,6 +36,24 @@ def get_gspread_client(credentials_json):
     client = gspread.authorize(creds)
     return client
 
+@st.cache_data(ttl=600) # Cachear datos por 10 minutos
+def load_data_from_sheet():
+    try:
+        sheet = gc.open_by_id(GOOGLE_SHEET_ID).worksheet('pedidos')
+        df = pd.DataFrame(sheet.get_all_records())
+        # Asegurarse de que las columnas de fecha sean tipo datetime
+        date_columns = ['Fecha_Pedido', 'Fecha_Entrega'] # Añade aquí todas tus columnas de fecha
+        for col in date_columns:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+        return df
+    except Exception as e:
+        st.error(f"❌ Error al cargar datos del Sheet: {e}")
+        st.info("ℹ️ Verifica que el ID del Sheet sea correcto y que la cuenta de servicio tenga acceso de lectura.")
+        st.stop()
+        return pd.DataFrame() # Retorna un DataFrame vacío en caso de error
+
+# --- Funciones de AWS S3 ---
 @st.cache_resource
 def get_s3_client():
     try:
@@ -68,102 +65,35 @@ def get_s3_client():
         )
         return s3
     except Exception as e:
-        st.error(f"❌ Error al autenticar AWS S3: {e}")
+        st.error(f"❌ Error al inicializar cliente S3: {e}")
         return None
 
-def find_pedido_subfolder_prefix(s3_client, parent_prefix, folder_name):
-    if not s3_client:
+def upload_file_to_s3(file_content, file_name, folder='adjuntos'):
+    try:
+        object_name = f"{folder}/{file_name}"
+        s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=object_name, Body=file_content)
+        return f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{object_name}"
+    except Exception as e:
+        st.error(f"❌ Error al subir archivo a S3: {e}")
         return None
-    
-    possible_prefixes = [
-        f"{parent_prefix}{folder_name}/",
-        f"{parent_prefix}{folder_name}",
-        f"adjuntos_pedidos/{folder_name}/",
-        f"adjuntos_pedidos/{folder_name}",
-        f"{folder_name}/",
-        folder_name
-    ]
-    
-    for pedido_prefix in possible_prefixes:
-        try:
-            response = s3_client.list_objects_v2(
-                Bucket=S3_BUCKET_NAME,
-                Prefix=pedido_prefix,
-                MaxKeys=1
-            )
-            
-            if 'Contents' in response and response['Contents']:
-                return pedido_prefix
-            
-        except Exception:
-            continue
-    
-    try:
-        response = s3_client.list_objects_v2(
-            Bucket=S3_BUCKET_NAME,
-            MaxKeys=100
-        )
-        
-        if 'Contents' in response:
-            for obj in response['Contents']:
-                if folder_name in obj['Key']:
-                    if '/' in obj['Key']:
-                        prefix_parts = obj['Key'].split('/')[:-1]
-                        return '/'.join(prefix_parts) + '/'
-            
-    except Exception:
-        pass
-    
-    return None
 
-def get_files_in_s3_prefix(s3_client, prefix):
-    if not s3_client or not prefix:
-        return []
-    
+def generate_s3_presigned_url(object_name, expiration=3600):
     try:
-        response = s3_client.list_objects_v2(
-            Bucket=S3_BUCKET_NAME, 
-            Prefix=prefix,
-            MaxKeys=100
-        )
-        
-        files = []
-        if 'Contents' in response:
-            for item in response['Contents']:
-                if not item['Key'].endswith('/'):
-                    file_name = item['Key'].split('/')[-1]
-                    if file_name:
-                        files.append({
-                            'title': file_name,
-                            'key': item['Key'],
-                            'size': item['Size'],
-                            'last_modified': item['LastModified']
-                        })
-        return files
-        
+        response = s3_client.generate_presigned_url('get_object',
+                                                    Params={'Bucket': S3_BUCKET_NAME,
+                                                            'Key': object_name},
+                                                    ExpiresIn=expiration)
+        return response
     except Exception as e:
-        st.error(f"❌ Error al obtener archivos del prefijo S3 '{prefix}': {e}")
-        return []
-
-def get_s3_file_download_url(s3_client, object_key):
-    if not s3_client or not object_key:
-        return "#"
-    
-    try:
-        url = s3_client.generate_presigned_url(
-            'get_object',
-            Params={'Bucket': S3_BUCKET_NAME, 'Key': object_key},
-            ExpiresIn=7200
-        )
-        return url
-    except Exception as e:
-        st.error(f"❌ Error al generar URL pre-firmada para '{object_key}': {e}")
-        return "#"
+        st.error(f"❌ Error al generar URL pre-firmada: {e}")
+        return None
 
 # --- Inicializar clientes de Gspread y S3 ---
 try:
-    # Cargar credenciales de Google Sheets directamente desde st.secrets
-    gc = get_gspread_client(st.secrets["google_credentials"])
+    # MODIFICACIÓN CLAVE AQUÍ: Usar json.loads() para parsear la cadena JSON
+    google_credentials_dict = json.loads(st.secrets["google_credentials"])
+    gc = get_gspread_client(google_credentials_dict) # Pasar el diccionario parseado
+    
     s3_client = get_s3_client()
     
     if not s3_client:
@@ -179,267 +109,180 @@ except Exception as e:
     st.info("- La cuenta de AWS tenga permisos de lectura en el bucket S3.")
     st.stop()
 
-# --- INTERFAZ PRINCIPAL ---
+# --- Cargar datos ---
+df_pedidos = load_data_from_sheet()
 
-st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
+st.title("Admin de Pedidos")
+st.markdown("---")
 
-df_pedidos = pd.DataFrame()
-try:
-    spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
-    worksheet = spreadsheet.worksheet('datos_pedidos')
-    headers = worksheet.row_values(1)
-    if headers:
-        df_pedidos = pd.DataFrame(worksheet.get_all_records())
-    else:
-        st.warning("No se pudieron cargar los encabezados del Google Sheet.")
-        st.stop()
-except Exception as e:
-    st.error(f"❌ Error al cargar pedidos desde Google Sheet: {e}")
-    st.stop()
+# --- FILTROS Y BÚSQUEDA ---
+st.header("🔍 Buscar y Filtrar Pedidos")
 
-if df_pedidos.empty:
-    st.info("No hay pedidos registrados.")
-else:
-    if 'Estado_Pago' in df_pedidos.columns and 'Comprobante_Confirmado' in df_pedidos.columns:
-        pedidos_pagados_no_confirmados = df_pedidos[
-            (df_pedidos['Estado_Pago'] == '✅ Pagado') &
-            (df_pedidos['Comprobante_Confirmado'] != 'Sí')
-        ].copy()
-    else:
-        st.warning("Las columnas 'Estado_Pago' o 'Comprobante_Confirmado' no se encontraron en el Google Sheet.")
-        pedidos_pagados_no_confirmados = pd.DataFrame()
+col_search, col_status, col_payment, col_date = st.columns([2, 1, 1, 1])
 
-    if pedidos_pagados_no_confirmados.empty:
-        st.success("🎉 ¡No hay comprobantes pendientes de confirmación!")
-        st.info("Todos los pedidos pagados han sido confirmados o no hay pedidos pagados.")
-    else:
-        st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes de confirmación.")
+with col_search:
+    search_query = st.text_input("Buscar por ID de Pedido, Cliente o Vendedor", "")
+
+with col_status:
+    estados_disponibles = ["Todos"] + df_pedidos['Estado'].unique().tolist()
+    selected_status = st.selectbox("Filtrar por Estado", estados_disponibles)
+
+with col_payment:
+    estados_pago_disponibles = ["Todos"] + df_pedidos['Estado_Pago'].unique().tolist()
+    selected_payment_status = st.selectbox("Filtrar por Estado de Pago", estados_pago_disponibles)
+
+with col_date:
+    date_filter_option = st.selectbox("Filtrar por Fecha", ["Todos", "Hoy", "Últimos 7 días", "Últimos 30 días", "Rango Personalizado"])
+    
+filtered_df = df_pedidos.copy()
+
+if search_query:
+    filtered_df = filtered_df[
+        filtered_df.apply(lambda row: search_query.lower() in str(row.get('ID_Pedido', '')).lower() or
+                                     search_query.lower() in str(row.get('Cliente', '')).lower() or
+                                     search_query.lower() in str(row.get('Vendedor_Registro', '')).lower(), axis=1)
+    ]
+
+if selected_status != "Todos":
+    filtered_df = filtered_df[filtered_df['Estado'] == selected_status]
+
+if selected_payment_status != "Todos":
+    filtered_df = filtered_df[filtered_df.get('Estado_Pago') == selected_payment_status]
+
+# Aplicar filtro de fecha
+if date_filter_option == "Hoy":
+    today = pd.Timestamp.now().normalize()
+    filtered_df = filtered_df[filtered_df['Fecha_Pedido'].dt.normalize() == today]
+elif date_filter_option == "Últimos 7 días":
+    seven_days_ago = pd.Timestamp.now().normalize() - timedelta(days=7)
+    filtered_df = filtered_df[filtered_df['Fecha_Pedido'].dt.normalize() >= seven_days_ago]
+elif date_filter_option == "Últimos 30 días":
+    thirty_days_ago = pd.Timestamp.now().normalize() - timedelta(days=30)
+    filtered_df = filtered_df[filtered_df['Fecha_Pedido'].dt.normalize() >= thirty_days_ago]
+elif date_filter_option == "Rango Personalizado":
+    col_start, col_end = st.columns(2)
+    with col_start:
+        start_date = st.date_input("Fecha de inicio", value=pd.Timestamp.now().normalize() - timedelta(days=7))
+    with col_end:
+        end_date = st.date_input("Fecha de fin", value=pd.Timestamp.now().normalize())
+    
+    if start_date and end_date:
+        filtered_df = filtered_df[(filtered_df['Fecha_Pedido'].dt.normalize() >= pd.Timestamp(start_date).normalize()) & 
+                                  (filtered_df['Fecha_Pedido'].dt.normalize() <= pd.Timestamp(end_date).normalize())]
+
+
+st.subheader(f"Pedidos Encontrados ({len(filtered_df)})")
+st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+
+
+# --- GESTIÓN DE PEDIDOS ---
+st.markdown("---")
+st.header("⚙️ Gestión de Pedidos")
+
+if 'selected_row_id' not in st.session_state:
+    st.session_state.selected_row_id = None
+if 'confirmacion_confirmada' not in st.session_state:
+    st.session_state.confirmacion_confirmada = False
+if 'referencia_pago' not in st.session_state:
+    st.session_state.referencia_pago = ""
+
+with st.expander("Modificar Estado y Comprobantes"):
+    st.info("Selecciona un pedido de la tabla de arriba para modificarlo.")
+    
+    if not filtered_df.empty:
+        selected_index = st.number_input("Introduce el índice del pedido a modificar (primer pedido es 0)", min_value=0, max_value=len(filtered_df)-1, value=0, key="index_input")
         
-        # Modificación: Eliminar 'Comprobante_Confirmado' y cambiar 'ID_Pedido' por 'Folio_Factura'
-        columns_to_show = [
-            'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 
-            'Fecha_Entrega', 'Estado', 'Estado_Pago'
-        ]
+        if st.button("Seleccionar Pedido por Índice"):
+            if 0 <= selected_index < len(filtered_df):
+                st.session_state.selected_row_id = filtered_df.iloc[selected_index]['ID_Pedido']
+                st.session_state.confirmacion_confirmada = False # Reset confirmation
+                st.session_state.referencia_pago = "" # Reset reference
+                st.experimental_rerun()
+            else:
+                st.error("Índice fuera de rango.")
+
+    if st.session_state.selected_row_id:
+        selected_pedido = df_pedidos[df_pedidos['ID_Pedido'] == st.session_state.selected_row_id].iloc[0]
+        st.write(f"**Pedido Seleccionado:** ID: {selected_pedido['ID_Pedido']} | Cliente: {selected_pedido['Cliente']}")
         
-        existing_columns = [col for col in columns_to_show if col in pedidos_pagados_no_confirmados.columns]
+        col1, col2 = st.columns(2)
+        with col1:
+            current_status = selected_pedido['Estado']
+            new_status = st.selectbox("Cambiar Estado del Pedido", df_pedidos['Estado'].unique().tolist(), index=df_pedidos['Estado'].unique().tolist().index(current_status))
         
-        if existing_columns:
-            st.dataframe(
-                pedidos_pagados_no_confirmados[existing_columns].sort_values(by='Fecha_Entrega'), 
-                use_container_width=True, 
-                hide_index=True
-            )
-        else:
-            st.warning("No se encontraron las columnas esperadas para mostrar el resumen de pedidos.")
+        with col2:
+            current_payment_status = selected_pedido.get('Estado_Pago', 'Pendiente')
+            new_payment_status = st.selectbox("Cambiar Estado de Pago", ["Pendiente", "✅ Pagado", "❌ No Pagado"], index=["Pendiente", "✅ Pagado", "❌ No Pagado"].index(current_payment_status))
         
+        if st.button("Actualizar Estado"):
+            try:
+                sheet = gc.open_by_id(GOOGLE_SHEET_ID).worksheet('pedidos')
+                # Encuentra la fila por ID_Pedido y actualiza
+                cell = sheet.find(selected_pedido['ID_Pedido'])
+                sheet.update_cell(cell.row, df_pedidos.columns.get_loc('Estado') + 1, new_status)
+                sheet.update_cell(cell.row, df_pedidos.columns.get_loc('Estado_Pago') + 1, new_payment_status)
+                st.success(f"✅ Estado del pedido {selected_pedido['ID_Pedido']} actualizado a '{new_status}' y Estado de Pago a '{new_payment_status}'.")
+                st.cache_data.clear() # Limpiar cache para recargar datos
+                time.sleep(1)
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"❌ Error al actualizar estado: {e}")
+
         st.markdown("---")
-        st.subheader("🔍 Revisar Comprobante de Pago")
+        st.subheader("Comprobantes de Pago")
         
-        # Modificación: Usar 'Folio_Factura' para el 'display_label' en el selectbox
-        if 'Folio_Factura' in pedidos_pagados_no_confirmados.columns:
-            pedidos_pagados_no_confirmados['display_label'] = (
-                pedidos_pagados_no_confirmados['Folio_Factura'] + " - " +
-                pedidos_pagados_no_confirmados.get('Cliente', 'N/A') + " - " +
-                pedidos_pagados_no_confirmados.get('Vendedor_Registro', 'N/A') + " (ID: " + 
-                pedidos_pagados_no_confirmados.get('ID_Pedido', 'N/A') + ")" # Mantener ID_Pedido para referencia visual
-            )
-        else:
-            st.warning("La columna 'Folio_Factura' no se encontró en el Google Sheet. Usando 'ID_Pedido' en el selector.")
-            pedidos_pagados_no_confirmados['display_label'] = (
-                pedidos_pagados_no_confirmados.get('ID_Pedido', 'N/A') + " - " +
-                pedidos_pagados_no_confirmados.get('Cliente', 'N/A') + " - " +
-                pedidos_pagados_no_confirmados.get('Vendedor_Registro', 'N/A')
-            )
-            
-        selected_pedido_display = st.selectbox(
-            "📝 Seleccionar Pedido para Revisar Comprobante",
-            pedidos_pagados_no_confirmados['display_label'].tolist(),
-            key="select_pedido_comprobante"
-        )
-        
-        if selected_pedido_display:
-            selected_pedido_data = pedidos_pagados_no_confirmados[
-                pedidos_pagados_no_confirmados['display_label'] == selected_pedido_display
-            ].iloc[0]
-            
-            selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
+        comprobante_url = selected_pedido.get('URL_Comprobante', None)
+        comprobante_confirmado = selected_pedido.get('Comprobante_Confirmado', 'No')
 
-            col1, col2 = st.columns(2)
+        if comprobante_url and comprobante_url != "N/A":
+            if "s3.amazonaws.com" in comprobante_url:
+                # Extraer la clave del objeto S3 de la URL completa
+                # Ejemplo URL: https://app-pedidos-adjuntos-svt.s3.us-east-2.amazonaws.com/adjuntos/mi_comprobante.pdf
+                # Extraer: adjuntos/mi_comprobante.pdf
+                object_key_s3 = comprobante_url.split(f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/")[1]
+                presigned_url = generate_s3_presigned_url(object_key_s3)
+                if presigned_url:
+                    st.markdown(f"**Comprobante Adjunto:** [Ver Comprobante]({presigned_url}) (Caduca en 1 hora)")
+                else:
+                    st.warning("⚠️ No se pudo generar URL pre-firmada para el comprobante.")
+            else:
+                st.markdown(f"**Comprobante Adjunto (URL Directa):** [Ver Comprobante]({comprobante_url})")
             
-            with col1:
-                st.subheader("📋 Información del Pedido")
-                st.write(f"**Folio Factura:** {selected_pedido_data.get('Folio_Factura', 'N/A')}")
-                st.write(f"**ID Pedido (interno):** {selected_pedido_data.get('ID_Pedido', 'N/A')}") # Se muestra como referencia interna
-                st.write(f"**Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
-                st.write(f"**Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
-                st.write(f"**Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
-                st.write(f"**Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
-                st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
-                st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
+            st.write(f"**Confirmación de Comprobante:** {comprobante_confirmado}")
             
-            with col2:
-                st.subheader("📎 Archivos y Comprobantes")
+            if comprobante_confirmado == 'No':
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("✅ Confirmar Comprobante", type="primary", use_container_width=True, key="confirm_btn"):
+                        st.session_state.confirmacion_confirmada = True
+                        st.experimental_rerun() # Trigger rerun to show input for reference
+            
+                if st.session_state.confirmacion_confirmada:
+                    with col2:
+                        st.session_state.referencia_pago = st.text_input("Referencia de Pago/Notas:", value=st.session_state.referencia_pago)
+                        if st.button("Guardar Confirmación y Referencia", use_container_width=True, key="save_confirm_btn"):
+                            try:
+                                sheet = gc.open_by_id(GOOGLE_SHEET_ID).worksheet('pedidos')
+                                cell = sheet.find(selected_pedido['ID_Pedido'])
+                                sheet.update_cell(cell.row, df_pedidos.columns.get_loc('Comprobante_Confirmado') + 1, 'Sí')
+                                sheet.update_cell(cell.row, df_pedidos.columns.get_loc('Referencia_Pago') + 1, st.session_state.referencia_pago) # Actualizar referencia
+                                st.success(f"✅ Comprobante del pedido {selected_pedido['ID_Pedido']} confirmado y referencia guardada.")
+                                st.cache_data.clear() # Limpiar cache para recargar datos
+                                st.session_state.confirmacion_confirmada = False
+                                st.session_state.referencia_pago = ""
+                                
+                                time.sleep(1)
+                                st.rerun()
+                                
+                            except Exception as e:
+                                st.error(f"❌ Error al confirmar el comprobante: {e}")
                 
-                if s3_client:
-                    pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
-                    
-                    if pedido_folder_prefix:
-                        files_in_folder = get_files_in_s3_prefix(s3_client, pedido_folder_prefix)
-                        
-                        if files_in_folder:
-                            comprobantes_encontrados = []
-                            otros_archivos = []
-                            
-                            for file in files_in_folder:
-                                if 'comprobante' in file['title'].lower():
-                                    comprobantes_encontrados.append(file)
-                                else:
-                                    otros_archivos.append(file)
-                            
-                            if comprobantes_encontrados:
-                                st.write("**🧾 Comprobantes de Pago:**")
-                                for comp in comprobantes_encontrados:
-                                    file_url = get_s3_file_download_url(s3_client, comp['key'])
-                                    
-                                    # Lógica para limpiar el nombre del archivo para mostrar
-                                    display_name = comp['title']
-                                    if selected_pedido_id_for_s3_search in display_name:
-                                        display_name = display_name.replace(selected_pedido_id_for_s3_search, "")
-                                        display_name = display_name.replace("__", "_").replace("_-", "_").replace("-_", "_").strip('_').strip('-')
+                with col3:
+                    if st.button("❌ Rechazar Comprobante", type="secondary", use_container_width=True):
+                        st.warning("⚠️ Funcionalidad de rechazo pendiente de implementar.")
 
-                                    st.markdown(f"- 📄 **{display_name}** ({comp['size']} bytes) [🔗 Ver/Descargar]({file_url})")
-                            else:
-                                st.warning("⚠️ No se encontraron comprobantes en la carpeta del pedido en S3.")
-                            
-                            if otros_archivos:
-                                with st.expander("📂 Otros archivos del pedido"):
-                                    for file in otros_archivos:
-                                        file_url = get_s3_file_download_url(s3_client, file['key'])
-                                        st.markdown(f"- 📄 **{file['title']}** ({file['size']} bytes) [🔗 Ver/Descargar]({file_url})")
-                            else:
-                                st.info("No se encontraron otros archivos en la carpeta del pedido en S3.")
-                        else:
-                            st.info("No se encontraron archivos en la carpeta del pedido en S3.")
-                    else:
-                        st.error(f"❌ No se encontró la carpeta (prefijo S3) del pedido '{selected_pedido_id_for_s3_search}'.")
-                else:
-                    st.warning("⚠️ No se puede acceder a los archivos de AWS S3 en este momento.")
-                    st.info("Verifica la configuración de autenticación y permisos de AWS.")
-            
-            st.markdown("---")
-            
-            st.subheader("✅ Confirmar Comprobante")
-            
-            if 'fecha_pago' not in st.session_state:
-                st.session_state.fecha_pago = None
-            if 'banco_destino_pago' not in st.session_state:
-                st.session_state.banco_destino_pago = "BANORTE"
-            if 'terminal' not in st.session_state:
-                st.session_state.terminal = "BANORTE"
-            if 'forma_pago' not in st.session_state:
-                st.session_state.forma_pago = "Transferencia"
-            if 'monto_pago' not in st.session_state:
-                st.session_state.monto_pago = 0.0
-            if 'referencia_pago' not in st.session_state:
-                st.session_state.referencia_pago = ""
-
-            col_payment_details = st.columns(4)
-            with col_payment_details[0]:
-                fecha_pago = st.date_input("Fecha Pago Comprobante", value=st.session_state.fecha_pago, key="date_input_payment")
-            
-            with col_payment_details[1]:
-                forma_pago = st.selectbox(
-                    "Forma de Pago", 
-                    ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], 
-                    index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(st.session_state.forma_pago) if st.session_state.forma_pago in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0, 
-                    key="payment_method_select_payment"
-                )
-            
-            with col_payment_details[2]:
-                if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    terminal = st.selectbox(
-                        "Terminal", 
-                        ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL"], 
-                        index=["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL"].index(st.session_state.terminal) if st.session_state.terminal in ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL"] else 0,
-                        key="terminal_select_payment"
-                    )
-                    banco_destino_pago = ""
-                else:
-                    banco_destino_pago = st.selectbox(
-                        "Banco de Destino", 
-                        ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], 
-                        index=["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"].index(st.session_state.banco_destino_pago) if st.session_state.banco_destino_pago in ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"] else 0,
-                        key="bank_select_payment"
-                    )
-                    terminal = ""
-            
-            with col_payment_details[3]:
-                monto_pago = st.number_input("Monto", min_value=0.0, format="%.2f", value=st.session_state.monto_pago, key="amount_input_payment")
-            
-            referencia_pago = st.text_input("Referencia/Opcional", value=st.session_state.referencia_pago, key="reference_input_payment")
-
-            col1, col2, col3 = st.columns([2, 1, 1])
-            
-            with col1:
-                st.info("👆 Revisa el comprobante de pago haciendo clic en los enlaces de arriba.")
-            
-            with col2:
-                if st.button("✅ Confirmar Comprobante", type="primary", use_container_width=True):
-                    required_fields = [fecha_pago, forma_pago, monto_pago is not None]
-                    
-                    if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                        required_fields.append(terminal)
-                    else:
-                        required_fields.append(banco_destino_pago)
-                    
-                    if not all(required_fields):
-                        st.error("Por favor, rellena todos los campos obligatorios antes de confirmar.")
-                    else:
-                        try:
-                            df_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0]
-                            gsheet_row_index = df_row_index + 2
-                            
-                            updates = {
-                                'Comprobante_Confirmado': 'Sí',
-                                'Fecha_Pago_Comprobante': str(fecha_pago),
-                                'Forma_Pago_Comprobante': forma_pago,
-                                'Monto_Comprobante': monto_pago,
-                                'Referencia_Comprobante': referencia_pago
-                            }
-                            
-                            if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                                updates['Terminal'] = terminal
-                                updates['Banco_Destino_Pago'] = ""
-                            else:
-                                updates['Banco_Destino_Pago'] = banco_destino_pago
-                                updates['Terminal'] = ""
-
-                            for col_name, value in updates.items():
-                                if col_name in headers:
-                                    col_idx = headers.index(col_name) + 1
-                                    worksheet.update_cell(gsheet_row_index, col_idx, value)
-                                else:
-                                    st.warning(f"La columna '{col_name}' no se encontró en el Google Sheet y no se pudo actualizar.")
-                            
-                            st.success(f"🎉 Comprobante del pedido `{selected_pedido_id_for_s3_search}` confirmado exitosamente!")
-                            st.balloons()
-
-                            st.session_state.fecha_pago = None
-                            st.session_state.banco_destino_pago = "BANORTE"
-                            st.session_state.terminal = "BANORTE"
-                            st.session_state.forma_pago = "Transferencia"
-                            st.session_state.monto_pago = 0.0
-                            st.session_state.referencia_pago = ""
-                            
-                            time.sleep(1)
-                            st.rerun()
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error al confirmar el comprobante: {e}")
-            
-            with col3:
-                if st.button("❌ Rechazar Comprobante", type="secondary", use_container_width=True):
-                    st.warning("⚠️ Funcionalidad de rechazo pendiente de implementar.")
+        else:
+            st.info("Este pedido no tiene un comprobante de pago adjunto.")
 
 # --- ESTADÍSTICAS GENERALES ---
 st.markdown("---")
@@ -461,5 +304,5 @@ if not df_pedidos.empty:
         st.metric("Comprobantes Confirmados", pedidos_confirmados)
     
     with col4:
-        pedidos_pendientes_confirmacion = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
-        st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
+        pedidos_pendientes_confirmar = len(df_pedidos[(df_pedidos.get('Estado_Pago') == '✅ Pagado') & (df_pedidos.get('Comprobante_Confirmado') == 'No')]) if 'Estado_Pago' in df_pedidos.columns and 'Comprobante_Confirmado' in df_pedidos.columns else 0
+        st.metric("Pendientes Confirmación", pedidos_pendientes_confirmar)
