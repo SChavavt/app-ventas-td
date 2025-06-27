@@ -1,6 +1,4 @@
-#app_admin.py
 import streamlit as st
-import json
 import time
 import pandas as pd
 import boto3
@@ -10,7 +8,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 st.set_page_config(page_title="App Admin TD", layout="wide")
 
 # --- CONFIGURACIÓN DE GOOGLE SHEETS ---
-SERVICE_ACCOUNT_FILE = 'sistema-pedidos-td-e80e1a9633c2.json'
+# SERVICE_ACCOUNT_FILE = 'sistema-pedidos-td-e80e1a9633c2.json' # Ya no se usa
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
 # --- CONFIGURACIÓN DE AWS S3 ---
@@ -35,21 +33,22 @@ st.write("Panel de administración para revisar y confirmar comprobantes de pago
 
 # --- FUNCIONES DE AUTENTICACIÓN Y CARGA DE DATOS ---
 
-@st.cache_resource
-def load_credentials_from_file(file_path):
-    try:
-        with open(file_path, 'r') as f:
-            creds = json.load(f)
-        return creds
-    except FileNotFoundError:
-        st.error(f"❌ Error: El archivo de credenciales '{file_path}' no fue encontrado. Asegúrate de que el nombre sea correcto y esté en la misma carpeta que 'app_admin.py'.")
-        st.stop()
-    except json.JSONDecodeError:
-        st.error(f"❌ Error: El archivo de credenciales '{file_path}' no es un JSON válido o está corrupto. Revisa el formato del archivo.")
-        st.stop()
-    except Exception as e:
-        st.error(f"❌ Error al leer el archivo de credenciales '{file_path}': {e}")
-        st.stop()
+# La función load_credentials_from_file ya no es necesaria, ya que las credenciales se cargarán directamente desde st.secrets.
+# @st.cache_resource
+# def load_credentials_from_file(file_path):
+#    try:
+#        with open(file_path, 'r') as f:
+#            creds = json.load(f)
+#        return creds
+#    except FileNotFoundError:
+#        st.error(f"❌ Error: El archivo de credenciales '{file_path}' no fue encontrado. Asegúrate de que el nombre sea correcto y esté en la misma carpeta que 'app_admin.py'.")
+#        st.stop()
+#    except json.JSONDecodeError:
+#        st.error(f"❌ Error: El archivo de credenciales '{file_path}' no es un JSON válido o está corrupto. Revisa el formato del archivo.")
+#        st.stop()
+#    except Exception as e:
+#        st.error(f"❌ Error al leer el archivo de credenciales '{file_path}': {e}")
+#        st.stop()
 
 @st.cache_resource
 def get_gspread_client(credentials_json):
@@ -163,8 +162,8 @@ def get_s3_file_download_url(s3_client, object_key):
 
 # --- Inicializar clientes de Gspread y S3 ---
 try:
-    creds_json = load_credentials_from_file(SERVICE_ACCOUNT_FILE)
-    gc = get_gspread_client(creds_json)
+    # Cargar credenciales de Google Sheets directamente desde st.secrets
+    gc = get_gspread_client(st.secrets["google_credentials"])
     s3_client = get_s3_client()
     
     if not s3_client:
@@ -174,7 +173,6 @@ try:
 except Exception as e:
     st.error(f"❌ Error al autenticarse o inicializar clientes de Google Sheets/AWS S3: {e}")
     st.info("ℹ️ Asegúrate de que:")
-    st.info("- El archivo de credenciales de Google Sheets esté en la raíz de tu proyecto")
     st.info("- Las APIs de Drive/Sheets estén habilitadas en Google Cloud")
     st.info("- La cuenta de servicio de Google tenga permisos en el Sheet")
     st.info("- Tus credenciales de AWS S3 (aws_access_key_id, aws_secret_access_key, aws_region) y el s3_bucket_name sean correctos.")
