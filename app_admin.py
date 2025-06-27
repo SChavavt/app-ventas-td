@@ -13,10 +13,10 @@ GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
 # --- CONFIGURACIÓN DE AWS S3 ---
 try:
-    AWS_ACCESS_KEY_ID = st.secrets["aws"]["aws_access_key_id"]
-    AWS_SECRET_ACCESS_KEY = st.secrets["aws"]["aws_secret_access_key"]
-    AWS_REGION_NAME = st.secrets["aws"]["aws_region"]
-    S3_BUCKET_NAME = st.secrets["aws"]["s3_bucket_name"]
+    AWS_ACCESS_KEY_ID = st.secrets["aws_access_key_id"]
+    AWS_SECRET_ACCESS_KEY = st.secrets["aws_secret_access_key"]
+    AWS_REGION_NAME = st.secrets["aws_region"]
+    S3_BUCKET_NAME = st.secrets["s3_bucket_name"]
 except KeyError as e:
     st.error(f"❌ Error: Las credenciales de AWS S3 no se encontraron en Streamlit secrets. Asegúrate de que tu archivo .streamlit/secrets.toml esté configurado correctamente. Clave faltante: {e}")
     st.info("Asegúrate de que tus claves en secrets.toml estén bajo la sección [aws] y se llamen:")
