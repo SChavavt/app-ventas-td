@@ -35,14 +35,15 @@ def get_google_sheets_client():
         st.stop()
 
 # --- CONFIGURACIÓN DE AWS S3 ---
+# MODIFICADO: Ahora accede a las credenciales bajo la sección 'aws' para que coincida con secrets.toml
 try:
-    AWS_ACCESS_KEY_ID = st.secrets["aws_access_key_id"]
-    AWS_SECRET_ACCESS_KEY = st.secrets["aws_secret_access_key"]
-    AWS_REGION_NAME = st.secrets["aws_region"]
-    S3_BUCKET_NAME = st.secrets["s3_bucket_name"]
+    AWS_ACCESS_KEY_ID = st.secrets["aws"]["aws_access_key_id"]
+    AWS_SECRET_ACCESS_KEY = st.secrets["aws"]["aws_secret_access_key"]
+    AWS_REGION_NAME = st.secrets["aws"]["aws_region"] # Mantengo el nombre de variable original, pero accedo via "aws"
+    S3_BUCKET_NAME = st.secrets["aws"]["s3_bucket_name"]
 except KeyError as e:
     st.error(f"❌ Error: Las credenciales de AWS S3 no se encontraron en Streamlit secrets. Asegúrate de que tu archivo .streamlit/secrets.toml esté configurado correctamente. Clave faltante: {e}")
-    st.info("Asegúrate de que tus claves en secrets.toml estén directamente en el nivel superior y se llamen:")
+    st.info("Asegúrate de que tus claves en secrets.toml estén bajo la sección [aws] y se llamen:")
     st.info("aws_access_key_id = \"TU_ACCES_KEY\"")
     st.info("aws_secret_access_key = \"TU_SECRET_KEY\"")
     st.info("aws_region = \"tu-region\"")
@@ -172,7 +173,7 @@ except Exception as e:
     st.info("- Las credenciales de Google Sheets estén en Streamlit secrets bajo la clave 'google_credentials' y sean un JSON válido.")
     st.info("- Las APIs de Drive y Sheets estén habilitadas en Google Cloud para la cuenta de servicio.")
     st.info("- La cuenta de servicio de Google tenga permisos de lectura/escritura en el Google Sheet.")
-    st.info("- Tus credenciales de AWS S3 (aws_access_key_id, aws_secret_access_key, aws_region) y el s3_bucket_name estén directamente en secrets.toml y sean correctos.")
+    st.info("- Tus credenciales de AWS S3 (aws_access_key_id, aws_secret_access_key, aws_region) y el s3_bucket_name estén bajo la sección [aws] en secrets.toml y sean correctos.")
     st.info("- La cuenta de AWS tenga permisos de lectura/escritura en el bucket S3.")
     st.stop()
 
@@ -301,7 +302,6 @@ else:
                         st.info("ℹ️ Este pedido ya ha sido confirmado o no está marcado como 'Pagado' con un comprobante pendiente.")
 
             with col3:
-                # MODIFICADO: Se implementó la funcionalidad de rechazo
                 if st.button("❌ Rechazar Comprobante", type="secondary", use_container_width=True):
                     if pedido_gestionar['Estado_Pago'] == '✅ Pagado' and pedido_gestionar['Comprobante_Confirmado'] == 'No':
                         try:
