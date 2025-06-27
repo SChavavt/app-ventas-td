@@ -45,10 +45,10 @@ def get_google_sheets_client():
 # --- AWS S3 CONFIGURATION (NEW) ---
 # Load AWS credentials from Streamlit secrets
 try:
-    AWS_ACCESS_KEY_ID = st.secrets["aws"]["aws_access_key_id"]
-    AWS_SECRET_ACCESS_KEY = st.secrets["aws"]["aws_secret_access_key"]
-    AWS_REGION = st.secrets["aws"]["aws_region"]
-    S3_BUCKET_NAME = st.secrets["aws"]["s3_bucket_name"]
+    AWS_ACCESS_KEY_ID = st.secrets["aws_access_key_id"]
+    AWS_SECRET_ACCESS_KEY = st.secrets["aws_secret_access_key"]
+    AWS_REGION = st.secrets["aws_region"]
+    S3_BUCKET_NAME = st.secrets["s3_bucket_name"]
 except KeyError as e:
     st.error(f"❌ Error: AWS S3 credentials not found in Streamlit secrets. Make sure your .streamlit/secrets.toml file is correctly configured. Missing key: {e}")
     st.stop()
