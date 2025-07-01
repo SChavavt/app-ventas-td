@@ -114,6 +114,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["🛒 Registrar Nuevo Pedido", "✏️ Modific
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
     "ANA KAREN ORTEGA MAHUAD",
+    "ALEJANDRO RODRIGUEZ",
     "DANIELA LOPEZ RAMIREZ",
     "EDGAR ORLANDO GOMEZ VILLAGRAN",
     "GLORIA MICHELLE GARCIA TORRES",
