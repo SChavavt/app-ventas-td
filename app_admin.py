@@ -353,7 +353,7 @@ else:
                     terminal = st.selectbox(
                         "Terminal", 
                         ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL"], 
-                        index=["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL"].index(st.session_state.terminal) if st.session_state.terminal in ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL"] else 0,
+                        index=["BANORTE", "BBVA", "AFIRME", "VELPAY", "CLIP", "PAYPAL"].index(st.session_state.terminal) if st.session_state.terminal in ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL"] else 0,
                         key="terminal_select_payment"
                     )
                     banco_destino_pago = ""
@@ -361,7 +361,7 @@ else:
                     banco_destino_pago = st.selectbox(
                         "Banco de Destino", 
                         ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], 
-                        index=["BANORTE", "BANAMEX", "BBVA", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"].index(st.session_state.banco_destino_pago) if st.session_state.banco_destino_pago in ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"] else 0,
+                        index=["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"].index(st.session_state.banco_destino_pago) if st.session_state.banco_destino_pago in ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"] else 0,
                         key="bank_select_payment"
                     )
                     terminal = ""
