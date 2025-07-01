@@ -361,7 +361,7 @@ else:
                     banco_destino_pago = st.selectbox(
                         "Banco de Destino", 
                         ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], 
-                        index=["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"].index(st.session_state.banco_destino_pago) if st.session_state.banco_destino_pago in ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"] else 0,
+                        index=["BANORTE", "BANAMEX", "BBVA", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"].index(st.session_state.banco_destino_pago) if st.session_state.banco_destino_pago in ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"] else 0,
                         key="bank_select_payment"
                     )
                     terminal = ""
