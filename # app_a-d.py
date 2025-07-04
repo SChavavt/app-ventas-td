@@ -96,7 +96,7 @@ def get_s3_client():
 # Initialize clients globally
 try:
     gc = get_google_sheets_client()
-    st.write(f"Tipo de gc después de inicialización: {type(gc)}") # <-- AÑADE ESTA LÍNEA
+    st.write(f"Tipo de gc después de inicialización (GLOBAL): {type(gc)}") # Ya lo tenías
     s3_client = get_s3_client()
 except Exception as e:
     st.error(f"❌ Error general al autenticarse o inicializar clientes: {e}")
@@ -105,7 +105,8 @@ except Exception as e:
 
 
 # --- Data Loading from Google Sheets (Cached) ---
-@st.cache_resource(ttl=60) # Carga cada 60 segundos o cuando se invalide la caché
+# ELIMINA TEMPORALMENTE LA LÍNEA st.cache_resource:
+# @st.cache_resource(ttl=60) # <--- COMENTA O ELIMINA ESTA LÍNEA
 def load_data_from_gsheets(sheet_id, worksheet_name):
     """
     Carga todos los datos de una hoja de cálculo de Google Sheets en un DataFrame de Pandas
@@ -113,6 +114,8 @@ def load_data_from_gsheets(sheet_id, worksheet_name):
     Retorna el DataFrame, el objeto worksheet y los encabezados.
     """
     try:
+        # AÑADE ESTA LÍNEA AQUÍ:
+        st.write(f"Tipo de gc DENTRO de load_data_from_gsheets: {type(gc)}")
         spreadsheet = gc.open_by_id(sheet_id) # Usamos gc que ya está inicializado globalmente
         worksheet = spreadsheet.worksheet(worksheet_name)
 
