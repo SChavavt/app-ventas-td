@@ -352,7 +352,7 @@ else:
                 if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
                     terminal = st.selectbox(
                         "Terminal", 
-                        ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL"], 
+                        ["BANORTE", "BBVA", "AFIRME", "VELPAY", "CLIP", "PAYPAL"], 
                         index=["BANORTE", "BBVA", "AFIRME", "VELPAY", "CLIP", "PAYPAL"].index(st.session_state.terminal) if st.session_state.terminal in ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL"] else 0,
                         key="terminal_select_payment"
                     )
