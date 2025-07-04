@@ -20,9 +20,31 @@ st.title("📬 Bandeja de Pedidos TD")
 # st_autorefresh(interval=5 * 1000, key="datarefresh_app_a") # Línea comentada/eliminada
 
 # --- Google Sheets Configuration ---
-SERVICE_ACCOUNT_FILE = 'sistema-pedidos-td-e80e1a9633c2.json'
-GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
-GOOGLE_SHEET_WORKSHEET_NAME = 'datos_pedidos'
+
+GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY' # Asegúrate de que este ID sea correcto
+GOOGLE_SHEET_WORKSHEET_NAME = 'datos_pedidos' # Asegúrate de que este nombre sea correcto
+
+def get_google_sheets_client():
+    """
+    Función para obtener el cliente de gspread usando credenciales de Streamlit secrets.
+    """
+    try:
+        credentials_json_str = st.secrets["google_credentials"]
+        creds_dict = json.loads(credentials_json_str)
+        scope = ['https://spreadsheets.google.com/feeds',
+                 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        return gspread.authorize(creds)
+    except KeyError:
+        st.error("❌ Error: Las credenciales de Google Sheets no se encontraron en Streamlit secrets. Asegúrate de que 'google_credentials' esté en tus secretos de Streamlit.")
+        st.stop() # Detiene la ejecución de la app si no se encuentran las credenciales
+    except json.JSONDecodeError:
+        st.error("❌ Error: Las credenciales de Google Sheets en Streamlit secrets no son un JSON válido.")
+        st.stop() # Detiene la ejecución de la app si las credenciales no son válidas
+
+# Reemplaza la inicialización directa del cliente gspread en app_a.py
+# por la llamada a esta nueva función donde sea necesario (por ejemplo, al inicio de la app).
+client = get_google_sheets_client()
 
 # --- AWS S3 Configuration ---
 try:
@@ -109,6 +131,9 @@ def get_s3_client():
         st.error(f"❌ Error al inicializar el cliente S3: {e}")
         st.info("ℹ️ Revisa tus credenciales de AWS en `st.secrets['aws']` y la configuración de la región.")
         st.stop()
+
+# Define the path to your Google service account credentials file
+SERVICE_ACCOUNT_FILE = "service_account.json"  # Update this path if your credentials file has a different name or location
 
 # Initialize clients globally
 try:
