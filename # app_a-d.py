@@ -96,6 +96,7 @@ def get_s3_client():
 # Initialize clients globally
 try:
     gc = get_google_sheets_client()
+    st.write(f"Tipo de gc después de inicialización: {type(gc)}") # <-- AÑADE ESTA LÍNEA
     s3_client = get_s3_client()
 except Exception as e:
     st.error(f"❌ Error general al autenticarse o inicializar clientes: {e}")
