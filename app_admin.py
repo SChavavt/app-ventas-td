@@ -192,12 +192,11 @@ try:
     headers = worksheet.row_values(1)
     if headers:
         df_pedidos = pd.DataFrame(worksheet.get_all_records())
-        # Filtra filas donde todos los valores sean nulos o cadenas vacías
-        df_pedidos.replace('', pd.NA, inplace=True)
-        df_pedidos.dropna(how='all', inplace=True)
-        # Filtra filas donde el 'ID_Pedido' es nulo o vacío
+        # Filtra filas donde el 'ID_Pedido' no esté vacío o sea una cadena de espacios en blanco
         if 'ID_Pedido' in df_pedidos.columns:
-            df_pedidos.dropna(subset=['ID_Pedido'], inplace=True)
+            df_pedidos = df_pedidos[df_pedidos['ID_Pedido'].str.strip().astype(bool)]
+        else:
+            st.warning("La columna 'ID_Pedido' no se encontró en el Google Sheet.")
     else:
         st.warning("No se pudieron cargar los encabezados del Google Sheet.")
         st.stop()
@@ -457,7 +456,11 @@ if not df_pedidos.empty:
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        total_pedidos = len(df_pedidos)
+        # El cambio principal está aquí: contamos las filas donde 'ID_Pedido' no es nulo/vacío
+        if 'ID_Pedido' in df_pedidos.columns:
+            total_pedidos = df_pedidos['ID_Pedido'].count()
+        else:
+            total_pedidos = 0
         st.metric("Total Pedidos", total_pedidos)
     
     with col2:
