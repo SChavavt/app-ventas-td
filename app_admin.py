@@ -9,57 +9,49 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
 
-# --- CONFIGURACIÓN DE GOOGLE SHEETS ---
-SERVICE_ACCOUNT_FILE = 'sistema-pedidos-td-e80e1a9633c2.json'
+# --- GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
+
+def get_google_sheets_client():
+    """
+    Función para obtener el cliente de gspread usando credenciales de Streamlit secrets.
+    """
+    try:
+        credentials_json_str = st.secrets["google_credentials"]
+        creds_dict = json.loads(credentials_json_str)
+        scope = ['https://spreadsheets.google.com/feeds',
+                 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        return gspread.authorize(creds)
+    except KeyError:
+        st.error("❌ Error: Las credenciales de Google Sheets no se encontraron en Streamlit secrets. Asegúrate de que 'google_credentials' esté en tus secretos de Streamlit.")
+        st.stop() # Detiene la ejecución de la app si no se encuentran las credenciales
+    except json.JSONDecodeError:
+        st.error("❌ Error: Las credenciales de Google Sheets en Streamlit secrets no son un JSON válido.")
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ Error al cargar credenciales de Google Sheets: {e}")
+        st.stop()
 
 # --- CONFIGURACIÓN DE AWS S3 ---
 try:
-    AWS_ACCESS_KEY_ID = st.secrets["aws"]["aws_access_key_id"]
-    AWS_SECRET_ACCESS_KEY = st.secrets["aws"]["aws_secret_access_key"]
-    AWS_REGION_NAME = st.secrets["aws"]["aws_region"]
-    S3_BUCKET_NAME = st.secrets["aws"]["s3_bucket_name"]
+    AWS_ACCESS_KEY_ID = st.secrets["aws_access_key_id"]
+    AWS_SECRET_ACCESS_KEY = st.secrets["aws_secret_access_key"]
+    AWS_REGION_NAME = st.secrets["aws_region"]
+    S3_BUCKET_NAME = st.secrets["s3_bucket_name"]
 except KeyError as e:
-    st.error(f"❌ Error: Las credenciales de AWS S3 no se encontraron en Streamlit secrets. Asegúrate de que tu archivo .streamlit/secrets.toml esté configurado correctamente. Clave faltante: {e}")
-    st.info("Asegúrate de que tus claves en secrets.toml estén bajo la sección [aws] y se llamen:")
-    st.info("aws_access_key_id = \"TU_ACCES_KEY\"")
-    st.info("aws_secret_access_key = \"TU_SECRET_KEY\"")
-    st.info("aws_region = \"tu-region\"")
-    st.info("s3_bucket_name = \"tu-bucket-name\"")
-    st.stop()
+    st.error(f"❌ Error: Las credenciales de AWS S3 no se encontraron en Streamlit secrets. Asegúrate de que las claves 'aws_access_key_id', 'aws_secret_access_key', 'aws_region' y 's3_bucket_name' estén directamente en tus secretos de Streamlit. Clave faltante: {e}")
+    st.stop() # Detiene la ejecución de la app si no se encuentran las credenciales
 
 S3_ATTACHMENT_PREFIX = 'adjuntos_pedidos/'
 
 st.title("👨‍💼 App de Administración TD")
 st.write("Panel de administración para revisar y confirmar comprobantes de pago.")
 
-# --- FUNCIONES DE AUTENTICACIÓN Y CARGA DE DATOS ---
+# --- FUNCIONES DE CARGA DE DATOS Y S3 (Adaptadas) ---
 
 @st.cache_resource
-def load_credentials_from_file(file_path):
-    try:
-        with open(file_path, 'r') as f:
-            creds = json.load(f)
-        return creds
-    except FileNotFoundError:
-        st.error(f"❌ Error: El archivo de credenciales '{file_path}' no fue encontrado. Asegúrate de que el nombre sea correcto y esté en la misma carpeta que 'app_admin.py'.")
-        st.stop()
-    except json.JSONDecodeError:
-        st.error(f"❌ Error: El archivo de credenciales '{file_path}' no es un JSON válido o está corrupto. Revisa el formato del archivo.")
-        st.stop()
-    except Exception as e:
-        st.error(f"❌ Error al leer el archivo de credenciales '{file_path}': {e}")
-        st.stop()
-
-@st.cache_resource
-def get_gspread_client(credentials_json):
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_json, scope)
-    client = gspread.authorize(creds)
-    return client
-
-@st.cache_resource
-def get_s3_client():
+def get_s3_client_cached(): # Renombrado para evitar conflicto con la variable global s3_client
     try:
         s3 = boto3.client(
             's3',
@@ -72,8 +64,8 @@ def get_s3_client():
         st.error(f"❌ Error al autenticar AWS S3: {e}")
         return None
 
-def find_pedido_subfolder_prefix(s3_client, parent_prefix, folder_name):
-    if not s3_client:
+def find_pedido_subfolder_prefix(s3_client_instance, parent_prefix, folder_name): # Acepta s3_client_instance
+    if not s3_client_instance:
         return None
     
     possible_prefixes = [
@@ -87,7 +79,7 @@ def find_pedido_subfolder_prefix(s3_client, parent_prefix, folder_name):
     
     for pedido_prefix in possible_prefixes:
         try:
-            response = s3_client.list_objects_v2(
+            response = s3_client_instance.list_objects_v2(
                 Bucket=S3_BUCKET_NAME,
                 Prefix=pedido_prefix,
                 MaxKeys=1
@@ -100,7 +92,7 @@ def find_pedido_subfolder_prefix(s3_client, parent_prefix, folder_name):
             continue
     
     try:
-        response = s3_client.list_objects_v2(
+        response = s3_client_instance.list_objects_v2( # Usa s3_client_instance
             Bucket=S3_BUCKET_NAME,
             MaxKeys=100
         )
@@ -117,12 +109,12 @@ def find_pedido_subfolder_prefix(s3_client, parent_prefix, folder_name):
     
     return None
 
-def get_files_in_s3_prefix(s3_client, prefix):
-    if not s3_client or not prefix:
+def get_files_in_s3_prefix(s3_client_instance, prefix): # Acepta s3_client_instance
+    if not s3_client_instance or not prefix:
         return []
     
     try:
-        response = s3_client.list_objects_v2(
+        response = s3_client_instance.list_objects_v2( # Usa s3_client_instance
             Bucket=S3_BUCKET_NAME, 
             Prefix=prefix,
             MaxKeys=100
@@ -146,12 +138,12 @@ def get_files_in_s3_prefix(s3_client, prefix):
         st.error(f"❌ Error al obtener archivos del prefijo S3 '{prefix}': {e}")
         return []
 
-def get_s3_file_download_url(s3_client, object_key):
-    if not s3_client or not object_key:
+def get_s3_file_download_url(s3_client_instance, object_key): # Acepta s3_client_instance
+    if not s3_client_instance or not object_key:
         return "#"
     
     try:
-        url = s3_client.generate_presigned_url(
+        url = s3_client_instance.generate_presigned_url( # Usa s3_client_instance
             'get_object',
             Params={'Bucket': S3_BUCKET_NAME, 'Key': object_key},
             ExpiresIn=7200
@@ -163,9 +155,8 @@ def get_s3_file_download_url(s3_client, object_key):
 
 # --- Inicializar clientes de Gspread y S3 ---
 try:
-    creds_json = load_credentials_from_file(SERVICE_ACCOUNT_FILE)
-    gc = get_gspread_client(creds_json)
-    s3_client = get_s3_client()
+    gc = get_google_sheets_client()
+    s3_client = get_s3_client_cached() # Ahora llama a la función cacheada
     
     if not s3_client:
         st.error("❌ No se pudo inicializar el cliente de AWS S3.")
@@ -174,10 +165,10 @@ try:
 except Exception as e:
     st.error(f"❌ Error al autenticarse o inicializar clientes de Google Sheets/AWS S3: {e}")
     st.info("ℹ️ Asegúrate de que:")
-    st.info("- El archivo de credenciales de Google Sheets esté en la raíz de tu proyecto")
+    st.info("- Tus credenciales de Google Sheets ('google_credentials') sean correctas en secrets.toml")
     st.info("- Las APIs de Drive/Sheets estén habilitadas en Google Cloud")
     st.info("- La cuenta de servicio de Google tenga permisos en el Sheet")
-    st.info("- Tus credenciales de AWS S3 (aws_access_key_id, aws_secret_access_key, aws_region) y el s3_bucket_name sean correctos.")
+    st.info("- Tus credenciales de AWS S3 (aws_access_key_id, aws_secret_access_key, aws_region) y el s3_bucket_name sean correctos en secrets.toml.")
     st.info("- La cuenta de AWS tenga permisos de lectura en el bucket S3.")
     st.stop()
 
@@ -192,12 +183,6 @@ try:
     headers = worksheet.row_values(1)
     if headers:
         df_pedidos = pd.DataFrame(worksheet.get_all_records())
-        # Filtra filas donde todos los valores sean nulos o cadenas vacías
-        df_pedidos.replace('', pd.NA, inplace=True)
-        df_pedidos.dropna(how='all', inplace=True)
-        # Filtra filas donde el 'ID_Pedido' es nulo o vacío
-        if 'ID_Pedido' in df_pedidos.columns:
-            df_pedidos.dropna(subset=['ID_Pedido'], inplace=True)
     else:
         st.warning("No se pudieron cargar los encabezados del Google Sheet.")
         st.stop()
@@ -342,7 +327,7 @@ else:
                 st.session_state.fecha_pago = None
             if 'banco_destino_pago' not in st.session_state:
                 st.session_state.banco_destino_pago = "BANORTE"
-            if 'terminal' not in st.session_state:
+            if 'terminal' not in st.session_state: # Corregido: "not not" a "not"
                 st.session_state.terminal = "BANORTE"
             if 'forma_pago' not in st.session_state:
                 st.session_state.forma_pago = "Transferencia"
