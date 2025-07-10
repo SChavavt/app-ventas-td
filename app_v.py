@@ -368,11 +368,14 @@ with tab2:
             if option not in unique_filter_options:
                 unique_filter_options.append(option)
 
-        # START OF MODIFIED CODE BLOCK - Moved filter selectboxes to always display
+        col1, col2 = st.columns(2)
+
+        
+        # Mostrar siempre los selectbox de filtro
         col1, col2 = st.columns(2)
 
         with col1:
-            if 'Vendedor_Registro' in df_pedidos.columns: # Use df_pedidos here to ensure options are always available
+            if 'Vendedor_Registro' in df_pedidos.columns:
                 unique_vendedores_mod = ["Todos"] + sorted(df_pedidos['Vendedor_Registro'].unique().tolist())
                 selected_vendedor_mod = st.selectbox(
                     "Filtrar por Vendedor:",
@@ -380,28 +383,50 @@ with tab2:
                     key="vendedor_filter_mod"
                 )
             else:
-                st.warning("La columna 'Vendedor_Registro' no se encontró para aplicar el filtro de vendedor.")
-                selected_vendedor_mod = "Todos" # Default to 'Todos' if column is missing
+                selected_vendedor_mod = "Todos"
 
         with col2:
+            all_filter_options = ["Todos"] + df_pedidos['Filtro_Envio_Combinado'].unique().tolist()
             tipo_envio_filter = st.selectbox(
                 "Filtrar por Tipo de Envío:",
-                options=unique_filter_options,
+                options=all_filter_options,
                 key="tipo_envio_filter_mod"
             )
-        # END OF MODIFIED CODE BLOCK
 
+        # Aplicar los filtros seleccionados
         filtered_orders = df_pedidos.copy()
-
         if selected_vendedor_mod != "Todos":
             filtered_orders = filtered_orders[filtered_orders['Vendedor_Registro'] == selected_vendedor_mod]
-
         if tipo_envio_filter != "Todos":
             filtered_orders = filtered_orders[filtered_orders['Filtro_Envio_Combinado'] == tipo_envio_filter]
 
 
+        # This block was duplicated and causing indentation issues. Removed the duplicate.
+        # with col1:
+        #     if 'Vendedor_Registro' in filtered_orders.columns:
+        #         unique_vendedores_mod = ["Todos"] + sorted(filtered_orders['Vendedor_Registro'].unique().tolist())
+        #         selected_vendedor_mod = st.selectbox(
+        #             "Filtrar por Vendedor:",
+        #             options=unique_vendedores_mod,
+        #             key="vendedor_filter_mod"
+        #         )
+        #         if selected_vendedor_mod != "Todos":
+        #             filtered_orders = filtered_orders[filtered_orders['Vendedor_Registro'] == selected_vendedor_mod]
+        #     else:
+        #         st.warning("La columna 'Vendedor_Registro' no se encontró para aplicar el filtro de vendedor.")
+
+        # with col2:
+        #     tipo_envio_filter = st.selectbox(
+        #         "Filtrar por Tipo de Envío:",
+        #         options=unique_filter_options,
+        #         key="tipo_envio_filter_mod"
+        #     )
+
+        # if tipo_envio_filter != "Todos":
+        #     filtered_orders = filtered_orders[filtered_orders['Filtro_Envio_Combinado'] == tipo_envio_filter]
+
+
         if filtered_orders.empty:
-            # Modified: Replaced message_placeholder_tab2.warning with st.warning
             st.warning("No hay pedidos que coincidan con los filtros seleccionados.")
         else:
             # 🔧 Corrección clave: limpieza previa de columnas antes del display_label
