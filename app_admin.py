@@ -192,11 +192,12 @@ try:
     headers = worksheet.row_values(1)
     if headers:
         df_pedidos = pd.DataFrame(worksheet.get_all_records())
-        # Filtra filas donde el 'ID_Pedido' no esté vacío o sea una cadena de espacios en blanco
+        # Filtra filas donde todos los valores sean nulos o cadenas vacías
+        df_pedidos.replace('', pd.NA, inplace=True)
+        df_pedidos.dropna(how='all', inplace=True)
+        # Filtra filas donde el 'ID_Pedido' es nulo o vacío
         if 'ID_Pedido' in df_pedidos.columns:
-            df_pedidos = df_pedidos[df_pedidos['ID_Pedido'].str.strip().astype(bool)]
-        else:
-            st.warning("La columna 'ID_Pedido' no se encontró en el Google Sheet.")
+            df_pedidos.dropna(subset=['ID_Pedido'], inplace=True)
     else:
         st.warning("No se pudieron cargar los encabezados del Google Sheet.")
         st.stop()
@@ -322,7 +323,7 @@ else:
                                 with st.expander("📂 Otros archivos del pedido"):
                                     for file in otros_archivos:
                                         file_url = get_s3_file_download_url(s3_client, file['key'])
-                                        st.markdown(f"- 📄 **{file['title']}** ({file['size']} bytes) [🔗 Ver/Descargar]({file['key']})")
+                                        st.markdown(f"- 📄 **{file['title']}** ({file['size']} bytes) [🔗 Ver/Descargar]({file_url})")
                             else:
                                 st.info("No se encontraron otros archivos en la carpeta del pedido en S3.")
                         else:
@@ -453,16 +454,20 @@ st.markdown("---")
 st.header("📊 Estadísticas Generales")
 
 if not df_pedidos.empty:
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
+        total_pedidos = len(df_pedidos)
+        st.metric("Total Pedidos", total_pedidos)
+    
+    with col2:
         pedidos_pagados = len(df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado']) if 'Estado_Pago' in df_pedidos.columns else 0
         st.metric("Pedidos Pagados", pedidos_pagados)
     
-    with col2:
+    with col3:
         pedidos_confirmados = len(df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí']) if 'Comprobante_Confirmado' in df_pedidos.columns else 0
         st.metric("Comprobantes Confirmados", pedidos_confirmados)
     
-    with col3:
+    with col4:
         pedidos_pendientes_confirmacion = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
         st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
