@@ -772,6 +772,9 @@ with tab4:
         if headers:
             df_all_pedidos = pd.DataFrame(worksheet.get_all_records())
 
+            # AÑADIDO: Filtrar filas donde 'Folio_Factura' y 'ID_Pedido' son ambos vacíos
+            df_all_pedidos = df_all_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
+
             if 'Fecha_Entrega' in df_all_pedidos.columns:
                 df_all_pedidos['Fecha_Entrega'] = pd.to_datetime(df_all_pedidos['Fecha_Entrega'], errors='coerce')
 
