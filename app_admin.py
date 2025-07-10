@@ -182,12 +182,7 @@ try:
     worksheet = spreadsheet.worksheet('datos_pedidos')
     headers = worksheet.row_values(1)
     if headers:
-# Después de cargar los registros:
         df_pedidos = pd.DataFrame(worksheet.get_all_records())
-
-        # Eliminar filas que no tienen ID_Pedido o Cliente (puedes ajustar la lógica)
-        df_pedidos = df_pedidos[df_pedidos['ID_Pedido'].astype(str).str.strip() != '']
-
         
     else:
         st.warning("No se pudieron cargar los encabezados del Google Sheet.")
@@ -445,20 +440,27 @@ st.markdown("---")
 st.header("📊 Estadísticas Generales")
 
 if not df_pedidos.empty:
+    df_pedidos_validos = df_pedidos[df_pedidos['ID_Pedido'].astype(str).str.strip() != '']
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        total_pedidos = len(df_pedidos)
+        total_pedidos = len(df_pedidos_validos)
         st.metric("Total Pedidos", total_pedidos)
     
     with col2:
-        pedidos_pagados = len(df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado']) if 'Estado_Pago' in df_pedidos.columns else 0
+        pedidos_pagados = len(df_pedidos_validos[df_pedidos_validos.get('Estado_Pago') == '✅ Pagado']) if 'Estado_Pago' in df_pedidos_validos.columns else 0
         st.metric("Pedidos Pagados", pedidos_pagados)
     
     with col3:
-        pedidos_confirmados = len(df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí']) if 'Comprobante_Confirmado' in df_pedidos.columns else 0
+        pedidos_confirmados = len(df_pedidos_validos[df_pedidos_validos.get('Comprobante_Confirmado') == 'Sí']) if 'Comprobante_Confirmado' in df_pedidos_validos.columns else 0
         st.metric("Comprobantes Confirmados", pedidos_confirmados)
     
     with col4:
-        pedidos_pendientes_confirmacion = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
+        pedidos_pendientes_confirmacion = len(
+            df_pedidos_validos[
+                (df_pedidos_validos.get('Estado_Pago') == '✅ Pagado') &
+                (df_pedidos_validos.get('Comprobante_Confirmado') != 'Sí')
+            ]
+        ) if {'Estado_Pago', 'Comprobante_Confirmado'}.issubset(df_pedidos_validos.columns) else 0
         st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
