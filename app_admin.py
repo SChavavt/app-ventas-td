@@ -182,7 +182,13 @@ try:
     worksheet = spreadsheet.worksheet('datos_pedidos')
     headers = worksheet.row_values(1)
     if headers:
+# Después de cargar los registros:
         df_pedidos = pd.DataFrame(worksheet.get_all_records())
+
+        # Eliminar filas que no tienen ID_Pedido o Cliente (puedes ajustar la lógica)
+        df_pedidos = df_pedidos[df_pedidos['ID_Pedido'].astype(str).str.strip() != '']
+
+        
     else:
         st.warning("No se pudieron cargar los encabezados del Google Sheet.")
         st.stop()
