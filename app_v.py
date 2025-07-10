@@ -114,7 +114,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["🛒 Registrar Nuevo Pedido", "✏️ Modific
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
     "ANA KAREN ORTEGA MAHUAD",
-    "ALEJANDRO RODRIGUEZ",
     "DANIELA LOPEZ RAMIREZ",
     "EDGAR ORLANDO GOMEZ VILLAGRAN",
     "GLORIA MICHELLE GARCIA TORRES",
@@ -400,6 +399,10 @@ with tab2:
         if filtered_orders.empty:
             message_placeholder_tab2.warning("No hay pedidos que coincidan con los filtros seleccionados.")
         else:
+            # 🔧 Corrección clave: limpieza previa de columnas antes del display_label
+            for col in ['Folio_Factura', 'ID_Pedido', 'Cliente', 'Estado', 'Tipo_Envio']:
+                if col in filtered_orders.columns:
+                    filtered_orders[col] = filtered_orders[col].astype(str).replace('nan', '').fillna('').str.strip()
             filtered_orders['display_label'] = filtered_orders.apply(lambda row:
                 f"📄 {row.get('Folio_Factura', 'N/A') if row.get('Folio_Factura', 'N/A') != '' else row.get('ID_Pedido', 'N/A')} - "
                 f"{row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')} - {row.get('Tipo_Envio', 'N/A')}", axis=1
