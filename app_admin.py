@@ -448,6 +448,19 @@ else:
                 if st.button("❌ Rechazar Comprobante", type="secondary", use_container_width=True):
                     st.warning("⚠️ Funcionalidad de rechazo pendiente de implementar.")
 
+# --- SECCIÓN DE DEPURACIÓN (DEBUG) ---
+st.markdown("---")
+st.header("🐛 Sección de Depuración")
+
+if 'df_pedidos' in locals():
+    st.info(f"Número de filas cargadas después de la limpieza: {len(df_pedidos)}")
+    if 'ID_Pedido' in df_pedidos.columns:
+        st.info(f"Número de filas con un ID_Pedido válido: {df_pedidos['ID_Pedido'].count()}")
+    st.subheader("Contenido del DataFrame `df_pedidos`")
+    st.dataframe(df_pedidos, use_container_width=True, hide_index=True)
+else:
+    st.warning("DataFrame 'df_pedidos' no encontrado para depuración. Ocurrió un error en la carga de datos.")
+
 # --- ESTADÍSTICAS GENERALES ---
 st.markdown("---")
 st.header("📊 Estadísticas Generales")
