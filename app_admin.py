@@ -183,6 +183,8 @@ try:
     headers = worksheet.row_values(1)
     if headers:
         df_pedidos = pd.DataFrame(worksheet.get_all_records())
+        df_pedidos = df_pedidos[df_pedidos['ID_Pedido'].apply(lambda x: isinstance(x, str) and x.strip() != '')]
+
         
     else:
         st.warning("No se pudieron cargar los encabezados del Google Sheet.")
