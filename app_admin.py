@@ -322,7 +322,7 @@ else:
                                 with st.expander("📂 Otros archivos del pedido"):
                                     for file in otros_archivos:
                                         file_url = get_s3_file_download_url(s3_client, file['key'])
-                                        st.markdown(f"- 📄 **{file['title']}** ({file['size']} bytes) [🔗 Ver/Descargar]({file_url})")
+                                        st.markdown(f"- 📄 **{file['title']}** ({file['size']} bytes) [🔗 Ver/Descargar]({file['key']})")
                             else:
                                 st.info("No se encontraron otros archivos en la carpeta del pedido en S3.")
                         else:
@@ -448,42 +448,21 @@ else:
                 if st.button("❌ Rechazar Comprobante", type="secondary", use_container_width=True):
                     st.warning("⚠️ Funcionalidad de rechazo pendiente de implementar.")
 
-# --- SECCIÓN DE DEPURACIÓN (DEBUG) ---
-st.markdown("---")
-st.header("🐛 Sección de Depuración")
-
-if 'df_pedidos' in locals():
-    st.info(f"Número de filas cargadas después de la limpieza: {len(df_pedidos)}")
-    if 'ID_Pedido' in df_pedidos.columns:
-        st.info(f"Número de filas con un ID_Pedido válido: {df_pedidos['ID_Pedido'].count()}")
-    st.subheader("Contenido del DataFrame `df_pedidos`")
-    st.dataframe(df_pedidos, use_container_width=True, hide_index=True)
-else:
-    st.warning("DataFrame 'df_pedidos' no encontrado para depuración. Ocurrió un error en la carga de datos.")
-
 # --- ESTADÍSTICAS GENERALES ---
 st.markdown("---")
 st.header("📊 Estadísticas Generales")
 
 if not df_pedidos.empty:
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        # El cambio principal está aquí: contamos las filas donde 'ID_Pedido' no es nulo/vacío
-        if 'ID_Pedido' in df_pedidos.columns:
-            total_pedidos = df_pedidos['ID_Pedido'].count()
-        else:
-            total_pedidos = 0
-        st.metric("Total Pedidos", total_pedidos)
-    
-    with col2:
         pedidos_pagados = len(df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado']) if 'Estado_Pago' in df_pedidos.columns else 0
         st.metric("Pedidos Pagados", pedidos_pagados)
     
-    with col3:
+    with col2:
         pedidos_confirmados = len(df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí']) if 'Comprobante_Confirmado' in df_pedidos.columns else 0
         st.metric("Comprobantes Confirmados", pedidos_confirmados)
     
-    with col4:
+    with col3:
         pedidos_pendientes_confirmacion = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
         st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
