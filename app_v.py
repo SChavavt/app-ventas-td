@@ -655,9 +655,18 @@ with tab3:
                     key="comprobante_tipo_envio_filter"
                 )
                 if selected_tipo_envio_comp != "Todos":
-                    filtered_pedidos_comprobante = filtered_pedidos_comprobante[filtered_pedidos_comprobante['Tipo_Envio'] == selected_tipo_envio_comp]
+                    filtered_pedidos_comprobante = filtered_pedidos_comprobante[
+                        filtered_pedidos_comprobante['Tipo_Envio'] == selected_tipo_envio_comp
+                    ]
             else:
                 st.warning("La columna 'Tipo_Envio' no se encontró para aplicar el filtro de tipo de envío.")
+
+        # 🧹 Filtro adicional para eliminar filas vacías
+        filtered_pedidos_comprobante = filtered_pedidos_comprobante[
+            filtered_pedidos_comprobante['ID_Pedido'].astype(str).str.strip().ne('') &
+            filtered_pedidos_comprobante['Cliente'].astype(str).str.strip().ne('') &
+            filtered_pedidos_comprobante['Folio_Factura'].astype(str).str.strip().ne('')
+        ]
 
 
         if 'Estado_Pago' in filtered_pedidos_comprobante.columns and 'Adjuntos' in filtered_pedidos_comprobante.columns:
@@ -774,8 +783,15 @@ with tab4:
         if headers:
             df_all_pedidos = pd.DataFrame(worksheet.get_all_records())
 
-            # AÑADIDO: Filtrar filas donde 'Folio_Factura' y 'ID_Pedido' son ambos vacíos
+            # 🧹 AÑADIDO: Filtrar filas donde 'Folio_Factura' y 'ID_Pedido' son ambos vacíos
             df_all_pedidos = df_all_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
+
+            # 🧹 Eliminar registros vacíos o inválidos con ID_Pedido en blanco, 'nan', 'N/A'
+            df_all_pedidos = df_all_pedidos[
+                df_all_pedidos['ID_Pedido'].astype(str).str.strip().ne('') &
+                df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('n/a') &
+                df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('nan')
+            ]
 
             if 'Fecha_Entrega' in df_all_pedidos.columns:
                 df_all_pedidos['Fecha_Entrega'] = pd.to_datetime(df_all_pedidos['Fecha_Entrega'], errors='coerce')
@@ -790,11 +806,9 @@ with tab4:
             if 'Folio_Factura' in df_all_pedidos.columns:
                 df_all_pedidos['Folio_Factura'] = df_all_pedidos['Folio_Factura'].astype(str).replace('nan', '')
             else:
-                 st.warning("La columna 'Folio_Factura' no se encontró en el Google Sheet. No se podrá mostrar en la vista previa.")
-
+                st.warning("La columna 'Folio_Factura' no se encontró en el Google Sheet. No se podrá mostrar en la vista previa.")
         else:
             st.warning("No se pudieron cargar los encabezados del Google Sheet. Asegúrate de que la primera fila no esté vacía.")
-
     except Exception as e:
         st.error(f"❌ Error al cargar datos para descarga: {e}")
         st.info("Asegúrate de que la primera fila de tu Google Sheet contiene los encabezados esperados y que la API de Google Sheets está habilitada.")
