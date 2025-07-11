@@ -185,6 +185,14 @@ try:
     headers = worksheet.row_values(1)
     if headers:
         df_pedidos = pd.DataFrame(worksheet.get_all_records())
+
+        # 🧹 Eliminar registros vacíos o inválidos
+        df_pedidos = df_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
+        df_pedidos = df_pedidos[
+            df_pedidos['ID_Pedido'].astype(str).str.strip().ne('') &
+            df_pedidos['ID_Pedido'].astype(str).str.lower().ne('n/a') &
+            df_pedidos['ID_Pedido'].astype(str).str.lower().ne('nan')
+        ]
     else:
         st.warning("No se pudieron cargar los encabezados del Google Sheet.")
         st.stop()
