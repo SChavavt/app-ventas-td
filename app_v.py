@@ -324,26 +324,20 @@ with tab2:
 
     message_placeholder_tab2 = st.empty()
 
-    df_pedidos = pd.DataFrame()
-    try:
+    @st.cache_data(ttl=30)
+    def cargar_datos_pedidos():
         spreadsheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID)
         worksheet = spreadsheet.worksheet('datos_pedidos')
         headers = worksheet.row_values(1)
-        if headers:
-            df_pedidos = pd.DataFrame(worksheet.get_all_records())
-            if 'Folio_Factura' in df_pedidos.columns:
-                df_pedidos['Folio_Factura'] = df_pedidos['Folio_Factura'].astype(str).replace('nan', '')
-            if 'Vendedor_Registro' in df_pedidos.columns:
-                df_pedidos['Vendedor_Registro'] = df_pedidos['Vendedor_Registro'].apply(
-                    lambda x: x if x in VENDEDORES_LIST else 'Otro/Desconocido' if pd.notna(x) and str(x).strip() != '' else 'N/A'
-                ).astype(str)
-        else:
-            message_placeholder_tab2.warning("No se pudieron cargar los encabezados del Google Sheet. Asegúrate de que la primera fila no esté vacía.")
+        df = pd.DataFrame(worksheet.get_all_records()) if headers else pd.DataFrame()
+        return df, headers, worksheet
 
+    try:
+        df_pedidos, headers, worksheet = cargar_datos_pedidos()
     except Exception as e:
         message_placeholder_tab2.error(f"❌ Error al cargar pedidos para modificación: {e}")
-        message_placeholder_tab2.info("Asegúrate de que la primera fila de tu Google Sheet contiene los encabezados esperados.")
-
+        message_placeholder_tab2.info("ℹ️ Asegúrate de que la primera fila de tu Google Sheet contiene los encabezados esperados.")
+        st.stop()
 
     selected_order_id = None
     selected_row_data = None
@@ -432,11 +426,20 @@ with tab2:
             # 🔧 Corrección clave: limpieza previa de columnas antes del display_label
             for col in ['Folio_Factura', 'ID_Pedido', 'Cliente', 'Estado', 'Tipo_Envio']:
                 if col in filtered_orders.columns:
-                    filtered_orders[col] = filtered_orders[col].astype(str).replace('nan', '').fillna('').str.strip()
+                    filtered_orders[col] = (
+                        filtered_orders[col]
+                        .astype(str)
+                        .replace(['nan', 'None'], '')
+                        .fillna('')
+                        .str.strip()
+                    )
+
             filtered_orders['display_label'] = filtered_orders.apply(lambda row:
-                f"📄 {row.get('Folio_Factura', 'N/A') if row.get('Folio_Factura', 'N/A') != '' else row.get('ID_Pedido', 'N/A')} - "
-                f"{row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')} - {row.get('Tipo_Envio', 'N/A')}", axis=1
+                f"📄 {row['Folio_Factura'] or row['ID_Pedido']} - {row['Cliente']} - {row['Estado']} - {row['Tipo_Envio']}",
+                axis=1
             )
+
+
             filtered_orders = filtered_orders.sort_values(
                 by=['Folio_Factura', 'ID_Pedido'],
                 key=lambda x: x.astype(str).str.lower(),
