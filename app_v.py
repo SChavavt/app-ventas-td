@@ -370,7 +370,9 @@ with tab2:
 
         with col1:
             if 'Vendedor_Registro' in df_pedidos.columns:
-                unique_vendedores_mod = ["Todos"] + sorted(df_pedidos['Vendedor_Registro'].unique().tolist())
+                unique_vendedores_mod = sorted(df_pedidos['Vendedor_Registro'].dropna().astype(str).str.strip().unique().tolist())
+                unique_vendedores_mod = [v for v in unique_vendedores_mod if v != "" and v.lower() not in ["none", "nan"]]
+                unique_vendedores_mod = ["Todos"] + unique_vendedores_mod
                 selected_vendedor_mod = st.selectbox(
                     "Filtrar por Vendedor:",
                     options=unique_vendedores_mod,
@@ -423,7 +425,7 @@ with tab2:
         if filtered_orders.empty:
             st.warning("No hay pedidos que coincidan con los filtros seleccionados.")
         else:
-            # 🔧 Corrección clave: limpieza previa de columnas antes del display_label
+            # 🔧 Limpieza previa de columnas clave para evitar valores vacíos en el selectbox
             for col in ['Folio_Factura', 'ID_Pedido', 'Cliente', 'Estado', 'Tipo_Envio']:
                 if col in filtered_orders.columns:
                     filtered_orders[col] = (
@@ -434,24 +436,26 @@ with tab2:
                         .str.strip()
                     )
 
+            # 🧠 Fallback: usar ID_Pedido si falta Folio_Factura
             filtered_orders['display_label'] = filtered_orders.apply(lambda row:
-                f"📄 {row['Folio_Factura'] or row['ID_Pedido']} - {row['Cliente']} - {row['Estado']} - {row['Tipo_Envio']}",
+                f"📄 {(row['Folio_Factura'] if row['Folio_Factura'] else row['ID_Pedido'])} - {row['Cliente']} - {row['Estado']} - {row['Tipo_Envio']}",
                 axis=1
             )
 
-
+            # Ordenar por columnas clave
             filtered_orders = filtered_orders.sort_values(
                 by=['Folio_Factura', 'ID_Pedido'],
                 key=lambda x: x.astype(str).str.lower(),
                 na_position='last'
             )
 
-
+            # Mostrar selectbox limpio
             selected_order_display = st.selectbox(
                 "📝 Seleccionar Pedido para Modificar",
                 filtered_orders['display_label'].tolist(),
                 key="select_order_to_modify"
             )
+
 
             if selected_order_display:
                 selected_order_id = filtered_orders[filtered_orders['display_label'] == selected_order_display]['ID_Pedido'].iloc[0]
