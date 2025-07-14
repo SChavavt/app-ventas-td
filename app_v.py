@@ -173,8 +173,9 @@ with tab1:
         "💰 Estado de Pago",
         ["🔴 No Pagado", "✅ Pagado"],
         index=0,
-        key="estado_pago_selector_final"
+        key="estado_pago_selector_registro"
     )
+
 
     comprobante_pago_file = None
     fecha_pago = None
