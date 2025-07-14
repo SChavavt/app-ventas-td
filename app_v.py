@@ -102,6 +102,20 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     except Exception as e:
         st.error(f"❌ Error al subir el archivo '{s3_key}' a S3: {e}")
         return False, None
+    
+# --- Función para actualizar una celda de Google Sheets de forma segura ---
+def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
+    try:
+        if col_name not in headers:
+            st.error(f"❌ Error: La columna '{col_name}' no se encontró en Google Sheets para la actualización.")
+            return False
+        col_index = headers.index(col_name) + 1
+        worksheet.update_cell(row_index, col_index, value)
+        return True
+    except Exception as e:
+        st.error(f"❌ Error al actualizar la celda ({row_index}, {col_name}) en Google Sheets: {e}")
+        return False
+
 
 # --- Initialize Gspread Client and S3 Client ---
 # NEW: Initialize gspread client using the new function
@@ -602,6 +616,17 @@ with tab2:
 
                             if changes_made:
                                 message_placeholder_tab2.success(f"✅ Pedido `{selected_order_id}` actualizado con éxito.")
+
+                                # ✅ Si el pedido estaba completado, y se modificó el campo de modificación o se subieron archivos nuevos de surtido, regresarlo a pendiente
+                                if selected_row_data.get('Estado') == "🟢 Completado":
+                                    if (new_modificacion_surtido_input != current_modificacion_surtido_value) or (new_adjuntos_surtido_urls):
+                                        estado_ok = update_gsheet_cell(worksheet, headers, gsheet_row_index, "Estado", "🟡 Pendiente")
+                                        fecha_ok = update_gsheet_cell(worksheet, headers, gsheet_row_index, "Fecha_Completado", "")
+                                        if estado_ok and fecha_ok:
+                                            message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por haberse modificado después de estar completado.")
+                                        else:
+                                            message_placeholder_tab2.error("❌ No se pudo cambiar el estado del pedido a 'Pendiente'. Verifica que las columnas 'Estado' y 'Fecha_Completado' existan.")
+
                                 st.session_state.show_success_message = True
                                 st.session_state.last_updated_order_id = selected_order_id
                             else:
