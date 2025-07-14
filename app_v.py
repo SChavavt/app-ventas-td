@@ -566,6 +566,15 @@ with tab2:
                                 worksheet.update_cell(gsheet_row_index, modificacion_surtido_col_idx, new_modificacion_surtido_input)
                                 changes_made = True
 
+                                # ✅ Si el pedido estaba completado y se agregó o modificó el campo de modificación, regresarlo a pendiente
+                                if selected_row_data.get('Estado') == "🟢 Completado":
+                                    estado_col_idx = headers.index('Estado') + 1
+                                    fecha_completado_col_idx = headers.index('Fecha_Completado') + 1
+                                    worksheet.update_cell(gsheet_row_index, estado_col_idx, "🟡 Pendiente")
+                                    worksheet.update_cell(gsheet_row_index, fecha_completado_col_idx, "")
+                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por haber sido modificado después de estar completado.")
+
+
                             if new_notas_input != current_notas_value:
                                 worksheet.update_cell(gsheet_row_index, notas_col_idx, new_notas_input)
                                 changes_made = True
