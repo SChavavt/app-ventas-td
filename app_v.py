@@ -20,20 +20,19 @@ st.set_page_config(page_title="App Vendedores TD", layout="wide")
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
 # NEW: Function to get gspread client from Streamlit secrets
+@st.cache_resource
 def get_google_sheets_client():
-    """
-    Función para obtener el cliente de gspread usando credenciales de Streamlit secrets.
-    Detecta token expirado y lo regenera automáticamente.
-    """
     try:
         credentials_json_str = st.secrets["google_credentials"]
         creds_dict = json.loads(credentials_json_str)
-        scope = ['https://spreadsheets.google.com/feeds',
-                 'https://www.googleapis.com/auth/drive']
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
+
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
 
-        # Verificación temprana del token
+        # Verificación temprana para validar token
         _ = client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")
 
         return client
@@ -41,7 +40,6 @@ def get_google_sheets_client():
         st.cache_resource.clear()
         st.warning("🔁 Token expirado o inválido. Reintentando autenticación...")
         raise e
-
 
 
 # --- AWS S3 CONFIGURATION (NEW) ---
