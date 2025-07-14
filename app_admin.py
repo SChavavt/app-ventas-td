@@ -194,13 +194,15 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
                 df['ID_Pedido'].astype(str).str.lower().ne('n/a') &
                 df['ID_Pedido'].astype(str).str.lower().ne('nan')
             ]
-            return df, headers, worksheet
+            return df, headers
         else:
-            return pd.DataFrame(), [], None
+            return pd.DataFrame(), []
     return _load()
 
 
-df_pedidos, headers, worksheet = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
+df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
+worksheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
+
 
 
 if df_pedidos.empty:
