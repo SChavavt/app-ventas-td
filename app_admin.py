@@ -201,7 +201,7 @@ except Exception as e:
     st.stop()
 
 if df_pedidos.empty:
-    st.info("No hay pedidos registrados.")
+    st.info("ℹ️ No hay pedidos cargados en este momento. Puedes revisar más tarde o verificar si los vendedores han registrado alguno.")
 else:
     if 'Estado_Pago' in df_pedidos.columns and 'Comprobante_Confirmado' in df_pedidos.columns:
         pedidos_pagados_no_confirmados = df_pedidos[
