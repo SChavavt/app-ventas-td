@@ -235,21 +235,26 @@ with tab1:
             spreadsheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID)
             worksheet = spreadsheet.worksheet('datos_pedidos')
             headers = worksheet.row_values(1)
-            if not headers:
+
+            required_columns = ["ID_Pedido", "Hora_Registro", "Vendedor_Registro", "Cliente", "Folio_Factura", "Tipo_Envio", "Turno", "Fecha_Entrega", "Comentario", "Modificacion_Surtido", "Adjuntos", "Adjuntos_Surtido", "Estado", "Surtidor", "Estado_Pago", "Fecha_Completado", "Hora_Proceso", "Fecha_Completado_dt", "Notas"]
+            missing_columns = [col for col in required_columns if col not in headers]
+
+            if missing_columns:
+                st.error(f"❌ Faltan columnas requeridas en el Google Sheet: {missing_columns}")
+                st.stop()
+            elif not headers:
                 st.error("❌ Error: La primera fila del Google Sheet está vacía. Se necesitan encabezados de columna.")
                 st.stop()
 
             now = datetime.now()
             id_pedido = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
-            # MODIFICATION 1: Add date to Hora_Registro
             hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
 
-            # NEW: S3 upload logic
+            # --- Subir archivos normales
             adjuntos_urls = []
             if uploaded_files:
                 for uploaded_file in uploaded_files:
                     file_extension = os.path.splitext(uploaded_file.name)[1]
-                    # Create a unique key for S3, e.g., 'PED-YYYYMMDDHHMMSS-ABCD/original_filename_UUID.ext'
                     s3_key = f"{id_pedido}/{uploaded_file.name.replace(' ', '_').replace(file_extension, '')}_{uuid.uuid4().hex[:4]}{file_extension}"
 
                     success, file_url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, uploaded_file, s3_key)
@@ -259,6 +264,7 @@ with tab1:
                         st.error(f"❌ Falló la subida de '{uploaded_file.name}'. El pedido no se registrará.")
                         st.stop()
 
+            # --- Subir comprobante de pago
             comprobante_pago_url = ""
             if comprobante_pago_file:
                 file_extension_cp = os.path.splitext(comprobante_pago_file.name)[1]
@@ -271,6 +277,7 @@ with tab1:
                 else:
                     st.error("❌ Falló la subida del comprobante de pago. El pedido no se registrará.")
                     st.stop()
+
 
             adjuntos_str = ", ".join(adjuntos_urls)
 
