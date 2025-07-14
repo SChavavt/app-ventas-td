@@ -19,27 +19,29 @@ st.set_page_config(page_title="App Vendedores TD", layout="wide")
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
-# NEW: Function to get gspread client from Streamlit secrets
+def build_gspread_client():
+    credentials_json_str = st.secrets["google_credentials"]
+    creds_dict = json.loads(credentials_json_str)
+    if "private_key" in creds_dict:
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    return gspread.authorize(creds)
+
 @st.cache_resource
 def get_google_sheets_client():
+    client = build_gspread_client()
     try:
-        credentials_json_str = st.secrets["google_credentials"]
-        creds_dict = json.loads(credentials_json_str)
-        if "private_key" in creds_dict:
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
-
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-
-        # Verificación temprana para validar token
         _ = client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")
-
         return client
-    except Exception as e:
+    except gspread.exceptions.APIError:
+        # Fuerza recacheo si el token es inválido
         st.cache_resource.clear()
-        st.warning("🔁 Token expirado o inválido. Reintentando autenticación...")
-        raise e
+        st.warning("🔁 Token expirado. Reintentando autenticación...")
+        client = build_gspread_client()
+        _ = client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")  # Verifica nuevamente
+        return client
+
 
 
 # --- AWS S3 CONFIGURATION (NEW) ---
