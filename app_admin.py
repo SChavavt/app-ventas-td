@@ -6,6 +6,8 @@ import pandas as pd
 import boto3
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from io import BytesIO
+from datetime import datetime
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
 
@@ -474,3 +476,48 @@ if not df_pedidos.empty:
     with col4:
         pedidos_pendientes_confirmacion = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
         st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
+
+# --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
+st.markdown("---")
+st.header("📥 Pedidos Confirmados - Comprobantes de Pago")
+
+with st.expander("🔽 Mostrar/Descargar Pedidos Confirmados"):
+    df_confirmados = df_pedidos[
+        (df_pedidos.get('Estado_Pago') == '✅ Pagado') &
+        (df_pedidos.get('Comprobante_Confirmado') == 'Sí')
+    ].copy()
+
+    if df_confirmados.empty:
+        st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
+    else:
+        # Convertir columnas de fecha a datetime si existen
+        for col in ['Fecha_Entrega', 'Fecha_Pago_Comprobante']:
+            if col in df_confirmados.columns:
+                df_confirmados[col] = pd.to_datetime(df_confirmados[col], errors='coerce')
+
+        # Filas ordenadas por Fecha_Pago
+        df_confirmados = df_confirmados.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
+
+        columnas_a_mostrar = [
+            'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+            'Estado', 'Estado_Pago', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
+            'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante'
+        ]
+        columnas_existentes = [col for col in columnas_a_mostrar if col in df_confirmados.columns]
+
+        df_vista = df_confirmados[columnas_existentes].copy()
+
+        st.dataframe(df_vista, use_container_width=True, hide_index=True)
+
+        # Botón de descarga
+        output_confirmados = BytesIO()
+        with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
+            df_vista.to_excel(writer, index=False, sheet_name='Confirmados')
+        data_xlsx = output_confirmados.getvalue()
+
+        st.download_button(
+            label="📤 Descargar Excel de Confirmados",
+            data=data_xlsx,
+            file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
