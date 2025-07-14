@@ -178,10 +178,11 @@ except Exception as e:
 
 st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
 
-@st.cache_data(ttl=60)
-def cargar_pedidos_desde_google_sheet(client, sheet_id, worksheet_name):
-    try:
-        spreadsheet = client.open_by_key(sheet_id)
+def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
+    @st.cache_data(ttl=60)
+    def _load():
+        gc = get_google_sheets_client()
+        spreadsheet = gc.open_by_key(sheet_id)
         worksheet = spreadsheet.worksheet(worksheet_name)
         headers = worksheet.row_values(1)
 
@@ -194,19 +195,13 @@ def cargar_pedidos_desde_google_sheet(client, sheet_id, worksheet_name):
                 df['ID_Pedido'].astype(str).str.lower().ne('nan')
             ]
             return df, headers, worksheet
-
         else:
-            st.warning("No se pudieron cargar los encabezados del Google Sheet.")
             return pd.DataFrame(), [], None
+    return _load()
 
-    except gspread.exceptions.APIError as e:
-        if "Quota exceeded" in str(e) or "Read requests" in str(e):
-            st.warning("⚠️ Se alcanzó el límite de lecturas de Google Sheets por minuto. Espera unos segundos y vuelve a intentarlo.")
-            return pd.DataFrame(), [], None
-        else:
-            raise e
-        
-df_pedidos, headers, worksheet = cargar_pedidos_desde_google_sheet(gc, GOOGLE_SHEET_ID, "datos_pedidos")
+
+df_pedidos, headers, worksheet = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
+
 
 if df_pedidos.empty:
     st.info("ℹ️ No hay pedidos cargados en este momento. Puedes revisar más tarde o verificar si los vendedores han registrado alguno.")
