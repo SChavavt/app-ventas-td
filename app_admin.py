@@ -178,27 +178,35 @@ except Exception as e:
 
 st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
 
-df_pedidos = pd.DataFrame()
-try:
-    spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
-    worksheet = spreadsheet.worksheet('datos_pedidos')
-    headers = worksheet.row_values(1)
-    if headers:
-        df_pedidos = pd.DataFrame(worksheet.get_all_records())
+@st.cache_data(ttl=60)
+def cargar_pedidos_desde_google_sheet(client, sheet_id, worksheet_name):
+    try:
+        spreadsheet = client.open_by_key(sheet_id)
+        worksheet = spreadsheet.worksheet(worksheet_name)
+        headers = worksheet.row_values(1)
 
-        # 🧹 Eliminar registros vacíos o inválidos
-        df_pedidos = df_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
-        df_pedidos = df_pedidos[
-            df_pedidos['ID_Pedido'].astype(str).str.strip().ne('') &
-            df_pedidos['ID_Pedido'].astype(str).str.lower().ne('n/a') &
-            df_pedidos['ID_Pedido'].astype(str).str.lower().ne('nan')
-        ]
-    else:
-        st.warning("No se pudieron cargar los encabezados del Google Sheet.")
-        st.stop()
-except Exception as e:
-    st.error(f"❌ Error al cargar pedidos desde Google Sheet: {e}")
-    st.stop()
+        if headers:
+            df = pd.DataFrame(worksheet.get_all_records())
+            df = df.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
+            df = df[
+                df['ID_Pedido'].astype(str).str.strip().ne('') &
+                df['ID_Pedido'].astype(str).str.lower().ne('n/a') &
+                df['ID_Pedido'].astype(str).str.lower().ne('nan')
+            ]
+            return df, headers, worksheet
+
+        else:
+            st.warning("No se pudieron cargar los encabezados del Google Sheet.")
+            return pd.DataFrame(), [], None
+
+    except gspread.exceptions.APIError as e:
+        if "Quota exceeded" in str(e) or "Read requests" in str(e):
+            st.warning("⚠️ Se alcanzó el límite de lecturas de Google Sheets por minuto. Espera unos segundos y vuelve a intentarlo.")
+            return pd.DataFrame(), [], None
+        else:
+            raise e
+        
+df_pedidos, headers, worksheet = cargar_pedidos_desde_google_sheet(gc, GOOGLE_SHEET_ID, "datos_pedidos")
 
 if df_pedidos.empty:
     st.info("ℹ️ No hay pedidos cargados en este momento. Puedes revisar más tarde o verificar si los vendedores han registrado alguno.")
@@ -420,7 +428,7 @@ else:
                             for col_name, value in updates.items():
                                 if col_name in headers:
                                     col_idx = headers.index(col_name) + 1
-                                    worksheet.update_cell(gsheet_row_index, col_idx, value)
+                                    worksheet.update_cell(gsheet_row_index, col_idx, value) 
                                 else:
                                     st.warning(f"La columna '{col_name}' no se encontró en el Google Sheet y no se pudo actualizar.")
                             
@@ -434,8 +442,11 @@ else:
                             st.session_state.monto_pago = 0.0
                             st.session_state.referencia_pago = ""
                             
-                            time.sleep(1)
+                            st.success("✅ Comprobante confirmado. La app se actualizará en 3 segundos...")
+                            time.sleep(3)
+                            st.cache_data.clear()
                             st.rerun()
+
                             
                         except Exception as e:
                             st.error(f"❌ Error al confirmar el comprobante: {e}")
