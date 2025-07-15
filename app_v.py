@@ -192,9 +192,9 @@ with tab1:
             accept_multiple_files=True
         )
 
-        submit_button = st.form_submit_button("✅ Registrar Pedido")  # ← Aquí termina el formulario visualmente
+        submit_button = st.form_submit_button("✅ Registrar Pedido")
 
-    # 🔽 Esto aparece visualmente después del botón
+    # --- Estado de pago después del formulario ---
     st.markdown("---")
     st.subheader("💰 Estado de Pago")
     estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado"], index=0)
@@ -237,10 +237,7 @@ with tab1:
             with col5:
                 referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
 
-
-        submit_button = st.form_submit_button("✅ Registrar Pedido")
-
-
+    # --- Registro del Pedido si se presionó el botón ---
     if submit_button:
         try:
             if not vendedor or not registro_cliente:
@@ -250,7 +247,6 @@ with tab1:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                 st.stop()
 
-            # Obtener headers
             headers = []
             try:
                 spreadsheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID)
@@ -270,7 +266,6 @@ with tab1:
                     st.error(f"❌ Error al acceder a Google Sheets: {e}")
                     st.stop()
 
-            # Preparar datos
             now = datetime.now()
             id_pedido = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
             hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
@@ -287,7 +282,6 @@ with tab1:
                         st.error(f"❌ Falló la subida de {file.name}")
                         st.stop()
 
-            # Subir comprobante
             if comprobante_pago_file:
                 ext_cp = os.path.splitext(comprobante_pago_file.name)[1]
                 s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}{ext_cp}"
@@ -355,7 +349,6 @@ with tab1:
 
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
-
 
 # --- TAB 2: MODIFY EXISTING ORDER ---
 with tab2:
