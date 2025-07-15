@@ -7,7 +7,8 @@ import pandas as pd
 from io import BytesIO
 import time
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
+from oauth2client.service_account import ServiceAccountCredentials  # Add this import
 
 # NEW: Import boto3 for AWS S3
 import boto3
@@ -25,9 +26,10 @@ def build_gspread_client():
     creds_dict = json.loads(credentials_json_str)
     if "private_key" in creds_dict:
         creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
+
 
 _gsheets_client = None
 
