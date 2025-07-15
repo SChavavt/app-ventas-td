@@ -233,17 +233,16 @@ else:
     if pedidos_pagados_no_confirmados.empty:
         st.success("🎉 ¡No hay comprobantes pendientes de confirmación!")
         st.info("Todos los pedidos pagados han sido confirmados o no hay pedidos pagados.")
+
     else:
         st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes de confirmación.")
-        
-        # Modificación: Eliminar 'Comprobante_Confirmado' y cambiar 'ID_Pedido' por 'Folio_Factura'
+
         columns_to_show = [
             'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 
             'Fecha_Entrega', 'Estado', 'Estado_Pago'
         ]
-        
         existing_columns = [col for col in columns_to_show if col in pedidos_pagados_no_confirmados.columns]
-        
+
         if existing_columns:
             st.dataframe(
                 pedidos_pagados_no_confirmados[existing_columns].sort_values(by='Fecha_Entrega'), 
@@ -252,17 +251,16 @@ else:
             )
         else:
             st.warning("No se encontraron las columnas esperadas para mostrar el resumen de pedidos.")
-        
+
         st.markdown("---")
         st.subheader("🔍 Revisar Comprobante de Pago")
-        
-        # Modificación: Usar 'Folio_Factura' para el 'display_label' en el selectbox
+
         if 'Folio_Factura' in pedidos_pagados_no_confirmados.columns:
             pedidos_pagados_no_confirmados['display_label'] = (
                 pedidos_pagados_no_confirmados['Folio_Factura'] + " - " +
                 pedidos_pagados_no_confirmados.get('Cliente', 'N/A') + " - " +
                 pedidos_pagados_no_confirmados.get('Vendedor_Registro', 'N/A') + " (ID: " + 
-                pedidos_pagados_no_confirmados.get('ID_Pedido', 'N/A') + ")" # Mantener ID_Pedido para referencia visual
+                pedidos_pagados_no_confirmados.get('ID_Pedido', 'N/A') + ")"
             )
         else:
             st.warning("La columna 'Folio_Factura' no se encontró en el Google Sheet. Usando 'ID_Pedido' en el selector.")
@@ -271,7 +269,7 @@ else:
                 pedidos_pagados_no_confirmados.get('Cliente', 'N/A') + " - " +
                 pedidos_pagados_no_confirmados.get('Vendedor_Registro', 'N/A')
             )
-            
+
         pedido_options = pedidos_pagados_no_confirmados['display_label'].tolist()
         selected_index = st.selectbox(
             "📝 Seleccionar Pedido para Revisar Comprobante",
@@ -280,11 +278,10 @@ else:
             key="select_pedido_comprobante"
         )
 
+        # ✅ Estas líneas deben ir DENTRO del bloque
         selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
         selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
-
-    selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
     # Detectar cambio de pedido seleccionado
     previous_selected_id = st.session_state.get("selected_admin_pedido_id", None)
