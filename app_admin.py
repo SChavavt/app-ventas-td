@@ -273,6 +273,23 @@ else:
             ].iloc[0]
             
             selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
+            # Cargar los valores del pedido en session_state si no están aún
+            if 'fecha_pago' not in st.session_state or st.session_state.fecha_pago is None:
+                st.session_state.fecha_pago = pd.to_datetime(selected_pedido_data.get('Fecha_Pago_Comprobante', None)).date() if selected_pedido_data.get('Fecha_Pago_Comprobante') else None
+            if 'forma_pago' not in st.session_state or not st.session_state.forma_pago:
+                st.session_state.forma_pago = selected_pedido_data.get('Forma_Pago_Comprobante', 'Transferencia')
+            if 'terminal' not in st.session_state or not st.session_state.terminal:
+                st.session_state.terminal = selected_pedido_data.get('Terminal', 'BANORTE')
+            if 'banco_destino_pago' not in st.session_state or not st.session_state.banco_destino_pago:
+                st.session_state.banco_destino_pago = selected_pedido_data.get('Banco_Destino_Pago', 'BANORTE')
+            if 'monto_pago' not in st.session_state or st.session_state.monto_pago in [None, "", 0]:
+                try:
+                    st.session_state.monto_pago = float(selected_pedido_data.get('Monto_Comprobante', 0.0))
+                except Exception:
+                    st.session_state.monto_pago = 0.0
+            if 'referencia_pago' not in st.session_state or not st.session_state.referencia_pago:
+                st.session_state.referencia_pago = selected_pedido_data.get('Referencia_Comprobante', '')
+
 
             col1, col2 = st.columns(2)
             
