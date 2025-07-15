@@ -187,7 +187,9 @@ st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
 
 if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
     st.cache_data.clear()
+    st.cache_resource.clear()  # ✅ Limpia también el cliente de gspread
     st.rerun()
+
 
 def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
     @st.cache_data(ttl=60)
