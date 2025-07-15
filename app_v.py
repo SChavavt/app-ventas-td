@@ -32,18 +32,36 @@ def build_gspread_client():
 _gsheets_client = None
 
 def get_google_sheets_client():
-    global _gsheets_client
-    if _gsheets_client is None:
-        _gsheets_client = build_gspread_client()
-        try:
-            _ = _gsheets_client.open_by_key(GOOGLE_SHEET_ID)
-        except gspread.exceptions.APIError:
-            st.warning("🔁 Token expirado. Reintentando autenticación...")
-            _gsheets_client = build_gspread_client()  # Fuerza nueva autenticación
-            _ = _gsheets_client.open_by_key(GOOGLE_SHEET_ID)
-    return _gsheets_client
+    def try_get_client():
+        credentials_json_str = st.secrets["google_credentials"]
+        creds_dict = json.loads(credentials_json_str)
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        return gspread.authorize(creds)
 
+    try:
+        client = try_get_client()
+        _ = client.open_by_key(GOOGLE_SHEET_ID)
+        return client
+    except gspread.exceptions.APIError as e:
+        if "RESOURCE_EXHAUSTED" in str(e) or "expired" in str(e).lower():
+            st.warning("🔁 Token expirado o cuota alcanzada. Reintentando con nuevo cliente...")
+            time.sleep(2)
+            try:
+                client = try_get_client()
+                _ = client.open_by_key(GOOGLE_SHEET_ID)
+                return client
+            except Exception as e2:
+                st.error(f"❌ Falló la reconexión con Google Sheets: {e2}")
+                st.stop()
+        else:
+            st.error(f"❌ Error al conectar con Google Sheets: {e}")
+            st.stop()
 
+# ✅ Cliente listo para usar en cualquier parte
+g_spread_client = get_google_sheets_client()
 
 
 # --- AWS S3 CONFIGURATION (NEW) ---
