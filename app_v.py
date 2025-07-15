@@ -5,6 +5,7 @@ import json
 import uuid
 import pandas as pd
 from io import BytesIO
+import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -28,20 +29,39 @@ def build_gspread_client():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
 
-@st.cache_resource
-def get_google_sheets_client():
-    client = build_gspread_client()
-    try:
-        _ = client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")
-        return client
-    except gspread.exceptions.APIError:
-        # Fuerza recacheo si el token es inválido
-        st.cache_resource.clear()
-        st.warning("🔁 Token expirado. Reintentando autenticación...")
-        client = build_gspread_client()
-        _ = client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")  # Verifica nuevamente
-        return client
+_gsheets_client = None
 
+def get_google_sheets_client():
+    def try_get_client():
+        credentials_json_str = st.secrets["google_credentials"]
+        creds_dict = json.loads(credentials_json_str)
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        return gspread.authorize(creds)
+
+    try:
+        client = try_get_client()
+        _ = client.open_by_key(GOOGLE_SHEET_ID)
+        return client
+    except gspread.exceptions.APIError as e:
+        if "RESOURCE_EXHAUSTED" in str(e) or "expired" in str(e).lower():
+            st.warning("🔁 Token expirado o cuota alcanzada. Reintentando con nuevo cliente...")
+            time.sleep(2)
+            try:
+                client = try_get_client()
+                _ = client.open_by_key(GOOGLE_SHEET_ID)
+                return client
+            except Exception as e2:
+                st.error(f"❌ Falló la reconexión con Google Sheets: {e2}")
+                st.stop()
+        else:
+            st.error(f"❌ Error al conectar con Google Sheets: {e}")
+            st.stop()
+
+# ✅ Cliente listo para usar en cualquier parte
+g_spread_client = get_google_sheets_client()
 
 
 # --- AWS S3 CONFIGURATION (NEW) ---
@@ -143,7 +163,6 @@ VENDEDORES_LIST = sorted([
 # Initialize session state for vendor
 if 'last_selected_vendedor' not in st.session_state:
     st.session_state.last_selected_vendedor = VENDEDORES_LIST[0] if VENDEDORES_LIST else ""
-
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
     st.header("📝 Nuevo Pedido")
@@ -175,171 +194,184 @@ with tab1:
         except ValueError:
             initial_vendedor_index = 0
 
-        vendedor = st.selectbox(
-            "👤 Vendedor",
-            options=VENDEDORES_LIST,
-            index=initial_vendedor_index,
-            help="Selecciona el nombre del vendedor que registra el pedido."
-        )
-
+        vendedor = st.selectbox("👤 Vendedor", VENDEDORES_LIST, index=initial_vendedor_index)
         if vendedor != st.session_state.last_selected_vendedor:
             st.session_state.last_selected_vendedor = vendedor
 
-        registro_cliente = st.text_input("🤝 Cliente", help="Nombre o ID del cliente que realiza el pedido.")
-
-        folio_factura = st.text_input("📄 Folio de Factura", help="Número de folio de la factura para identificar al cliente.")
-
-        fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", datetime.now().date(), help="Fecha en la que el cliente espera recibir el pedido.")
-
-        comentario = st.text_area("💬 Comentario / Descripción Detallada", help="Cualquier nota adicional o descripción detallada del pedido.")
+        registro_cliente = st.text_input("🤝 Cliente")
+        folio_factura = st.text_input("📄 Folio de Factura")
+        fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", datetime.now().date())
+        comentario = st.text_area("💬 Comentario / Descripción Detallada")
 
         st.markdown("---")
-        st.subheader("Adjuntos del Pedido (Otros Archivos)")
-        uploaded_files = st.file_uploader("📎 Archivos del Pedido", type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"], accept_multiple_files=True, help="Puedes subir documentos, imágenes o cualquier archivo relevante al pedido (ej. lista de productos, especificaciones).")
-        st.info("💡 Asegúrate de que los nombres de archivo sean únicos si vas a adjuntar múltiples veces el mismo archivo para diferentes pedidos.")
+        st.subheader("📎 Adjuntos del Pedido")
+        uploaded_files = st.file_uploader(
+            "Sube archivos del pedido",
+            type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
+            accept_multiple_files=True
+        )
 
         submit_button = st.form_submit_button("✅ Registrar Pedido")
 
+    # --- Estado de pago después del formulario ---
     st.markdown("---")
-    st.subheader("Estado de Pago")
-    estado_pago = st.selectbox(
-        "💰 Estado de Pago",
-        ["🔴 No Pagado", "✅ Pagado"],
-        index=0,
-        key="estado_pago_selector_registro"
-    )
+    st.subheader("💰 Estado de Pago")
+    estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado"], index=0)
 
     comprobante_pago_file = None
+    fecha_pago = None
+    forma_pago = ""
+    terminal = ""
+    banco_destino = ""
+    monto_pago = 0.0
+    referencia_pago = ""
+
     if estado_pago == "✅ Pagado":
         comprobante_pago_file = st.file_uploader(
-            "💲 Subir Comprobante de Pago (Obligatorio si es Pagado)",
+            "💲 Comprobante de Pago",
             type=["pdf", "jpg", "jpeg", "png"],
-            help="Sube una imagen o PDF del comprobante de pago.",
             key="comprobante_uploader_final"
         )
-        st.info("⚠️ Si el estado es 'Pagado' debes subir un comprobante.")
+        st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
 
+        with st.expander("🧾 Detalles del Pago (opcional)"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
+            with col2:
+                forma_pago = st.selectbox("💳 Forma de Pago", [
+                    "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
+                ], key="forma_pago_input")
+            with col3:
+                monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_input")
+
+            col4, col5 = st.columns(2)
+            with col4:
+                if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                    terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"], key="terminal_input")
+                    banco_destino = ""
+                else:
+                    banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_input")
+                    terminal = ""
+            with col5:
+                referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+
+    # --- Registro del Pedido si se presionó el botón ---
     if submit_button:
-        if not vendedor:
-            st.warning("⚠️ Por favor, selecciona el Vendedor.")
-            st.stop()
-        if not registro_cliente:
-            st.warning("⚠️ Por favor, ingresa el nombre del Cliente.")
-            st.stop()
-
-        if estado_pago == "✅ Pagado" and comprobante_pago_file is None:
-            st.warning("⚠️ Marcaste el pedido como 'Pagado', pero no subiste un comprobante. Por favor, sube uno o cambia el estado a 'No Pagado'.")
-            st.stop()
-
         try:
-            spreadsheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID)
-            worksheet = spreadsheet.worksheet('datos_pedidos')
-            headers = worksheet.row_values(1)
-
-            required_columns = ["ID_Pedido", "Hora_Registro", "Vendedor_Registro", "Cliente", "Folio_Factura", "Tipo_Envio", "Turno", "Fecha_Entrega", "Comentario", "Modificacion_Surtido", "Adjuntos", "Adjuntos_Surtido", "Estado", "Surtidor", "Estado_Pago", "Fecha_Completado", "Hora_Proceso", "Fecha_Completado_dt", "Notas"]
-            missing_columns = [col for col in required_columns if col not in headers]
-
-            if missing_columns:
-                st.error(f"❌ Faltan columnas requeridas en el Google Sheet: {missing_columns}")
+            if not vendedor or not registro_cliente:
+                st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
-            elif not headers:
-                st.error("❌ Error: La primera fila del Google Sheet está vacía. Se necesitan encabezados de columna.")
+            if estado_pago == "✅ Pagado" and comprobante_pago_file is None:
+                st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                 st.stop()
+
+            headers = []
+            try:
+                spreadsheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID)
+                worksheet = spreadsheet.worksheet('datos_pedidos')
+                all_data = worksheet.get_all_values()
+                if not all_data:
+                    st.error("❌ La hoja de cálculo está vacía.")
+                    st.stop()
+                headers = all_data[0]
+            except gspread.exceptions.APIError as e:
+                if "RESOURCE_EXHAUSTED" in str(e):
+                    st.warning("⚠️ Cuota de Google Sheets alcanzada. Reintentando...")
+                    st.cache_resource.clear()
+                    time.sleep(6)
+                    st.rerun()
+                else:
+                    st.error(f"❌ Error al acceder a Google Sheets: {e}")
+                    st.stop()
 
             now = datetime.now()
             id_pedido = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
             hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
-
-            # --- Subir archivos normales
             adjuntos_urls = []
-            if uploaded_files:
-                for uploaded_file in uploaded_files:
-                    file_extension = os.path.splitext(uploaded_file.name)[1]
-                    s3_key = f"{id_pedido}/{uploaded_file.name.replace(' ', '_').replace(file_extension, '')}_{uuid.uuid4().hex[:4]}{file_extension}"
 
-                    success, file_url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, uploaded_file, s3_key)
+            if uploaded_files:
+                for file in uploaded_files:
+                    ext = os.path.splitext(file.name)[1]
+                    s3_key = f"{id_pedido}/{file.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
+                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
                     if success:
-                        adjuntos_urls.append(file_url)
+                        adjuntos_urls.append(url)
                     else:
-                        st.error(f"❌ Falló la subida de '{uploaded_file.name}'. El pedido no se registrará.")
+                        st.error(f"❌ Falló la subida de {file.name}")
                         st.stop()
 
-            # --- Subir comprobante de pago
-            comprobante_pago_url = ""
             if comprobante_pago_file:
-                file_extension_cp = os.path.splitext(comprobante_pago_file.name)[1]
-                s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}{file_extension_cp}"
-
-                success_cp, file_url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, comprobante_pago_file, s3_key_cp)
+                ext_cp = os.path.splitext(comprobante_pago_file.name)[1]
+                s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}{ext_cp}"
+                success_cp, url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, comprobante_pago_file, s3_key_cp)
                 if success_cp:
-                    comprobante_pago_url = file_url_cp
-                    adjuntos_urls.append(comprobante_pago_url)
+                    adjuntos_urls.append(url_cp)
                 else:
-                    st.error("❌ Falló la subida del comprobante de pago. El pedido no se registrará.")
+                    st.error("❌ Falló la subida del comprobante.")
                     st.stop()
-
 
             adjuntos_str = ", ".join(adjuntos_urls)
 
-            values_to_append = []
+            values = []
             for header in headers:
                 if header == "ID_Pedido":
-                    values_to_append.append(id_pedido)
+                    values.append(id_pedido)
                 elif header == "Hora_Registro":
-                    values_to_append.append(hora_registro)
-                elif header == "Vendedor" or header == "Vendedor_Registro":
-                    values_to_append.append(vendedor)
-                elif header == "Cliente" or header == "RegistroCliente":
-                    values_to_append.append(registro_cliente)
+                    values.append(hora_registro)
+                elif header in ["Vendedor", "Vendedor_Registro"]:
+                    values.append(vendedor)
+                elif header in ["Cliente", "RegistroCliente"]:
+                    values.append(registro_cliente)
                 elif header == "Folio_Factura":
-                    values_to_append.append(folio_factura)
+                    values.append(folio_factura)
                 elif header == "Tipo_Envio":
-                    values_to_append.append(tipo_envio)
+                    values.append(tipo_envio)
                 elif header == "Turno":
-                    values_to_append.append(subtipo_local)
+                    values.append(subtipo_local)
                 elif header == "Fecha_Entrega":
-                    values_to_append.append(fecha_entrega.strftime('%Y-%m-%d'))
+                    values.append(fecha_entrega.strftime('%Y-%m-%d'))
                 elif header == "Comentario":
-                    values_to_append.append(comentario)
-                elif header == "Modificacion_Surtido":
-                    values_to_append.append("")
-                elif header == "Adjuntos": # This column will now store S3 URLs
-                    values_to_append.append(adjuntos_str)
-                elif header == "Adjuntos_Surtido": # This column will also store S3 URLs
-                    values_to_append.append("")
+                    values.append(comentario)
+                elif header == "Adjuntos":
+                    values.append(adjuntos_str)
+                elif header == "Adjuntos_Surtido":
+                    values.append("")
                 elif header == "Estado":
-                    values_to_append.append("🟡 Pendiente")
+                    values.append("🟡 Pendiente")
                 elif header == "Surtidor":
-                    values_to_append.append("")
+                    values.append("")
                 elif header == "Estado_Pago":
-                    values_to_append.append(estado_pago)
-                elif header == "Fecha_Completado":
-                    values_to_append.append("")
-                elif header == "Hora_Proceso":
-                    values_to_append.append("")
-                elif header == "Fecha_Completado_dt":
-                    values_to_append.append("")
-                elif header == "Notas":
-                    values_to_append.append("")
+                    values.append(estado_pago)
+                elif header == "Fecha_Pago_Comprobante":
+                    values.append(fecha_pago.strftime('%Y-%m-%d') if fecha_pago else "")
+                elif header == "Forma_Pago_Comprobante":
+                    values.append(forma_pago)
+                elif header == "Terminal":
+                    values.append(terminal)
+                elif header == "Banco_Destino_Pago":
+                    values.append(banco_destino)
+                elif header == "Monto_Comprobante":
+                    values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
+                elif header == "Referencia_Comprobante":
+                    values.append(referencia_pago)
+                elif header in ["Fecha_Completado", "Hora_Proceso", "Fecha_Completado_dt", "Notas", "Modificacion_Surtido"]:
+                    values.append("")
                 else:
-                    values_to_append.append("")
+                    values.append("")
 
-            try:
-                worksheet.append_row(values_to_append)
-                st.success(f"🎉 Pedido `{id_pedido}` registrado con éxito!")
-                if adjuntos_urls:
-                    st.info(f"📎 Archivos subidos a S3: {', '.join([os.path.basename(url) for url in adjuntos_urls])}")
-                st.balloons()
+            worksheet.append_row(values)
+            st.success(f"🎉 Pedido {id_pedido} registrado con éxito!")
+            if adjuntos_urls:
+                st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in adjuntos_urls))
+            st.balloons()
 
-            except Exception as append_error:
-                st.error(f"❌ Error al escribir en el Google Sheet: {append_error}. Puede que los adjuntos se hayan subido, pero el pedido no se registró.")
-                st.info("ℹ️ Verifica los permisos de escritura de la cuenta de servicio en el Google Sheet.")
-                st.stop()
+            # ✅ Si se registró con éxito, reiniciamos para limpiar formulario
+            time.sleep(1.5)  # da tiempo para ver el mensaje
+            st.rerun()
 
         except Exception as e:
-            st.error(f"❌ Ocurrió un error inesperado al registrar el pedido: {e}")
-            st.info("ℹ️ Revisa tu conexión a internet, los permisos de la cuenta de servicio o la configuración del Google Sheet.")
-
+            st.error(f"❌ Error inesperado al registrar el pedido: {e}")
 
 # --- TAB 2: MODIFY EXISTING ORDER ---
 with tab2:
@@ -418,33 +450,6 @@ with tab2:
             filtered_orders = filtered_orders[filtered_orders['Vendedor_Registro'] == selected_vendedor_mod]
         if tipo_envio_filter != "Todos":
             filtered_orders = filtered_orders[filtered_orders['Filtro_Envio_Combinado'] == tipo_envio_filter]
-
-
-        # This block was duplicated and causing indentation issues. Removed the duplicate.
-        # with col1:
-        #     if 'Vendedor_Registro' in filtered_orders.columns:
-        #         unique_vendedores_mod = ["Todos"] + sorted(filtered_orders['Vendedor_Registro'].unique().tolist())
-        #         selected_vendedor_mod = st.selectbox(
-        #             "Filtrar por Vendedor:",
-        #             options=unique_vendedores_mod,
-        #             key="vendedor_filter_mod"
-        #         )
-        #         if selected_vendedor_mod != "Todos":
-        #             filtered_orders = filtered_orders[filtered_orders['Vendedor_Registro'] == selected_vendedor_mod]
-        #     else:
-        #         st.warning("La columna 'Vendedor_Registro' no se encontró para aplicar el filtro de vendedor.")
-
-        # with col2:
-        #     tipo_envio_filter = st.selectbox(
-        #         "Filtrar por Tipo de Envío:",
-        #         options=unique_filter_options,
-        #         key="tipo_envio_filter_mod"
-        #     )
-
-        # if tipo_envio_filter != "Todos":
-        #     filtered_orders = filtered_orders[filtered_orders['Filtro_Envio_Combinado'] == tipo_envio_filter]
-
-
         if filtered_orders.empty:
             st.warning("No hay pedidos que coincidan con los filtros seleccionados.")
         else:
@@ -484,7 +489,7 @@ with tab2:
                 selected_order_id = filtered_orders[filtered_orders['display_label'] == selected_order_display]['ID_Pedido'].iloc[0]
                 selected_row_data = filtered_orders[filtered_orders['ID_Pedido'] == selected_order_id].iloc[0]
 
-                st.subheader(f"Detalles del Pedido: Folio `{selected_row_data.get('Folio_Factura', 'N/A')}` (ID `{selected_order_id}`)")
+                st.subheader(f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')} (ID {selected_order_id})")
                 st.write(f"**Vendedor:** {selected_row_data.get('Vendedor', selected_row_data.get('Vendedor_Registro', 'No especificado'))}")
                 st.write(f"**Cliente:** {selected_row_data.get('Cliente', 'N/A')}")
                 st.write(f"**Folio de Factura:** {selected_row_data.get('Folio_Factura', 'N/A')}")
@@ -622,7 +627,7 @@ with tab2:
                                 message_placeholder_tab2.info(f"📎 Nuevos archivos para Surtido subidos a S3: {', '.join([os.path.basename(url) for url in new_adjuntos_surtido_urls])}")
 
                             if changes_made:
-                                message_placeholder_tab2.success(f"✅ Pedido `{selected_order_id}` actualizado con éxito.")
+                                message_placeholder_tab2.success(f"✅ Pedido {selected_order_id} actualizado con éxito.")
 
                                 # ✅ Si el pedido estaba completado, y se modificó el campo de modificación o se subieron archivos nuevos de surtido, regresarlo a pendiente
                                 if selected_row_data.get('Estado') == "🟢 Completado":
@@ -647,7 +652,7 @@ with tab2:
                             message_placeholder_tab2.info("ℹ️ Verifica que la cuenta de servicio tenga permisos de escritura en la hoja y que las columnas sean correctas. Asegúrate de que todas las columnas usadas existen en la primera fila de tu Google Sheet.")
 
     if 'show_success_message' in st.session_state and st.session_state.show_success_message:
-        message_placeholder_tab2.success(f"✅ Pedido `{st.session_state.last_updated_order_id}` actualizado con éxito.")
+        message_placeholder_tab2.success(f"✅ Pedido {st.session_state.last_updated_order_id} actualizado con éxito.")
         del st.session_state.show_success_message
         del st.session_state.last_updated_order_id
 
@@ -770,7 +775,7 @@ with tab3:
                 selected_pending_order_id = pedidos_sin_comprobante[pedidos_sin_comprobante['display_label'] == selected_pending_order_display]['ID_Pedido'].iloc[0]
                 selected_pending_row_data = pedidos_sin_comprobante[pedidos_sin_comprobante['ID_Pedido'] == selected_pending_order_id].iloc[0]
 
-                st.info(f"Subiendo comprobante para el pedido: Folio `{selected_pending_row_data.get('Folio_Factura', 'N/A')}` (ID `{selected_pending_order_id}`) del cliente `{selected_pending_row_data.get('Cliente', 'N/A')}`")
+                st.info(f"Subiendo comprobante para el pedido: Folio {selected_pending_row_data.get('Folio_Factura', 'N/A')} (ID {selected_pending_order_id}) del cliente {selected_pending_row_data.get('Cliente', 'N/A')}")
 
                 with st.form(key=f"upload_comprobante_form_{selected_pending_order_id}"):
                     comprobante_file_for_pending = st.file_uploader(
@@ -806,7 +811,7 @@ with tab3:
                                     estado_pago_col_idx = headers.index('Estado_Pago') + 1
                                     worksheet.update_cell(gsheet_row_index, estado_pago_col_idx, "✅ Pagado")
 
-                                    st.success(f"🎉 Comprobante para el pedido `{selected_pending_order_id}` subido a S3 y estado actualizado a 'Pagado' con éxito!")
+                                    st.success(f"🎉 Comprobante para el pedido {selected_pending_order_id} subido a S3 y estado actualizado a 'Pagado' con éxito!")
                                     st.balloons()
                                     st.rerun()
                                 else:
