@@ -192,47 +192,51 @@ with tab1:
             accept_multiple_files=True
         )
 
-        st.markdown("---")
-        st.subheader("💰 Estado de Pago")
-        estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado"], index=0)
+        submit_button = st.form_submit_button("✅ Registrar Pedido")  # ← Aquí termina el formulario visualmente
 
-        comprobante_pago_file = None
-        fecha_pago = None
-        forma_pago = ""
-        terminal = ""
-        banco_destino = ""
-        monto_pago = 0.0
-        referencia_pago = ""
+    # 🔽 Esto aparece visualmente después del botón
+    st.markdown("---")
+    st.subheader("💰 Estado de Pago")
+    estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado"], index=0)
 
-        if estado_pago == "✅ Pagado":
-            comprobante_pago_file = st.file_uploader(
-                "💲 Comprobante de Pago",
-                type=["pdf", "jpg", "jpeg", "png"],
-                key="comprobante_uploader_final"
-            )
-            st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
+    comprobante_pago_file = None
+    fecha_pago = None
+    forma_pago = ""
+    terminal = ""
+    banco_destino = ""
+    monto_pago = 0.0
+    referencia_pago = ""
 
-            with st.expander("🧾 Detalles del Pago (opcional)"):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
-                with col2:
-                    forma_pago = st.selectbox("💳 Forma de Pago", [
-                        "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
-                    ], key="forma_pago_input")
-                with col3:
-                    monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_input")
+    if estado_pago == "✅ Pagado":
+        comprobante_pago_file = st.file_uploader(
+            "💲 Comprobante de Pago",
+            type=["pdf", "jpg", "jpeg", "png"],
+            key="comprobante_uploader_final"
+        )
+        st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
 
-                col4, col5 = st.columns(2)
-                with col4:
-                    if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                        terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"], key="terminal_input")
-                        banco_destino = ""
-                    else:
-                        banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_input")
-                        terminal = ""
-                with col5:
-                    referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+        with st.expander("🧾 Detalles del Pago (opcional)"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
+            with col2:
+                forma_pago = st.selectbox("💳 Forma de Pago", [
+                    "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
+                ], key="forma_pago_input")
+            with col3:
+                monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_input")
+
+            col4, col5 = st.columns(2)
+            with col4:
+                if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                    terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"], key="terminal_input")
+                    banco_destino = ""
+                else:
+                    banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_input")
+                    terminal = ""
+            with col5:
+                referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+
 
         submit_button = st.form_submit_button("✅ Registrar Pedido")
 
