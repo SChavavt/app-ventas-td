@@ -267,209 +267,213 @@ else:
             key="select_pedido_comprobante"
         )
         
-        if selected_pedido_display:
-            selected_pedido_data = pedidos_pagados_no_confirmados[
-                pedidos_pagados_no_confirmados['display_label'] == selected_pedido_display
-            ].iloc[0]
-            
-            selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
-            # Cargar los valores del pedido en session_state si no están aún
-            if 'fecha_pago' not in st.session_state or st.session_state.fecha_pago is None:
-                st.session_state.fecha_pago = pd.to_datetime(selected_pedido_data.get('Fecha_Pago_Comprobante', None)).date() if selected_pedido_data.get('Fecha_Pago_Comprobante') else None
-            if 'forma_pago' not in st.session_state or not st.session_state.forma_pago:
-                st.session_state.forma_pago = selected_pedido_data.get('Forma_Pago_Comprobante', 'Transferencia')
-            if 'terminal' not in st.session_state or not st.session_state.terminal:
-                st.session_state.terminal = selected_pedido_data.get('Terminal', 'BANORTE')
-            if 'banco_destino_pago' not in st.session_state or not st.session_state.banco_destino_pago:
-                st.session_state.banco_destino_pago = selected_pedido_data.get('Banco_Destino_Pago', 'BANORTE')
-            if 'monto_pago' not in st.session_state or st.session_state.monto_pago in [None, "", 0]:
-                try:
-                    st.session_state.monto_pago = float(selected_pedido_data.get('Monto_Comprobante', 0.0))
-                except Exception:
-                    st.session_state.monto_pago = 0.0
-            if 'referencia_pago' not in st.session_state or not st.session_state.referencia_pago:
-                st.session_state.referencia_pago = selected_pedido_data.get('Referencia_Comprobante', '')
+if selected_pedido_display:
+    selected_pedido_data = pedidos_pagados_no_confirmados[
+        pedidos_pagados_no_confirmados['display_label'] == selected_pedido_display
+    ].iloc[0]
 
+    selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
-            col1, col2 = st.columns(2)
+    # Detectar cambio de pedido seleccionado
+    previous_selected_id = st.session_state.get("selected_admin_pedido_id", None)
+    st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
+
+    if previous_selected_id != selected_pedido_id_for_s3_search:
+        # 👇 Forzar actualización de todos los valores
+        st.session_state.fecha_pago = pd.to_datetime(
+            selected_pedido_data.get('Fecha_Pago_Comprobante')
+        ).date() if selected_pedido_data.get('Fecha_Pago_Comprobante') else None
+
+        st.session_state.forma_pago = selected_pedido_data.get('Forma_Pago_Comprobante', 'Transferencia')
+        st.session_state.terminal = selected_pedido_data.get('Terminal', 'BANORTE')
+        st.session_state.banco_destino_pago = selected_pedido_data.get('Banco_Destino_Pago', 'BANORTE')
+
+        try:
+            st.session_state.monto_pago = float(selected_pedido_data.get('Monto_Comprobante', 0.0))
+        except Exception:
+            st.session_state.monto_pago = 0.0
+
+        st.session_state.referencia_pago = selected_pedido_data.get('Referencia_Comprobante', '')
+
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📋 Información del Pedido")
+            st.write(f"**Folio Factura:** {selected_pedido_data.get('Folio_Factura', 'N/A')}")
+            st.write(f"**ID Pedido (interno):** {selected_pedido_data.get('ID_Pedido', 'N/A')}") # Se muestra como referencia interna
+            st.write(f"**Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
+            st.write(f"**Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
+            st.write(f"**Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
+            st.write(f"**Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
+            st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
+            st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
+        
+        with col2:
+            st.subheader("📎 Archivos y Comprobantes")
             
-            with col1:
-                st.subheader("📋 Información del Pedido")
-                st.write(f"**Folio Factura:** {selected_pedido_data.get('Folio_Factura', 'N/A')}")
-                st.write(f"**ID Pedido (interno):** {selected_pedido_data.get('ID_Pedido', 'N/A')}") # Se muestra como referencia interna
-                st.write(f"**Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
-                st.write(f"**Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
-                st.write(f"**Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
-                st.write(f"**Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
-                st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
-                st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
-            
-            with col2:
-                st.subheader("📎 Archivos y Comprobantes")
+            if s3_client:
+                pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
                 
-                if s3_client:
-                    pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
+                if pedido_folder_prefix:
+                    files_in_folder = get_files_in_s3_prefix(s3_client, pedido_folder_prefix)
                     
-                    if pedido_folder_prefix:
-                        files_in_folder = get_files_in_s3_prefix(s3_client, pedido_folder_prefix)
+                    if files_in_folder:
+                        comprobantes_encontrados = []
+                        otros_archivos = []
                         
-                        if files_in_folder:
-                            comprobantes_encontrados = []
-                            otros_archivos = []
-                            
-                            for file in files_in_folder:
-                                if 'comprobante' in file['title'].lower():
-                                    comprobantes_encontrados.append(file)
-                                else:
-                                    otros_archivos.append(file)
-                            
-                            if comprobantes_encontrados:
-                                st.write("**🧾 Comprobantes de Pago:**")
-                                for comp in comprobantes_encontrados:
-                                    file_url = get_s3_file_download_url(s3_client, comp['key'])
-                                    
-                                    # Lógica para limpiar el nombre del archivo para mostrar
-                                    display_name = comp['title']
-                                    if selected_pedido_id_for_s3_search in display_name:
-                                        display_name = display_name.replace(selected_pedido_id_for_s3_search, "")
-                                        display_name = display_name.replace("__", "_").replace("_-", "_").replace("-_", "_").strip('_').strip('-')
+                        for file in files_in_folder:
+                            if 'comprobante' in file['title'].lower():
+                                comprobantes_encontrados.append(file)
+                            else:
+                                otros_archivos.append(file)
+                        
+                        if comprobantes_encontrados:
+                            st.write("**🧾 Comprobantes de Pago:**")
+                            for comp in comprobantes_encontrados:
+                                file_url = get_s3_file_download_url(s3_client, comp['key'])
+                                
+                                # Lógica para limpiar el nombre del archivo para mostrar
+                                display_name = comp['title']
+                                if selected_pedido_id_for_s3_search in display_name:
+                                    display_name = display_name.replace(selected_pedido_id_for_s3_search, "")
+                                    display_name = display_name.replace("__", "_").replace("_-", "_").replace("-_", "_").strip('_').strip('-')
 
-                                    st.markdown(f"- 📄 **{display_name}** ({comp['size']} bytes) [🔗 Ver/Descargar]({file_url})")
-                            else:
-                                st.warning("⚠️ No se encontraron comprobantes en la carpeta del pedido en S3.")
-                            
-                            if otros_archivos:
-                                with st.expander("📂 Otros archivos del pedido"):
-                                    for file in otros_archivos:
-                                        file_url = get_s3_file_download_url(s3_client, file['key'])
-                                        st.markdown(f"- 📄 **{file['title']}** ({file['size']} bytes) [🔗 Ver/Descargar]({file_url})")
-                            else:
-                                st.info("No se encontraron otros archivos en la carpeta del pedido en S3.")
+                                st.markdown(f"- 📄 **{display_name}** ({comp['size']} bytes) [🔗 Ver/Descargar]({file_url})")
                         else:
-                            st.info("No se encontraron archivos en la carpeta del pedido en S3.")
+                            st.warning("⚠️ No se encontraron comprobantes en la carpeta del pedido en S3.")
+                        
+                        if otros_archivos:
+                            with st.expander("📂 Otros archivos del pedido"):
+                                for file in otros_archivos:
+                                    file_url = get_s3_file_download_url(s3_client, file['key'])
+                                    st.markdown(f"- 📄 **{file['title']}** ({file['size']} bytes) [🔗 Ver/Descargar]({file_url})")
+                        else:
+                            st.info("No se encontraron otros archivos en la carpeta del pedido en S3.")
                     else:
-                        st.error(f"❌ No se encontró la carpeta (prefijo S3) del pedido '{selected_pedido_id_for_s3_search}'.")
+                        st.info("No se encontraron archivos en la carpeta del pedido en S3.")
                 else:
-                    st.warning("⚠️ No se puede acceder a los archivos de AWS S3 en este momento.")
-                    st.info("Verifica la configuración de autenticación y permisos de AWS.")
-            
-            st.markdown("---")
-            
-            st.subheader("✅ Confirmar Comprobante")
-            
-            if 'fecha_pago' not in st.session_state:
-                st.session_state.fecha_pago = None
-            if 'banco_destino_pago' not in st.session_state:
-                st.session_state.banco_destino_pago = "BANORTE"
-            if 'terminal' not in st.session_state: # Corregido: "not not" a "not"
-                st.session_state.terminal = "BANORTE"
-            if 'forma_pago' not in st.session_state:
-                st.session_state.forma_pago = "Transferencia"
-            if 'monto_pago' not in st.session_state:
-                st.session_state.monto_pago = 0.0
-            if 'referencia_pago' not in st.session_state:
-                st.session_state.referencia_pago = ""
+                    st.error(f"❌ No se encontró la carpeta (prefijo S3) del pedido '{selected_pedido_id_for_s3_search}'.")
+            else:
+                st.warning("⚠️ No se puede acceder a los archivos de AWS S3 en este momento.")
+                st.info("Verifica la configuración de autenticación y permisos de AWS.")
+        
+        st.markdown("---")
+        
+        st.subheader("✅ Confirmar Comprobante")
+        
+        if 'fecha_pago' not in st.session_state:
+            st.session_state.fecha_pago = None
+        if 'banco_destino_pago' not in st.session_state:
+            st.session_state.banco_destino_pago = "BANORTE"
+        if 'terminal' not in st.session_state: # Corregido: "not not" a "not"
+            st.session_state.terminal = "BANORTE"
+        if 'forma_pago' not in st.session_state:
+            st.session_state.forma_pago = "Transferencia"
+        if 'monto_pago' not in st.session_state:
+            st.session_state.monto_pago = 0.0
+        if 'referencia_pago' not in st.session_state:
+            st.session_state.referencia_pago = ""
 
-            col_payment_details = st.columns(4)
-            with col_payment_details[0]:
-                fecha_pago = st.date_input("Fecha Pago Comprobante", value=st.session_state.fecha_pago, key="date_input_payment")
-            
-            with col_payment_details[1]:
-                forma_pago = st.selectbox(
-                    "Forma de Pago", 
-                    ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], 
-                    index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(st.session_state.forma_pago) if st.session_state.forma_pago in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0, 
-                    key="payment_method_select_payment"
+        col_payment_details = st.columns(4)
+        with col_payment_details[0]:
+            fecha_pago = st.date_input("Fecha Pago Comprobante", value=st.session_state.fecha_pago, key="date_input_payment")
+        
+        with col_payment_details[1]:
+            forma_pago = st.selectbox(
+                "Forma de Pago", 
+                ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], 
+                index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(st.session_state.forma_pago) if st.session_state.forma_pago in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0, 
+                key="payment_method_select_payment"
+            )
+        
+        with col_payment_details[2]:
+            if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                terminal = st.selectbox(
+                    "Terminal", 
+                    ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"], 
+                    index=["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"].index(st.session_state.terminal) if st.session_state.terminal in ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"] else 0,
+                    key="terminal_select_payment"
                 )
-            
-            with col_payment_details[2]:
+                banco_destino_pago = ""
+            else:
+                banco_destino_pago = st.selectbox(
+                    "Banco de Destino", 
+                    ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], 
+                    index=["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"].index(st.session_state.banco_destino_pago) if st.session_state.banco_destino_pago in ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"] else 0,
+                    key="bank_select_payment"
+                )
+                terminal = ""
+        
+        with col_payment_details[3]:
+            monto_pago = st.number_input("Monto", min_value=0.0, format="%.2f", value=st.session_state.monto_pago, key="amount_input_payment")
+        
+        referencia_pago = st.text_input("Referencia/Opcional", value=st.session_state.referencia_pago, key="reference_input_payment")
+
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            st.info("👆 Revisa el comprobante de pago haciendo clic en los enlaces de arriba.")
+        
+        with col2:
+            if st.button("✅ Confirmar Comprobante", type="primary", use_container_width=True):
+                required_fields = [fecha_pago, forma_pago, monto_pago is not None]
+                
                 if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    terminal = st.selectbox(
-                        "Terminal", 
-                        ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"], 
-                        index=["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"].index(st.session_state.terminal) if st.session_state.terminal in ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"] else 0,
-                        key="terminal_select_payment"
-                    )
-                    banco_destino_pago = ""
+                    required_fields.append(terminal)
                 else:
-                    banco_destino_pago = st.selectbox(
-                        "Banco de Destino", 
-                        ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], 
-                        index=["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"].index(st.session_state.banco_destino_pago) if st.session_state.banco_destino_pago in ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"] else 0,
-                        key="bank_select_payment"
-                    )
-                    terminal = ""
-            
-            with col_payment_details[3]:
-                monto_pago = st.number_input("Monto", min_value=0.0, format="%.2f", value=st.session_state.monto_pago, key="amount_input_payment")
-            
-            referencia_pago = st.text_input("Referencia/Opcional", value=st.session_state.referencia_pago, key="reference_input_payment")
+                    required_fields.append(banco_destino_pago)
+                
+                if not all(required_fields):
+                    st.error("Por favor, rellena todos los campos obligatorios antes de confirmar.")
+                else:
+                    try:
+                        df_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0]
+                        gsheet_row_index = df_row_index + 2
+                        
+                        updates = {
+                            'Comprobante_Confirmado': 'Sí',
+                            'Fecha_Pago_Comprobante': str(fecha_pago),
+                            'Forma_Pago_Comprobante': forma_pago,
+                            'Monto_Comprobante': monto_pago,
+                            'Referencia_Comprobante': referencia_pago
+                        }
+                        
+                        if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                            updates['Terminal'] = terminal
+                            updates['Banco_Destino_Pago'] = ""
+                        else:
+                            updates['Banco_Destino_Pago'] = banco_destino_pago
+                            updates['Terminal'] = ""
 
-            col1, col2, col3 = st.columns([2, 1, 1])
-            
-            with col1:
-                st.info("👆 Revisa el comprobante de pago haciendo clic en los enlaces de arriba.")
-            
-            with col2:
-                if st.button("✅ Confirmar Comprobante", type="primary", use_container_width=True):
-                    required_fields = [fecha_pago, forma_pago, monto_pago is not None]
-                    
-                    if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                        required_fields.append(terminal)
-                    else:
-                        required_fields.append(banco_destino_pago)
-                    
-                    if not all(required_fields):
-                        st.error("Por favor, rellena todos los campos obligatorios antes de confirmar.")
-                    else:
-                        try:
-                            df_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0]
-                            gsheet_row_index = df_row_index + 2
-                            
-                            updates = {
-                                'Comprobante_Confirmado': 'Sí',
-                                'Fecha_Pago_Comprobante': str(fecha_pago),
-                                'Forma_Pago_Comprobante': forma_pago,
-                                'Monto_Comprobante': monto_pago,
-                                'Referencia_Comprobante': referencia_pago
-                            }
-                            
-                            if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                                updates['Terminal'] = terminal
-                                updates['Banco_Destino_Pago'] = ""
+                        for col_name, value in updates.items():
+                            if col_name in headers:
+                                col_idx = headers.index(col_name) + 1
+                                worksheet.update_cell(gsheet_row_index, col_idx, value) 
                             else:
-                                updates['Banco_Destino_Pago'] = banco_destino_pago
-                                updates['Terminal'] = ""
+                                st.warning(f"La columna '{col_name}' no se encontró en el Google Sheet y no se pudo actualizar.")
+                        
+                        st.success(f"🎉 Comprobante del pedido `{selected_pedido_id_for_s3_search}` confirmado exitosamente!")
+                        st.balloons()
 
-                            for col_name, value in updates.items():
-                                if col_name in headers:
-                                    col_idx = headers.index(col_name) + 1
-                                    worksheet.update_cell(gsheet_row_index, col_idx, value) 
-                                else:
-                                    st.warning(f"La columna '{col_name}' no se encontró en el Google Sheet y no se pudo actualizar.")
-                            
-                            st.success(f"🎉 Comprobante del pedido `{selected_pedido_id_for_s3_search}` confirmado exitosamente!")
-                            st.balloons()
+                        st.session_state.fecha_pago = None
+                        st.session_state.banco_destino_pago = "BANORTE"
+                        st.session_state.terminal = "BANORTE"
+                        st.session_state.forma_pago = "Transferencia"
+                        st.session_state.monto_pago = 0.0
+                        st.session_state.referencia_pago = ""
+                        
+                        st.success("✅ Comprobante confirmado. La app se actualizará en 3 segundos...")
+                        time.sleep(3)
+                        st.cache_data.clear()
+                        st.rerun()
 
-                            st.session_state.fecha_pago = None
-                            st.session_state.banco_destino_pago = "BANORTE"
-                            st.session_state.terminal = "BANORTE"
-                            st.session_state.forma_pago = "Transferencia"
-                            st.session_state.monto_pago = 0.0
-                            st.session_state.referencia_pago = ""
-                            
-                            st.success("✅ Comprobante confirmado. La app se actualizará en 3 segundos...")
-                            time.sleep(3)
-                            st.cache_data.clear()
-                            st.rerun()
-
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error al confirmar el comprobante: {e}")
-            
-            with col3:
-                if st.button("❌ Rechazar Comprobante", type="secondary", use_container_width=True):
-                    st.warning("⚠️ Funcionalidad de rechazo pendiente de implementar.")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error al confirmar el comprobante: {e}")
+        
+        with col3:
+            if st.button("❌ Rechazar Comprobante", type="secondary", use_container_width=True):
+                st.warning("⚠️ Funcionalidad de rechazo pendiente de implementar.")
 
 # --- ESTADÍSTICAS GENERALES ---
 st.markdown("---")
