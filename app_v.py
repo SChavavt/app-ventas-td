@@ -175,12 +175,7 @@ with tab1:
         except ValueError:
             initial_vendedor_index = 0
 
-        vendedor = st.selectbox(
-            "👤 Vendedor",
-            options=VENDEDORES_LIST,
-            index=initial_vendedor_index
-        )
-
+        vendedor = st.selectbox("👤 Vendedor", VENDEDORES_LIST, index=initial_vendedor_index)
         if vendedor != st.session_state.last_selected_vendedor:
             st.session_state.last_selected_vendedor = vendedor
 
@@ -240,6 +235,7 @@ with tab1:
                     referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
 
         submit_button = st.form_submit_button("✅ Registrar Pedido")
+
 
     if submit_button:
         try:
