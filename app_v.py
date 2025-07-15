@@ -30,7 +30,7 @@ def build_gspread_client():
     return gspread.authorize(creds)
 
 _gsheets_client = None
-
+@st.cache_resource
 def get_google_sheets_client():
     def try_get_client():
         credentials_json_str = st.secrets["google_credentials"]
@@ -48,7 +48,9 @@ def get_google_sheets_client():
     except gspread.exceptions.APIError as e:
         if "RESOURCE_EXHAUSTED" in str(e) or "expired" in str(e).lower():
             st.warning("🔁 Token expirado o cuota alcanzada. Reintentando con nuevo cliente...")
+            st.cache_resource.clear()
             time.sleep(2)
+
             try:
                 client = try_get_client()
                 _ = client.open_by_key(GOOGLE_SHEET_ID)
@@ -59,6 +61,12 @@ def get_google_sheets_client():
         else:
             st.error(f"❌ Error al conectar con Google Sheets: {e}")
             st.stop()
+
+@st.cache_resource
+def get_worksheet():
+    client = get_google_sheets_client()
+    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    return spreadsheet.worksheet("datos_pedidos")
 
 # ✅ Cliente listo para usar en cualquier parte
 g_spread_client = get_google_sheets_client()
@@ -268,8 +276,8 @@ with tab1:
 
             headers = []
             try:
-                spreadsheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID)
-                worksheet = spreadsheet.worksheet('datos_pedidos')
+                worksheet = get_worksheet()
+
                 all_data = worksheet.get_all_values()
                 if not all_data:
                     st.error("❌ La hoja de cálculo está vacía.")
@@ -381,8 +389,8 @@ with tab2:
 
     @st.cache_data(ttl=30)
     def cargar_datos_pedidos():
-        spreadsheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID)
-        worksheet = spreadsheet.worksheet('datos_pedidos')
+        worksheet = get_worksheet()
+
         headers = worksheet.row_values(1)
         df = pd.DataFrame(worksheet.get_all_records()) if headers else pd.DataFrame()
         return df, headers, worksheet
@@ -663,8 +671,8 @@ with tab3:
 
     df_pedidos_comprobante = pd.DataFrame()
     try:
-        spreadsheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID)
-        worksheet = spreadsheet.worksheet('datos_pedidos')
+        worksheet = get_worksheet()
+
         headers = worksheet.row_values(1)
         if headers:
             df_pedidos_comprobante = pd.DataFrame(worksheet.get_all_records())
