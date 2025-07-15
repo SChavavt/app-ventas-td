@@ -368,7 +368,7 @@ with tab1:
 
             # ✅ Si se registró con éxito, reiniciamos para limpiar formulario
             time.sleep(1.5)  # da tiempo para ver el mensaje
-            st.experimental_rerun()
+            st.rerun()
 
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
