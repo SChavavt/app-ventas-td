@@ -366,6 +366,10 @@ with tab1:
                 st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in adjuntos_urls))
             st.balloons()
 
+            # ✅ Si se registró con éxito, reiniciamos para limpiar formulario
+            time.sleep(1.5)  # da tiempo para ver el mensaje
+            st.experimental_rerun()
+
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
 
