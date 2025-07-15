@@ -360,8 +360,7 @@ if selected_pedido_display:
             else:
                 st.warning("⚠️ No se puede acceder a los archivos de AWS S3 en este momento.")
                 st.info("Verifica la configuración de autenticación y permisos de AWS.")
-        
-        st.markdown("---")
+                st.markdown("---")
         
         st.subheader("✅ Confirmar Comprobante")
         
@@ -420,6 +419,7 @@ if selected_pedido_display:
         
         with col2:
             if st.button("✅ Confirmar Comprobante", type="primary", use_container_width=True):
+
                 required_fields = [fecha_pago, forma_pago, monto_pago is not None]
                 
                 if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
