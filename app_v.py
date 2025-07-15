@@ -185,7 +185,7 @@ with tab1:
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
 
-    with st.form(key="new_pedido_form", clear_on_submit=False):
+    with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
