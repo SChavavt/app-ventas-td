@@ -471,8 +471,7 @@ else:
                         time.sleep(3)
 
                         # Ahora sí: limpiar selectbox y forzar recarga
-                        st.session_state.select_pedido_comprobante = None
-                        st.session_state.selected_admin_pedido_id = None
+                        # 🔄 Forzar recarga limpia
                         st.cache_data.clear()
                         st.rerun()
 
