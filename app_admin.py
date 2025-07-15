@@ -217,7 +217,6 @@ df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_
 worksheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
 
 
-
 if df_pedidos.empty:
     st.info("ℹ️ No hay pedidos cargados en este momento. Puedes revisar más tarde o verificar si los vendedores han registrado alguno.")
 else:
@@ -233,20 +232,19 @@ else:
     if pedidos_pagados_no_confirmados.empty:
         st.success("🎉 ¡No hay comprobantes pendientes de confirmación!")
         st.info("Todos los pedidos pagados han sido confirmados o no hay pedidos pagados.")
-
     else:
         st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes de confirmación.")
 
         columns_to_show = [
-            'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 
+            'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio',
             'Fecha_Entrega', 'Estado', 'Estado_Pago'
         ]
         existing_columns = [col for col in columns_to_show if col in pedidos_pagados_no_confirmados.columns]
 
         if existing_columns:
             st.dataframe(
-                pedidos_pagados_no_confirmados[existing_columns].sort_values(by='Fecha_Entrega'), 
-                use_container_width=True, 
+                pedidos_pagados_no_confirmados[existing_columns].sort_values(by='Fecha_Entrega'),
+                use_container_width=True,
                 hide_index=True
             )
         else:
@@ -259,7 +257,7 @@ else:
             pedidos_pagados_no_confirmados['display_label'] = (
                 pedidos_pagados_no_confirmados['Folio_Factura'] + " - " +
                 pedidos_pagados_no_confirmados.get('Cliente', 'N/A') + " - " +
-                pedidos_pagados_no_confirmados.get('Vendedor_Registro', 'N/A') + " (ID: " + 
+                pedidos_pagados_no_confirmados.get('Vendedor_Registro', 'N/A') + " (ID: " +
                 pedidos_pagados_no_confirmados.get('ID_Pedido', 'N/A') + ")"
             )
         else:
@@ -278,29 +276,28 @@ else:
             key="select_pedido_comprobante"
         )
 
-        # ✅ Estas líneas deben ir DENTRO del bloque
+        # ✅ Estas variables solo existen si hay pedidos
         selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
         selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
+        # ✅ Y todo lo siguiente debe quedar dentro del bloque
+        previous_selected_id = st.session_state.get("selected_admin_pedido_id", None)
+        st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
 
-    # Detectar cambio de pedido seleccionado
-    previous_selected_id = st.session_state.get("selected_admin_pedido_id", None)
-    st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
-    # 👇 Forzar actualización de todos los valores
-    st.session_state.fecha_pago = pd.to_datetime(
-        selected_pedido_data.get('Fecha_Pago_Comprobante')
-    ).date() if selected_pedido_data.get('Fecha_Pago_Comprobante') else None
+        st.session_state.fecha_pago = pd.to_datetime(
+            selected_pedido_data.get('Fecha_Pago_Comprobante')
+        ).date() if selected_pedido_data.get('Fecha_Pago_Comprobante') else None
 
-    st.session_state.forma_pago = selected_pedido_data.get('Forma_Pago_Comprobante', 'Transferencia')
-    st.session_state.terminal = selected_pedido_data.get('Terminal', 'BANORTE')
-    st.session_state.banco_destino_pago = selected_pedido_data.get('Banco_Destino_Pago', 'BANORTE')
+        st.session_state.forma_pago = selected_pedido_data.get('Forma_Pago_Comprobante', 'Transferencia')
+        st.session_state.terminal = selected_pedido_data.get('Terminal', 'BANORTE')
+        st.session_state.banco_destino_pago = selected_pedido_data.get('Banco_Destino_Pago', 'BANORTE')
 
-    try:
-        st.session_state.monto_pago = float(selected_pedido_data.get('Monto_Comprobante', 0.0))
-    except Exception:
-        st.session_state.monto_pago = 0.0
+        try:
+            st.session_state.monto_pago = float(selected_pedido_data.get('Monto_Comprobante', 0.0))
+        except Exception:
+            st.session_state.monto_pago = 0.0
 
-    st.session_state.referencia_pago = selected_pedido_data.get('Referencia_Comprobante', '')
+        st.session_state.referencia_pago = selected_pedido_data.get('Referencia_Comprobante', '')
 
     col1, col2 = st.columns(2)
     
