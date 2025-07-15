@@ -459,22 +459,24 @@ if selected_pedido_display:
                         st.success(f"🎉 Comprobante del pedido `{selected_pedido_id_for_s3_search}` confirmado exitosamente!")
                         st.balloons()
 
-                        # Limpiar campos
+                        # Limpiar campos (sin tocar aún el ID del pedido)
                         st.session_state.fecha_pago = None
                         st.session_state.banco_destino_pago = "BANORTE"
                         st.session_state.terminal = "BANORTE"
                         st.session_state.forma_pago = "Transferencia"
                         st.session_state.monto_pago = 0.0
                         st.session_state.referencia_pago = ""
-                        st.session_state.selected_admin_pedido_id = None
 
+                        # Mensaje y refresco final
                         st.success("✅ Comprobante confirmado. La app se actualizará en 3 segundos...")
                         time.sleep(3)
+
+                        # Ahora sí: limpiar selectbox y forzar recarga
+                        st.session_state.select_pedido_comprobante = None
+                        st.session_state.selected_admin_pedido_id = None
                         st.cache_data.clear()
                         st.rerun()
 
-
-                        
                     except Exception as e:
                         st.error(f"❌ Error al confirmar el comprobante: {e}")
         
