@@ -15,6 +15,11 @@ import boto3
 # --- STREAMLIT CONFIGURATION ---
 st.set_page_config(page_title="App Vendedores TD", layout="wide")
 
+if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    st.rerun()
+
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
