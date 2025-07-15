@@ -180,6 +180,11 @@ except Exception as e:
 
 st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
 
+if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
+    st.cache_data.clear()
+    st.experimental_rerun()
+
+
 def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
     @st.cache_data(ttl=60)
     def _load():
@@ -455,17 +460,20 @@ if selected_pedido_display:
                         st.success(f"🎉 Comprobante del pedido `{selected_pedido_id_for_s3_search}` confirmado exitosamente!")
                         st.balloons()
 
+                        # Limpiar campos
                         st.session_state.fecha_pago = None
                         st.session_state.banco_destino_pago = "BANORTE"
                         st.session_state.terminal = "BANORTE"
                         st.session_state.forma_pago = "Transferencia"
                         st.session_state.monto_pago = 0.0
                         st.session_state.referencia_pago = ""
-                        
+                        st.session_state.selected_admin_pedido_id = None
+
                         st.success("✅ Comprobante confirmado. La app se actualizará en 3 segundos...")
                         time.sleep(3)
                         st.cache_data.clear()
                         st.rerun()
+
 
                         
                     except Exception as e:
