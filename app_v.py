@@ -369,7 +369,7 @@ with tab1:
                 else:
                     values.append("")
 
-            worksheet.append_row(values)
+            worksheet.insert_row(values, index=2)
             st.success(f"🎉 Pedido {id_pedido} registrado con éxito!")
             if adjuntos_urls:
                 st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in adjuntos_urls))
