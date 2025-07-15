@@ -431,8 +431,8 @@ if selected_pedido_display:
                     st.error("Por favor, rellena todos los campos obligatorios antes de confirmar.")
                 else:
                     try:
-                        df_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0]
-                        gsheet_row_index = df_row_index + 2
+                        df_row_index = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0]
+                        gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0] + 2
                         
                         updates = {
                             'Comprobante_Confirmado': 'Sí',
