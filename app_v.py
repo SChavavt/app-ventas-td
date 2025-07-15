@@ -29,19 +29,20 @@ def build_gspread_client():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
 
-@st.cache_resource
+_gsheets_client = None
+
 def get_google_sheets_client():
-    client = build_gspread_client()
-    try:
-        _ = client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")
-        return client
-    except gspread.exceptions.APIError:
-        # Fuerza recacheo si el token es inválido
-        st.cache_resource.clear()
-        st.warning("🔁 Token expirado. Reintentando autenticación...")
-        client = build_gspread_client()
-        _ = client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")  # Verifica nuevamente
-        return client
+    global _gsheets_client
+    if _gsheets_client is None:
+        _gsheets_client = build_gspread_client()
+        try:
+            _ = _gsheets_client.open_by_key(GOOGLE_SHEET_ID)
+        except gspread.exceptions.APIError:
+            st.warning("🔁 Token expirado. Reintentando autenticación...")
+            _gsheets_client = build_gspread_client()  # Fuerza nueva autenticación
+            _ = _gsheets_client.open_by_key(GOOGLE_SHEET_ID)
+    return _gsheets_client
+
 
 
 
