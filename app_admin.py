@@ -296,30 +296,31 @@ else:
 
                     if s3_client:
                         pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
-                        if pedido_folder_prefix:
-                            files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix)
-                            if files:
-                                comprobantes = [f for f in files if 'comprobante' in f['title'].lower()]
-                                otros = [f for f in files if f not in comprobantes]
+                        files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
 
-                                if comprobantes:
-                                    st.write("**🧾 Comprobantes de Pago:**")
-                                    for f in comprobantes:
+                        if files:
+                            comprobantes = [f for f in files if 'comprobante' in f['title'].lower()]
+                            otros = [f for f in files if f not in comprobantes]
+
+                            if comprobantes:
+                                st.write("**🧾 Comprobantes de Pago:**")
+                                for f in comprobantes:
+                                    url = get_s3_file_download_url(s3_client, f['key'])
+                                    nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
+                                    st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
+                            else:
+                                st.warning("⚠️ No se encontraron comprobantes.")
+
+                            if otros:
+                                with st.expander("📂 Otros archivos del pedido"):
+                                    for f in otros:
                                         url = get_s3_file_download_url(s3_client, f['key'])
-                                        nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
-                                else:
-                                    st.warning("⚠️ No se encontraron comprobantes.")
-
-                                if otros:
-                                    with st.expander("📂 Otros archivos del pedido"):
-                                        for f in otros:
-                                            url = get_s3_file_download_url(s3_client, f['key'])
-                                            st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
+                                        st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                         else:
-                            st.info("No hay archivos en la carpeta del pedido.")
+                            st.info("📁 No se encontraron archivos en la carpeta del pedido.")
                     else:
-                        st.error("❌ Carpeta del pedido no encontrada en S3.")
+                        st.error("❌ Error de conexión con S3. Revisa las credenciales.")
+
 
                     # 🔎 Mostrar guías subidas desde Google Sheets (fuera del bloque de S3)
                     if "Adjuntos_Guia" in selected_pedido_data and selected_pedido_data["Adjuntos_Guia"].strip():
