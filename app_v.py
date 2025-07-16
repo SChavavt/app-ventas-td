@@ -896,13 +896,25 @@ with tab4:
                     enlaces.append(f"[{nombre}]({val})")
             return " | ".join(enlaces)
 
-        df_guias["Adjuntos_Guia"] = df_guias["Adjuntos_Guia"].apply(formatear_links_guia)
+        # Mostrar tabla sin la columna de links largos
+        columnas_sin_links = ["ID_Pedido", "Cliente", "Vendedor_Registro", "Tipo_Envio", "Estado", "Fecha_Entrega"]
+        tabla_guias = df_guias[columnas_sin_links].copy()
+        tabla_guias["Fecha_Entrega"] = pd.to_datetime(tabla_guias["Fecha_Entrega"], errors="coerce").dt.strftime("%d/%m/%y")
+        st.dataframe(tabla_guias, use_container_width=True, hide_index=True)
 
-        columnas = ["ID_Pedido", "Cliente", "Vendedor_Registro", "Tipo_Envio", "Estado", "Fecha_Entrega", "Adjuntos_Guia"]
-        df_guias = df_guias[columnas].copy()
+        # Mostrar links por separado con encabezado claro
+        st.markdown("### 📥 Guías por Pedido")
+        for _, row in df_guias.iterrows():
+            if row["Adjuntos_Guia"]:
+                st.markdown(f"**Pedido:** {row['ID_Pedido']} - {row['Cliente']} ({row['Tipo_Envio']})")
+                for link in str(row["Adjuntos_Guia"]).split(","):
+                    link = link.strip()
+                    if link:
+                        nombre = link.split("/")[-1]
+                        st.markdown(f"- [📄 {nombre}]({link})")
+                st.markdown("---")
+
         df_guias["Fecha_Entrega"] = pd.to_datetime(df_guias["Fecha_Entrega"], errors="coerce").dt.strftime("%d/%m/%y")
-
-        st.dataframe(df_guias, use_container_width=True, hide_index=True)
 
 # --- TAB 5: DOWNLOAD DATA ---
 with tab5:
