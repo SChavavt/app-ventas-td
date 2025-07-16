@@ -198,7 +198,7 @@ with tab1:
 
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
-        ["📍 Pedido Local", "🚚 Pedido Foráneo", "🔁 Devolución", "📬 Solicitud de guía"],
+        ["📍 Pedido Local", "🚚 Pedido Foráneo", "🔁 Devolución", "🛠 Garantía"],
         index=0,
         key="tipo_envio_selector_global"
     )
@@ -737,7 +737,7 @@ with tab3:
 
         with col4_tab3:
             if 'Tipo_Envio' in filtered_pedidos_comprobante.columns:
-                unique_tipos_envio_comp = ["Todos", "📍 Pedido Local", "🚚 Pedido Foráneo", "🛠 Garantía", "🔁 Devolución", "📬 Solicitud de guía"]
+                unique_tipos_envio_comp = ["Todos", "📍 Pedido Local", "🚚 Pedido Foráneo", "🛠 Garantía", "🔁 Devolución", "🛠 Garantía"]
                 selected_tipo_envio_comp = st.selectbox(
                     "Filtrar por Tipo de Envío:",
                     options=unique_tipos_envio_comp,
@@ -1046,7 +1046,7 @@ with tab5:
             st.warning("La columna 'Vendedor_Registro' no está disponible en los datos cargados para aplicar este filtro. Por favor, asegúrate de que el nombre de la columna en tu Google Sheet sea 'Vendedor_Registro'.")
 
         if 'Tipo_Envio' in filtered_df_download.columns:
-            unique_tipos_envio_download = ["Todos", "📍 Pedido Local", "🚚 Pedido Foráneo", "🔁 Devolución", "📬 Solicitud de guía"]
+            unique_tipos_envio_download = ["Todos", "📍 Pedido Local", "🚚 Pedido Foráneo", "🔁 Devolución", "🛠 Garantía"]
             selected_tipo_envio_download = st.selectbox(
                 "Filtrar por Tipo de Envío:",
                 options=unique_tipos_envio_download,
