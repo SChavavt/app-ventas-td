@@ -158,13 +158,23 @@ s3_client = get_s3_client() # Initialize S3 client
 # Removed the old try-except block for client initialization
 
 # --- Tab Definition ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+# --- Tab Definition con control de pestaña activa ---
+tabs_labels = [
     "🛒 Registrar Nuevo Pedido",
     "✏️ Modificar Pedido Existente",
     "🧾 Pedidos Pendientes de Comprobante",
-    "📦 Guías Cargadas",           # NUEVA pestaña 4
-    "⬇️ Descargar Datos"           # pestaña de descarga (ahora es la 5)
-])
+    "📦 Guías Cargadas",
+    "⬇️ Descargar Datos"
+]
+
+# Leer índice de pestaña desde los parámetros de la URL
+params = st.experimental_get_query_params()
+active_tab_index = int(params.get("tab", [0])[0])  # por defecto: 0
+
+# Crear pestañas y mantener referencia
+tabs = st.tabs(tabs_labels)
+tab1, tab2, tab3, tab4, tab5 = tabs
+
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
@@ -188,10 +198,11 @@ with tab1:
 
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
-        ["📍 Pedido Local", "🚚 Pedido Foráneo", "🛠 Garantía", "🔁 Devolución", "📬 Solicitud de guía"],
+        ["📍 Pedido Local", "🚚 Pedido Foráneo", "🔁 Devolución", "📬 Solicitud de guía"],
         index=0,
         key="tipo_envio_selector_global"
     )
+
 
     subtipo_local = ""
     if tipo_envio == "📍 Pedido Local":
@@ -848,26 +859,31 @@ with tab3:
                         else:
                             st.warning("⚠️ Por favor, sube un archivo de comprobante antes de guardar.")
 
+# ✅ Cargar datos de guías cacheados para evitar sobrecarga
+@st.cache_data(ttl=60)
+def cargar_datos_guias():
+    worksheet = get_worksheet()
+    headers = worksheet.row_values(1)
+    if headers:
+        df = pd.DataFrame(worksheet.get_all_records())
+        if "Adjuntos_Guia" not in df.columns:
+            df["Adjuntos_Guia"] = ""
+        df = df[df["Adjuntos_Guia"].astype(str).str.strip() != ""]
+        return df
+    return pd.DataFrame()
+
 # --- TAB 4: GUIAS CARGADAS ---
+def fijar_tab4_activa():
+    st.experimental_set_query_params(tab="3")
+
 with tab4:
     st.header("📦 Pedidos con Guías Subidas desde Almacén")
 
-    df_guias = pd.DataFrame()
     try:
-        worksheet = get_worksheet()
-        headers = worksheet.row_values(1)
-        if headers:
-            df_guias = pd.DataFrame(worksheet.get_all_records())
-
-            # Validar columna necesaria
-            if "Adjuntos_Guia" not in df_guias.columns:
-                df_guias["Adjuntos_Guia"] = ""
-
-            df_guias = df_guias[df_guias["Adjuntos_Guia"].astype(str).str.strip() != ""].copy()
-        else:
-            st.warning("⚠️ No se encontraron encabezados en la hoja de cálculo.")
+        df_guias = cargar_datos_guias()
     except Exception as e:
         st.error(f"❌ Error al cargar datos de guías: {e}")
+        df_guias = pd.DataFrame()
 
     if df_guias.empty:
         st.info("No hay pedidos con guías subidas.")
@@ -877,15 +893,25 @@ with tab4:
 
         with col1_tab4:
             vendedores = ["Todos"] + sorted(df_guias["Vendedor_Registro"].dropna().unique().tolist())
-            vendedor_filtrado = st.selectbox("Filtrar por Vendedor", vendedores, key="filtro_vendedor_guias")
+            vendedor_filtrado = st.selectbox(
+                "Filtrar por Vendedor",
+                vendedores,
+                key="filtro_vendedor_guias",
+                on_change=fijar_tab4_activa
+            )            
         with col2_tab4:
             tipos_envio = ["Todos"] + sorted(df_guias["Tipo_Envio"].dropna().unique().tolist())
-            tipo_envio_filtrado = st.selectbox("Filtrar por Tipo de Envío", tipos_envio, key="filtro_tipo_envio_guias")
-
+            tipo_envio_filtrado = st.selectbox(
+                "Filtrar por Tipo de Envío",
+                tipos_envio,
+                key="filtro_tipo_envio_guias",
+                on_change=fijar_tab4_activa
+            )
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
         if tipo_envio_filtrado != "Todos":
             df_guias = df_guias[df_guias["Tipo_Envio"] == tipo_envio_filtrado]
+
 
         def formatear_links_guia(txt):
             enlaces = []
@@ -1020,7 +1046,7 @@ with tab5:
             st.warning("La columna 'Vendedor_Registro' no está disponible en los datos cargados para aplicar este filtro. Por favor, asegúrate de que el nombre de la columna en tu Google Sheet sea 'Vendedor_Registro'.")
 
         if 'Tipo_Envio' in filtered_df_download.columns:
-            unique_tipos_envio_download = ["Todos", "📍 Pedido Local", "🚚 Pedido Foráneo", "🛠 Garantía", "🔁 Devolución", "📬 Solicitud de guía"]
+            unique_tipos_envio_download = ["Todos", "📍 Pedido Local", "🚚 Pedido Foráneo", "🔁 Devolución", "📬 Solicitud de guía"]
             selected_tipo_envio_download = st.selectbox(
                 "Filtrar por Tipo de Envío:",
                 options=unique_tipos_envio_download,
