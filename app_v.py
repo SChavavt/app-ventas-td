@@ -168,8 +168,8 @@ tabs_labels = [
 ]
 
 # Leer índice de pestaña desde los parámetros de la URL
-params = st.experimental_get_query_params()
-active_tab_index = int(params.get("tab", [0])[0])  # por defecto: 0
+params = st.query_params
+active_tab_index = int(params.get("tab", ["0"])[0])
 
 # Crear pestañas y mantener referencia
 tabs = st.tabs(tabs_labels)
@@ -874,7 +874,7 @@ def cargar_datos_guias():
 
 # --- TAB 4: GUIAS CARGADAS ---
 def fijar_tab4_activa():
-    st.experimental_set_query_params(tab="3")
+    st.query_params.update({"tab": "3"})
 
 with tab4:
     st.header("📦 Pedidos con Guías Subidas desde Almacén")
