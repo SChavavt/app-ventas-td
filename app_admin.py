@@ -322,25 +322,6 @@ else:
                         st.error("❌ Error de conexión con S3. Revisa las credenciales.")
 
 
-                    # 🔎 Mostrar guías subidas desde Google Sheets (fuera del bloque de S3)
-                    if "Adjuntos_Guia" in selected_pedido_data and selected_pedido_data["Adjuntos_Guia"].strip():
-                        st.markdown("### 📦 Guías de Envío Subidas por Almacén")
-                        for guia_url in selected_pedido_data["Adjuntos_Guia"].split(","):
-                            guia_url = guia_url.strip()
-                            if guia_url:
-                                nombre = guia_url.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({guia_url})")
-
-                            if otros:
-                                with st.expander("📂 Otros archivos del pedido"):
-                                    for f in otros:
-                                        url = get_s3_file_download_url(s3_client, f['key'])
-                                        st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
-                        else:
-                            st.info("No hay archivos en la carpeta del pedido.")
-                    else:
-                        st.error("❌ Carpeta del pedido no encontrada en S3.")
-
             st.subheader("✅ Confirmar Comprobante")
 
             if 'fecha_pago' not in st.session_state:
