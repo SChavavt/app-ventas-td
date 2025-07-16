@@ -248,19 +248,14 @@ else:
         st.markdown("---")
         st.subheader("🔍 Revisar Comprobante de Pago")
 
-        if 'Folio_Factura' in pedidos_pagados_no_confirmados.columns:
-            pedidos_pagados_no_confirmados['display_label'] = (
-                pedidos_pagados_no_confirmados['Folio_Factura'] + " - " +
-                pedidos_pagados_no_confirmados.get('Cliente', 'N/A') + " - " +
-                pedidos_pagados_no_confirmados.get('Vendedor_Registro', 'N/A') + " (ID: " +
-                pedidos_pagados_no_confirmados.get('ID_Pedido', 'N/A') + ")"
-            )
-        else:
-            pedidos_pagados_no_confirmados['display_label'] = (
-                pedidos_pagados_no_confirmados.get('ID_Pedido', 'N/A') + " - " +
-                pedidos_pagados_no_confirmados.get('Cliente', 'N/A') + " - " +
-                pedidos_pagados_no_confirmados.get('Vendedor_Registro', 'N/A')
-            )
+        # 💄 Mostrar pedidos con formato limpio y emojis bonitos, sin repetir los del Excel
+        pedidos_pagados_no_confirmados['display_label'] = pedidos_pagados_no_confirmados.apply(lambda row: (
+            f"📄 {row.get('Folio_Factura', 'N/A')} - "
+            f"👤 {row.get('Cliente', 'N/A')} - "
+            f"{row.get('Estado', 'N/A')} - "
+            f"{row.get('Tipo_Envio', 'N/A')}"
+        ), axis=1)
+
 
         pedido_options = pedidos_pagados_no_confirmados['display_label'].tolist()
         selected_index = st.selectbox(
@@ -299,24 +294,44 @@ else:
                 st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
                 st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
 
-            with col2:
-                st.subheader("📎 Archivos y Comprobantes")
-                if s3_client:
-                    pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
-                    if pedido_folder_prefix:
-                        files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix)
-                        if files:
-                            comprobantes = [f for f in files if 'comprobante' in f['title'].lower()]
-                            otros = [f for f in files if f not in comprobantes]
+                with col2:
+                    st.subheader("📎 Archivos y Comprobantes")
 
-                            if comprobantes:
-                                st.write("**🧾 Comprobantes de Pago:**")
-                                for f in comprobantes:
-                                    url = get_s3_file_download_url(s3_client, f['key'])
-                                    nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                    st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
-                            else:
-                                st.warning("⚠️ No se encontraron comprobantes.")
+                    if s3_client:
+                        pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
+                        if pedido_folder_prefix:
+                            files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix)
+                            if files:
+                                comprobantes = [f for f in files if 'comprobante' in f['title'].lower()]
+                                otros = [f for f in files if f not in comprobantes]
+
+                                if comprobantes:
+                                    st.write("**🧾 Comprobantes de Pago:**")
+                                    for f in comprobantes:
+                                        url = get_s3_file_download_url(s3_client, f['key'])
+                                        nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
+                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
+                                else:
+                                    st.warning("⚠️ No se encontraron comprobantes.")
+
+                                if otros:
+                                    with st.expander("📂 Otros archivos del pedido"):
+                                        for f in otros:
+                                            url = get_s3_file_download_url(s3_client, f['key'])
+                                            st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
+                        else:
+                            st.info("No hay archivos en la carpeta del pedido.")
+                    else:
+                        st.error("❌ Carpeta del pedido no encontrada en S3.")
+
+                    # 🔎 Mostrar guías subidas desde Google Sheets (fuera del bloque de S3)
+                    if "Adjuntos_Guia" in selected_pedido_data and selected_pedido_data["Adjuntos_Guia"].strip():
+                        st.markdown("### 📦 Guías de Envío Subidas por Almacén")
+                        for guia_url in selected_pedido_data["Adjuntos_Guia"].split(","):
+                            guia_url = guia_url.strip()
+                            if guia_url:
+                                nombre = guia_url.split("/")[-1]
+                                st.markdown(f"- [{nombre}]({guia_url})")
 
                             if otros:
                                 with st.expander("📂 Otros archivos del pedido"):
@@ -327,8 +342,6 @@ else:
                             st.info("No hay archivos en la carpeta del pedido.")
                     else:
                         st.error("❌ Carpeta del pedido no encontrada en S3.")
-                else:
-                    st.warning("⚠️ No se puede acceder a AWS S3. Verifica credenciales.")
 
             st.subheader("✅ Confirmar Comprobante")
 
