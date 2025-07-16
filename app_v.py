@@ -1039,11 +1039,24 @@ with tab5:
         if not filtered_df_download.empty:
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                # MODIFICATION 3: Ensure Fecha_Entrega is formatted as date string in Excel
-                excel_df = filtered_df_download.copy()
-                if 'Fecha_Entrega' in excel_df.columns:
-                    excel_df['Fecha_Entrega'] = excel_df['Fecha_Entrega'].dt.strftime('%Y-%m-%d')
+                # Crear copia para exportar solo columnas seguras
+                columnas_seguras = [
+                    'Folio_Factura', 'ID_Pedido', 'Cliente', 'Estado',
+                    'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+                    'Estado_Pago', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
+                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante'
+                ]
+                columnas_existentes = [col for col in columnas_seguras if col in filtered_df_download.columns]
+
+                excel_df = filtered_df_download[columnas_existentes].copy()
+
+                # Asegúrate de que las fechas estén en formato string
+                for fecha_col in ['Fecha_Entrega', 'Fecha_Pago_Comprobante']:
+                    if fecha_col in excel_df.columns:
+                        excel_df[fecha_col] = pd.to_datetime(excel_df[fecha_col], errors='coerce').dt.strftime('%Y-%m-%d')
+
                 excel_df.to_excel(writer, index=False, sheet_name='Pedidos_Filtrados')
+
             processed_data = output.getvalue()
 
             st.download_button(
