@@ -217,13 +217,10 @@ worksheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("d
 if df_pedidos.empty:
     st.info("ℹ️ No hay pedidos cargados en este momento.")
 else:
-    if 'Estado_Pago' in df_pedidos.columns and 'Comprobante_Confirmado' in df_pedidos.columns:
-        pedidos_pagados_no_confirmados = df_pedidos[
-            (df_pedidos['Estado_Pago'] == '✅ Pagado') &
-            (df_pedidos['Comprobante_Confirmado'] != 'Sí')
-        ].copy()
+    if 'Comprobante_Confirmado' in df_pedidos.columns:
+        pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
     else:
-        st.warning("Faltan columnas necesarias en la hoja de Google.")
+        st.warning("⚠️ La columna 'Comprobante_Confirmado' no se encontró en la hoja de cálculo.")
         pedidos_pagados_no_confirmados = pd.DataFrame()
 
     if pedidos_pagados_no_confirmados.empty:
