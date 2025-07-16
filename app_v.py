@@ -158,7 +158,13 @@ s3_client = get_s3_client() # Initialize S3 client
 # Removed the old try-except block for client initialization
 
 # --- Tab Definition ---
-tab1, tab2, tab3, tab4 = st.tabs(["🛒 Registrar Nuevo Pedido", "✏️ Modificar Pedido Existente", "🧾 Pedidos Pendientes de Comprobante", "⬇️ Descargar Datos"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🛒 Registrar Nuevo Pedido",
+    "✏️ Modificar Pedido Existente",
+    "🧾 Pedidos Pendientes de Comprobante",
+    "📦 Guías Cargadas",           # NUEVA pestaña 4
+    "⬇️ Descargar Datos"           # pestaña de descarga (ahora es la 5)
+])
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
@@ -398,6 +404,9 @@ with tab2:
 
         headers = worksheet.row_values(1)
         df = pd.DataFrame(worksheet.get_all_records()) if headers else pd.DataFrame()
+        if "Adjuntos_Guia" not in df.columns:
+             df["Adjuntos_Guia"] = ""
+
         return df, headers, worksheet
 
     try:
@@ -681,6 +690,9 @@ with tab3:
         headers = worksheet.row_values(1)
         if headers:
             df_pedidos_comprobante = pd.DataFrame(worksheet.get_all_records())
+            if "Adjuntos_Guia" not in df_pedidos_comprobante.columns:
+                df_pedidos_comprobante["Adjuntos_Guia"] = ""
+
             if 'Folio_Factura' in df_pedidos_comprobante.columns:
                 df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '')
             if 'Vendedor_Registro' in df_pedidos_comprobante.columns:
@@ -836,9 +848,64 @@ with tab3:
                         else:
                             st.warning("⚠️ Por favor, sube un archivo de comprobante antes de guardar.")
 
-
-# --- TAB 4: DOWNLOAD DATA ---
+# --- TAB 4: GUIAS CARGADAS ---
 with tab4:
+    st.header("📦 Pedidos con Guías Subidas desde Almacén")
+
+    df_guias = pd.DataFrame()
+    try:
+        worksheet = get_worksheet()
+        headers = worksheet.row_values(1)
+        if headers:
+            df_guias = pd.DataFrame(worksheet.get_all_records())
+
+            # Validar columna necesaria
+            if "Adjuntos_Guia" not in df_guias.columns:
+                df_guias["Adjuntos_Guia"] = ""
+
+            df_guias = df_guias[df_guias["Adjuntos_Guia"].astype(str).str.strip() != ""].copy()
+        else:
+            st.warning("⚠️ No se encontraron encabezados en la hoja de cálculo.")
+    except Exception as e:
+        st.error(f"❌ Error al cargar datos de guías: {e}")
+
+    if df_guias.empty:
+        st.info("No hay pedidos con guías subidas.")
+    else:
+        st.markdown("### 🔍 Filtros")
+        col1_tab4, col2_tab4 = st.columns(2)
+
+        with col1_tab4:
+            vendedores = ["Todos"] + sorted(df_guias["Vendedor_Registro"].dropna().unique().tolist())
+            vendedor_filtrado = st.selectbox("Filtrar por Vendedor", vendedores, key="filtro_vendedor_guias")
+        with col2_tab4:
+            tipos_envio = ["Todos"] + sorted(df_guias["Tipo_Envio"].dropna().unique().tolist())
+            tipo_envio_filtrado = st.selectbox("Filtrar por Tipo de Envío", tipos_envio, key="filtro_tipo_envio_guias")
+
+        if vendedor_filtrado != "Todos":
+            df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
+        if tipo_envio_filtrado != "Todos":
+            df_guias = df_guias[df_guias["Tipo_Envio"] == tipo_envio_filtrado]
+
+        def formatear_links_guia(txt):
+            enlaces = []
+            for val in str(txt).split(","):
+                val = val.strip()
+                if val:
+                    nombre = val.split("/")[-1]
+                    enlaces.append(f"[{nombre}]({val})")
+            return " | ".join(enlaces)
+
+        df_guias["Adjuntos_Guia"] = df_guias["Adjuntos_Guia"].apply(formatear_links_guia)
+
+        columnas = ["ID_Pedido", "Cliente", "Vendedor_Registro", "Tipo_Envio", "Estado", "Fecha_Entrega", "Adjuntos_Guia"]
+        df_guias = df_guias[columnas].copy()
+        df_guias["Fecha_Entrega"] = pd.to_datetime(df_guias["Fecha_Entrega"], errors="coerce").dt.strftime("%d/%m/%y")
+
+        st.dataframe(df_guias, use_container_width=True, hide_index=True)
+
+# --- TAB 5: DOWNLOAD DATA ---
+with tab5:
     st.header("⬇️ Descargar Datos de Pedidos")
 
     df_all_pedidos = pd.DataFrame()
@@ -848,6 +915,9 @@ with tab4:
         headers = worksheet.row_values(1)
         if headers:
             df_all_pedidos = pd.DataFrame(worksheet.get_all_records())
+            if "Adjuntos_Guia" not in df_all_pedidos.columns:
+                df_all_pedidos["Adjuntos_Guia"] = ""
+
 
             # 🧹 AÑADIDO: Filtrar filas donde 'Folio_Factura' y 'ID_Pedido' son ambos vacíos
             df_all_pedidos = df_all_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
