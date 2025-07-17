@@ -1085,7 +1085,15 @@ with tab5:
         st.subheader("Vista Previa de Datos a Descargar")
 
         # MODIFICATION 3: Format 'Fecha_Entrega' for display
-        display_df = filtered_df_download[['Folio_Factura', 'ID_Pedido', 'Cliente', 'Estado', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega']].copy()
+        columnas_excluidas_preview = [
+            "ID_Pedido", "Adjuntos", "Adjuntos_Surtido", "Adjuntos_Guia",
+            "Completados_Limpiado", "Fecha_Completado_dt", "Fecha_Pago_Comprobante",
+            "Terminal", "Banco_Destino_Pago", "Forma_Pago_Comprobante",
+            "Monto_Comprobante", "Referencia_Comprobante"
+        ]
+        columnas_preview = [col for col in filtered_df_download.columns if col not in columnas_excluidas_preview]
+        display_df = filtered_df_download[columnas_preview].copy()
+                
         if 'Fecha_Entrega' in display_df.columns:
             display_df['Fecha_Entrega'] = display_df['Fecha_Entrega'].dt.strftime('%Y-%m-%d')
 
@@ -1095,15 +1103,21 @@ with tab5:
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 # Crear copia para exportar solo columnas seguras
-                columnas_seguras = [
-                    'Folio_Factura', 'ID_Pedido', 'Cliente', 'Estado',
-                    'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-                    'Estado_Pago', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
-                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante'
+                columnas_excluidas = [
+                    "ID_Pedido", "Adjuntos", "Adjuntos_Surtido", "Adjuntos_Guia",
+                    "Completados_Limpiado", "Fecha_Completado_dt", "Fecha_Pago_Comprobante",
+                    "Terminal", "Banco_Destino_Pago", "Forma_Pago_Comprobante",
+                    "Monto_Comprobante", "Referencia_Comprobante"
                 ]
-                columnas_existentes = [col for col in columnas_seguras if col in filtered_df_download.columns]
+                columnas_finales = [col for col in filtered_df_download.columns if col not in columnas_excluidas]
 
-                excel_df = filtered_df_download[columnas_existentes].copy()
+                excel_df = filtered_df_download[columnas_finales].copy()
+
+                # Convertir fechas a texto legible
+                for col in excel_df.columns:
+                    if "fecha" in col.lower() or "Fecha" in col:
+                        excel_df[col] = pd.to_datetime(excel_df[col], errors='coerce').dt.strftime('%Y-%m-%d')
+
 
                 # Asegúrate de que las fechas estén en formato string
                 for fecha_col in ['Fecha_Entrega', 'Fecha_Pago_Comprobante']:
