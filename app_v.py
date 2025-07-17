@@ -913,40 +913,39 @@ with tab4:
                 key="filtro_tipo_envio_guias",
                 on_change=fijar_tab4_activa
             )
+
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
         if tipo_envio_filtrado != "Todos":
             df_guias = df_guias[df_guias["Tipo_Envio"] == tipo_envio_filtrado]
 
-
-        def formatear_links_guia(txt):
-            enlaces = []
-            for val in str(txt).split(","):
-                val = val.strip()
-                if val:
-                    nombre = val.split("/")[-1]
-                    enlaces.append(f"[{nombre}]({val})")
-            return " | ".join(enlaces)
-
-        # Mostrar tabla sin la columna de links largos
-        columnas_sin_links = ["ID_Pedido", "Cliente", "Vendedor_Registro", "Tipo_Envio", "Estado", "Fecha_Entrega"]
-        tabla_guias = df_guias[columnas_sin_links].copy()
+        # Mostrar tabla básica
+        columnas_mostrar = ["ID_Pedido", "Cliente", "Vendedor_Registro", "Tipo_Envio", "Estado", "Fecha_Entrega"]
+        tabla_guias = df_guias[columnas_mostrar].copy()
         tabla_guias["Fecha_Entrega"] = pd.to_datetime(tabla_guias["Fecha_Entrega"], errors="coerce").dt.strftime("%d/%m/%y")
         st.dataframe(tabla_guias, use_container_width=True, hide_index=True)
 
-        # Mostrar links por separado con encabezado claro
-        st.markdown("### 📥 Guías por Pedido")
-        for _, row in df_guias.iterrows():
-            if row["Adjuntos_Guia"]:
-                st.markdown(f"**Pedido:** {row['ID_Pedido']} - {row['Cliente']} ({row['Tipo_Envio']})")
-                for link in str(row["Adjuntos_Guia"]).split(","):
-                    link = link.strip()
-                    if link:
-                        nombre = link.split("/")[-1]
-                        st.markdown(f"- [📄 {nombre}]({link})")
-                st.markdown("---")
+        # 🔍 Selección para mostrar solo una guía a la vez
+        st.markdown("### 📥 Selecciona un Pedido para Ver la Última Guía Subida")
 
-        df_guias["Fecha_Entrega"] = pd.to_datetime(df_guias["Fecha_Entrega"], errors="coerce").dt.strftime("%d/%m/%y")
+        df_guias['Folio_O_ID'] = df_guias['Folio_Factura'].astype(str).str.strip()
+        df_guias.loc[df_guias['Folio_O_ID'] == '', 'Folio_O_ID'] = df_guias['ID_Pedido']
+
+        df_guias['display_label'] = df_guias.apply(lambda row:
+            f"📄 {row['Folio_O_ID']} – {row['Cliente']} – {row['Vendedor_Registro']} ({row['Tipo_Envio']})", axis=1)
+
+        pedido_seleccionado = st.selectbox("📦 Pedido con Guía", options=df_guias['display_label'].tolist(), key="select_pedido_con_guia")
+
+        if pedido_seleccionado:
+            pedido_row = df_guias[df_guias['display_label'] == pedido_seleccionado].iloc[0]
+            ultima_guia = str(pedido_row["Adjuntos_Guia"]).split(",")[-1].strip()
+
+            st.markdown("### 📎 Última Guía Subida")
+            if ultima_guia:
+                nombre = ultima_guia.split("/")[-1]
+                st.markdown(f"- [📄 {nombre}]({ultima_guia})")
+            else:
+                st.warning("⚠️ No se encontró una URL válida para la guía.")
 
 # --- TAB 5: DOWNLOAD DATA ---
 with tab5:
