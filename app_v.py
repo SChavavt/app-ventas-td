@@ -431,6 +431,7 @@ with tab2:
         worksheet = get_worksheet()
 
         headers = worksheet.row_values(1)
+        st.write("🧩 Headers cargados para modificación:", headers)
         df = pd.DataFrame(worksheet.get_all_records()) if headers else pd.DataFrame()
         if "Adjuntos_Guia" not in df.columns:
              df["Adjuntos_Guia"] = ""
