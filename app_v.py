@@ -397,10 +397,18 @@ with tab1:
                     values.append("")
 
             worksheet.append_row(values)
-            st.success(f"🎉 Pedido {id_pedido} registrado con éxito!")
+            st.success(f"✅ El pedido {id_pedido} se registró correctamente.")
+            with st.container():
+                st.markdown(
+                    f"<div style='border: 2px solid green; border-radius: 8px; padding: 10px; background-color: #e6f9e6;'>"
+                    f"<strong>🎉 ¡Éxito!</strong><br>El pedido <code>{id_pedido}</code> fue registrado y guardado correctamente en el sistema."
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
             if adjuntos_urls:
                 st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in adjuntos_urls))
             st.balloons()
+
 
             # ✅ Si se registró con éxito, reiniciamos para limpiar formulario
             time.sleep(1.5)  # da tiempo para ver el mensaje
@@ -951,43 +959,47 @@ with tab4:
 with tab5:
     st.header("⬇️ Descargar Datos de Pedidos")
 
-    df_all_pedidos = pd.DataFrame()
-    try:
-        spreadsheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID)
-        worksheet = spreadsheet.worksheet('datos_pedidos')
+    @st.cache_data(ttl=60)
+    def cargar_todos_los_pedidos():
+        worksheet = get_worksheet()
         headers = worksheet.row_values(1)
         if headers:
-            df_all_pedidos = pd.DataFrame(worksheet.get_all_records())
-            if "Adjuntos_Guia" not in df_all_pedidos.columns:
-                df_all_pedidos["Adjuntos_Guia"] = ""
+            df = pd.DataFrame(worksheet.get_all_records())
+            if "Adjuntos_Guia" not in df.columns:
+                df["Adjuntos_Guia"] = ""
+            return df, headers
+        return pd.DataFrame(), []
 
-
-            # 🧹 AÑADIDO: Filtrar filas donde 'Folio_Factura' y 'ID_Pedido' son ambos vacíos
-            df_all_pedidos = df_all_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
-
-            # 🧹 Eliminar registros vacíos o inválidos con ID_Pedido en blanco, 'nan', 'N/A'
-            df_all_pedidos = df_all_pedidos[
-                df_all_pedidos['ID_Pedido'].astype(str).str.strip().ne('') &
-                df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('n/a') &
-                df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('nan')
-            ]
-
-            if 'Fecha_Entrega' in df_all_pedidos.columns:
-                df_all_pedidos['Fecha_Entrega'] = pd.to_datetime(df_all_pedidos['Fecha_Entrega'], errors='coerce')
-
-            if 'Vendedor_Registro' in df_all_pedidos.columns:
-                df_all_pedidos['Vendedor_Registro'] = df_all_pedidos['Vendedor_Registro'].apply(
-                    lambda x: x if x in VENDEDORES_LIST else 'Otro/Desconocido' if pd.notna(x) and str(x).strip() != '' else 'N/A'
-                ).astype(str)
-            else:
-                st.warning("La columna 'Vendedor_Registro' no se encontró en el Google Sheet para el filtrado. Asegúrate de que exista y esté correctamente nombrada.")
-
-            if 'Folio_Factura' in df_all_pedidos.columns:
-                df_all_pedidos['Folio_Factura'] = df_all_pedidos['Folio_Factura'].astype(str).replace('nan', '')
-            else:
-                st.warning("La columna 'Folio_Factura' no se encontró en el Google Sheet. No se podrá mostrar en la vista previa.")
+    try:
+        df_all_pedidos, headers = cargar_todos_los_pedidos()
+    
+        if "Adjuntos_Guia" not in df_all_pedidos.columns:
+            df_all_pedidos["Adjuntos_Guia"] = ""
+    
+        # 🧹 AÑADIDO: Filtrar filas donde 'Folio_Factura' y 'ID_Pedido' son ambos vacíos
+        df_all_pedidos = df_all_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
+    
+        # 🧹 Eliminar registros vacíos o inválidos con ID_Pedido en blanco, 'nan', 'N/A'
+        df_all_pedidos = df_all_pedidos[
+            df_all_pedidos['ID_Pedido'].astype(str).str.strip().ne('') &
+            df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('n/a') &
+            df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('nan')
+        ]
+    
+        if 'Fecha_Entrega' in df_all_pedidos.columns:
+            df_all_pedidos['Fecha_Entrega'] = pd.to_datetime(df_all_pedidos['Fecha_Entrega'], errors='coerce')
+    
+        if 'Vendedor_Registro' in df_all_pedidos.columns:
+            df_all_pedidos['Vendedor_Registro'] = df_all_pedidos['Vendedor_Registro'].apply(
+                lambda x: x if x in VENDEDORES_LIST else 'Otro/Desconocido' if pd.notna(x) and str(x).strip() != '' else 'N/A'
+            ).astype(str)
         else:
-            st.warning("No se pudieron cargar los encabezados del Google Sheet. Asegúrate de que la primera fila no esté vacía.")
+            st.warning("La columna 'Vendedor_Registro' no se encontró en el Google Sheet para el filtrado. Asegúrate de que exista y esté correctamente nombrada.")
+    
+        if 'Folio_Factura' in df_all_pedidos.columns:
+            df_all_pedidos['Folio_Factura'] = df_all_pedidos['Folio_Factura'].astype(str).replace('nan', '')
+        else:
+            st.warning("La columna 'Folio_Factura' no se encontró en el Google Sheet. No se podrá mostrar en la vista previa.")
     except Exception as e:
         st.error(f"❌ Error al cargar datos para descarga: {e}")
         st.info("Asegúrate de que la primera fila de tu Google Sheet contiene los encabezados esperados y que la API de Google Sheets está habilitada.")
