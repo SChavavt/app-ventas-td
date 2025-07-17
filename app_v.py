@@ -8,6 +8,8 @@ from io import BytesIO
 import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from pytz import timezone
+
 
 # NEW: Import boto3 for AWS S3
 import boto3
@@ -305,6 +307,12 @@ with tab1:
                     st.error("❌ La hoja de cálculo está vacía.")
                     st.stop()
                 headers = all_data[0]
+                # ✅ Obtener hora local de CDMX para Hora_Registro e ID
+                zona_mexico = timezone("America/Mexico_City")
+                now = datetime.now(zona_mexico)
+                id_pedido = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
+                hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
+
             except gspread.exceptions.APIError as e:
                 if "RESOURCE_EXHAUSTED" in str(e):
                     st.warning("⚠️ Cuota de Google Sheets alcanzada. Reintentando...")
@@ -314,10 +322,8 @@ with tab1:
                 else:
                     st.error(f"❌ Error al acceder a Google Sheets: {e}")
                     st.stop()
-
-            now = datetime.now()
-            id_pedido = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
-            hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
+                    
+            # Inicializar la lista de URLs de adjuntos antes de usarla
             adjuntos_urls = []
 
             if uploaded_files:
