@@ -300,7 +300,10 @@ with tab1:
 
             headers = []
             try:
-                worksheet = get_worksheet()
+                client = get_google_sheets_client()
+                spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+                worksheet = spreadsheet.worksheet("datos_pedidos")
+
 
                 all_data = worksheet.get_all_values()
                 if not all_data:
