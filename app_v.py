@@ -628,8 +628,18 @@ with tab2:
                                 st.stop()
 
 
-                            df_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_order_id].index[0]
-                            gsheet_row_index = df_row_index + 2
+                            # ✅ Refuerzo: Asegurarse de que el pedido exista antes de usar index[0]
+                            matching_rows = df_pedidos[df_pedidos['ID_Pedido'] == selected_order_id]
+
+                            if matching_rows.empty:
+                                message_placeholder_tab2.error(f"❌ No se encontró el pedido {selected_order_id} en los datos cargados.")
+                                st.stop()
+
+                            df_row_index = matching_rows.index[0]
+                            gsheet_row_index = df_row_index + 2  # Suma 2 porque la hoja empieza en 1 y la fila 1 es el header
+
+                            st.write(f"ℹ️ gsheet_row_index para modificar: {gsheet_row_index}")
+
 
                             modificacion_surtido_col_idx = headers.index('Modificacion_Surtido') + 1
                             notas_col_idx = headers.index('Notas') + 1
