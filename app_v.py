@@ -948,12 +948,18 @@ with tab4:
             pedido_row = df_guias[df_guias['display_label'] == pedido_seleccionado].iloc[0]
             ultima_guia = str(pedido_row["Adjuntos_Guia"]).split(",")[-1].strip()
 
-            st.markdown("### 📎 Última Guía Subida")
-            if ultima_guia:
-                nombre = ultima_guia.split("/")[-1]
-                st.markdown(f"- [📄 {nombre}]({ultima_guia})")
+            if pedido_seleccionado:
+                st.markdown("### 📎 Última Guía Subida")
+                ultima_guia = str(pedido_row["Adjuntos_Guia"]).split(",")[-1].strip()
+
+                if ultima_guia:
+                    nombre = ultima_guia.split("/")[-1]
+                    st.markdown(f"- [📄 {nombre}]({ultima_guia})")
+                else:
+                    st.warning("⚠️ No se encontró una URL válida para la guía.")
             else:
-                st.warning("⚠️ No se encontró una URL válida para la guía.")
+                st.info("Selecciona un pedido para ver la guía correspondiente.")
+
 
 # --- TAB 5: DOWNLOAD DATA ---
 with tab5:
