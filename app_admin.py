@@ -226,18 +226,11 @@ else:
         existing_columns = [col for col in columns_to_show if col in pedidos_pagados_no_confirmados.columns]
         
         if existing_columns:
-            df_vista = pedidos_pagados_no_confirmados[existing_columns].copy()
-
-            # 🔧 Formatear Fecha_Entrega si existe
-            if 'Fecha_Entrega' in df_vista.columns:
-                df_vista['Fecha_Entrega'] = pd.to_datetime(df_vista['Fecha_Entrega'], errors='coerce').dt.strftime('%d/%m/%Y')
-
             st.dataframe(
-                df_vista.sort_values(by='Fecha_Entrega' if 'Fecha_Entrega' in df_vista.columns else existing_columns[0]),
-                use_container_width=True,
+                pedidos_pagados_no_confirmados[existing_columns].sort_values(by='Fecha_Entrega'), 
+                use_container_width=True, 
                 hide_index=True
             )
-
         else:
             st.warning("No se encontraron las columnas esperadas para mostrar el resumen de pedidos.")
         
