@@ -434,12 +434,34 @@ with st.expander("🔽 Mostrar/Descargar Pedidos Confirmados"):
 
         # Filas ordenadas por Fecha_Pago
         df_confirmados = df_confirmados.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
+        # 🆕 Generar enlace permanente al comprobante desde S3
+        link_comprobantes = []
+
+        for _, row in df_confirmados.iterrows():
+            pedido_id = row.get("ID_Pedido")
+            comprobante_url = ""
+
+            if pedido_id:
+                prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
+                files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
+                comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
+
+                if comprobantes:
+                    key = comprobantes[0]['key']
+                    comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
+
+            link_comprobantes.append(comprobante_url)
+
+        df_confirmados["Link_Comprobante"] = link_comprobantes
+
 
         columnas_a_mostrar = [
             'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
             'Estado', 'Estado_Pago', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
-            'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante'
+            'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
+            'Link_Comprobante'  # 🆕 Agregamos columna de enlaces
         ]
+
         columnas_existentes = [col for col in columnas_a_mostrar if col in df_confirmados.columns]
 
         df_vista = df_confirmados[columnas_existentes].copy()
