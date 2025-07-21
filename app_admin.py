@@ -350,7 +350,7 @@ else:
                 forma_pago = st.selectbox("Forma de Pago", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], index=0, key="payment_method_select_payment")
             with col_pago[2]:
                 if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    terminal = st.selectbox("Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA"], index=0, key="terminal_select_payment")
+                    terminal = st.selectbox("Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "OXXO PAY"], index=0, key="terminal_select_payment")
                     banco_destino_pago = ""
                 else:
                     banco_destino_pago = st.selectbox("Banco de Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], index=0, key="bank_select_payment")
