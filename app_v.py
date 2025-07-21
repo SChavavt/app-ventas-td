@@ -820,6 +820,25 @@ with tab3:
                 st.info(f"Subiendo comprobante para el pedido: Folio {selected_pending_row_data.get('Folio_Factura', 'N/A')} (ID {selected_pending_order_id}) del cliente {selected_pending_row_data.get('Cliente', 'N/A')}")
 
                 with st.form(key=f"upload_comprobante_form_{selected_pending_order_id}"):
+                    st.markdown("### ⚠️ ¿Pago sin comprobante?")
+
+                    if st.button("✅ Marcar como Pagado sin Comprobante", key=f"btn_marcar_sin_comprobante_{selected_pending_order_id}"):
+                        try:
+                            headers = worksheet.row_values(1)
+                            df_row_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
+                            gsheet_row_index = df_row_index + 2
+
+                            # Actualiza solo la columna Estado_Pago
+                            estado_pago_col_idx = headers.index('Estado_Pago') + 1
+                            worksheet.update_cell(gsheet_row_index, estado_pago_col_idx, "✅ Pagado")
+
+                            st.success(f"✅ Pedido {selected_pending_order_id} marcado como pagado sin comprobante.")
+                            st.balloons()
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
+
                     comprobante_file_for_pending = st.file_uploader(
                         "💲 Comprobante de Pago",
                         type=["pdf", "jpg", "jpeg", "png"],
