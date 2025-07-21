@@ -793,96 +793,108 @@ with tab3:
                 st.warning("No hay columnas relevantes para mostrar en la tabla de pedidos pendientes.")
 
 
-            st.markdown("---")
-            st.subheader("Subir Comprobante para un Pedido")
+st.markdown("---")
+st.subheader("Subir Comprobante para un Pedido")
 
-            pedidos_sin_comprobante['display_label'] = pedidos_sin_comprobante.apply(lambda row:
-                f"📄 {row.get('Folio_Factura', 'N/A') if row.get('Folio_Factura', 'N/A') != '' else row.get('ID_Pedido', 'N/A')} - "
-                f"{row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')}", axis=1
-            )
-            pedidos_sin_comprobante = pedidos_sin_comprobante.sort_values(
-                by=['Folio_Factura', 'ID_Pedido'],
-                key=lambda x: x.astype(str).str.lower(),
-                na_position='last'
-            )
+pedidos_sin_comprobante['display_label'] = pedidos_sin_comprobante.apply(lambda row:
+    f"📄 {row.get('Folio_Factura', 'N/A') if row.get('Folio_Factura', 'N/A') != '' else row.get('ID_Pedido', 'N/A')} - "
+    f"{row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')}", axis=1
+)
+pedidos_sin_comprobante = pedidos_sin_comprobante.sort_values(
+    by=['Folio_Factura', 'ID_Pedido'],
+    key=lambda x: x.astype(str).str.lower(),
+    na_position='last'
+)
 
+selected_pending_order_display = st.selectbox(
+    "📝 Seleccionar Pedido para Subir Comprobante",
+    pedidos_sin_comprobante['display_label'].tolist(),
+    key="select_pending_order_comprobante"
+)
 
-            selected_pending_order_display = st.selectbox(
-                "📝 Seleccionar Pedido para Subir Comprobante",
-                pedidos_sin_comprobante['display_label'].tolist(),
-                key="select_pending_order_comprobante"
-            )
+if selected_pending_order_display:
+    selected_pending_order_id = pedidos_sin_comprobante[pedidos_sin_comprobante['display_label'] == selected_pending_order_display]['ID_Pedido'].iloc[0]
+    selected_pending_row_data = pedidos_sin_comprobante[pedidos_sin_comprobante['ID_Pedido'] == selected_pending_order_id].iloc[0]
 
-            if selected_pending_order_display:
-                selected_pending_order_id = pedidos_sin_comprobante[pedidos_sin_comprobante['display_label'] == selected_pending_order_display]['ID_Pedido'].iloc[0]
-                selected_pending_row_data = pedidos_sin_comprobante[pedidos_sin_comprobante['ID_Pedido'] == selected_pending_order_id].iloc[0]
+    st.info(f"Subiendo comprobante para el pedido: Folio {selected_pending_row_data.get('Folio_Factura', 'N/A')} (ID {selected_pending_order_id}) del cliente {selected_pending_row_data.get('Cliente', 'N/A')}")
 
-                st.info(f"Subiendo comprobante para el pedido: Folio {selected_pending_row_data.get('Folio_Factura', 'N/A')} (ID {selected_pending_order_id}) del cliente {selected_pending_row_data.get('Cliente', 'N/A')}")
+    with st.form(key=f"upload_comprobante_form_{selected_pending_order_id}"):
+        comprobante_file_for_pending = st.file_uploader(
+            "💲 Comprobante de Pago",
+            type=["pdf", "jpg", "jpeg", "png"],
+            key=f"comprobante_uploader_pending_{selected_pending_order_id}"
+        )
+        submit_comprobante_button = st.form_submit_button("✅ Subir Comprobante y Actualizar Estado")
 
-                with st.form(key=f"upload_comprobante_form_{selected_pending_order_id}"):
-                    st.markdown("### ⚠️ ¿Pago sin comprobante?")
+        if submit_comprobante_button:
+            if comprobante_file_for_pending:
+                try:
+                    headers = worksheet.row_values(1)
+                    df_row_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
+                    gsheet_row_index = df_row_index + 2
 
-                    if st.button("✅ Marcar como Pagado sin Comprobante", key=f"btn_marcar_sin_comprobante_{selected_pending_order_id}"):
-                        try:
-                            headers = worksheet.row_values(1)
-                            df_row_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
-                            gsheet_row_index = df_row_index + 2
+                    file_extension_cp = os.path.splitext(comprobante_file_for_pending.name)[1]
+                    s3_key_cp = f"{selected_pending_order_id}/comprobante_{selected_pending_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{file_extension_cp}"
 
-                            # Actualiza solo la columna Estado_Pago
-                            estado_pago_col_idx = headers.index('Estado_Pago') + 1
-                            worksheet.update_cell(gsheet_row_index, estado_pago_col_idx, "✅ Pagado")
+                    success_cp, file_url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, comprobante_file_for_pending, s3_key_cp)
 
-                            st.success(f"✅ Pedido {selected_pending_order_id} marcado como pagado sin comprobante.")
-                            st.balloons()
-                            st.rerun()
+                    if success_cp:
+                        adjuntos_col_idx = headers.index('Adjuntos') + 1
+                        current_adjuntos_str = worksheet.cell(gsheet_row_index, adjuntos_col_idx).value
+                        current_adjuntos_list = [f.strip() for f in current_adjuntos_str.split(',') if f.strip()]
 
-                        except Exception as e:
-                            st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
+                        if file_url_cp not in current_adjuntos_list:
+                            current_adjuntos_list.append(file_url_cp)
+                        updated_adjuntos_str = ", ".join(current_adjuntos_list)
+                        worksheet.update_cell(gsheet_row_index, adjuntos_col_idx, updated_adjuntos_str)
 
-                    comprobante_file_for_pending = st.file_uploader(
-                        "💲 Comprobante de Pago",
-                        type=["pdf", "jpg", "jpeg", "png"],
-                        key=f"comprobante_uploader_pending_{selected_pending_order_id}"
-                    )
-                    submit_comprobante_button = st.form_submit_button("✅ Subir Comprobante y Actualizar Estado")
+                        estado_pago_col_idx = headers.index('Estado_Pago') + 1
+                        worksheet.update_cell(gsheet_row_index, estado_pago_col_idx, "✅ Pagado")
 
-                    if submit_comprobante_button:
-                        if comprobante_file_for_pending:
-                            try:
-                                headers = worksheet.row_values(1)
-                                df_row_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
-                                gsheet_row_index = df_row_index + 2
+                        st.success(f"🎉 Comprobante para el pedido {selected_pending_order_id} subido a S3 y estado actualizado a 'Pagado' con éxito!")
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error("❌ Falló la subida del comprobante de pago.")
+                except Exception as e:
+                    st.error(f"❌ Error al procesar el comprobante para el pedido: {e}")
+                    st.info("ℹ️ Revisa tu conexión a internet o los permisos de la cuenta de servicio.")
+            else:
+                st.warning("⚠️ Por favor, sube un archivo de comprobante antes de guardar.")
 
-                                file_extension_cp = os.path.splitext(comprobante_file_for_pending.name)[1]
-                                # Create a unique S3 key for the comprobante
-                                s3_key_cp = f"{selected_pending_order_id}/comprobante_{selected_pending_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{file_extension_cp}"
+    # --- Opción para marcar como pagado sin comprobante ---
+    st.markdown("### ⚠️ ¿Pago en efectivo sin comprobante?")
 
-                                success_cp, file_url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, comprobante_file_for_pending, s3_key_cp)
+    observacion_sin_comprobante = st.text_input(
+        "✍️ Observación (opcional, se guardará en la columna 'Notas')",
+        placeholder="Ej. Pago en efectivo sin comprobante.",
+        key=f"observacion_sin_comprobante_{selected_pending_order_id}"
+    )
 
-                                if success_cp:
-                                    adjuntos_col_idx = headers.index('Adjuntos') + 1
-                                    current_adjuntos_str = worksheet.cell(gsheet_row_index, adjuntos_col_idx).value
-                                    current_adjuntos_list = [f.strip() for f in current_adjuntos_str.split(',') if f.strip()]
+    if st.button("✅ Marcar como Pagado sin Comprobante", key=f"btn_sin_comprobante_{selected_pending_order_id}"):
+        try:
+            headers = worksheet.row_values(1)
+            df_row_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
+            gsheet_row_index = df_row_index + 2
 
-                                    if file_url_cp not in current_adjuntos_list: # Store the URL
-                                        current_adjuntos_list.append(file_url_cp)
-                                    updated_adjuntos_str = ", ".join(current_adjuntos_list)
-                                    worksheet.update_cell(gsheet_row_index, adjuntos_col_idx, updated_adjuntos_str)
+            estado_pago_col_idx = headers.index('Estado_Pago') + 1
+            worksheet.update_cell(gsheet_row_index, estado_pago_col_idx, "✅ Pagado")
 
-                                    estado_pago_col_idx = headers.index('Estado_Pago') + 1
-                                    worksheet.update_cell(gsheet_row_index, estado_pago_col_idx, "✅ Pagado")
+            if 'Notas' in headers:
+                notas_col_idx = headers.index('Notas') + 1
+                notas_actual = worksheet.cell(gsheet_row_index, notas_col_idx).value or ""
+                nueva_nota = observacion_sin_comprobante.strip()
+                if nueva_nota:
+                    nota_final = f"{notas_actual}\n{nueva_nota}".strip()
+                    worksheet.update_cell(gsheet_row_index, notas_col_idx, nota_final)
 
-                                    st.success(f"🎉 Comprobante para el pedido {selected_pending_order_id} subido a S3 y estado actualizado a 'Pagado' con éxito!")
-                                    st.balloons()
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Falló la subida del comprobante de pago.")
+            st.success(f"✅ Pedido {selected_pending_order_id} marcado como pagado sin comprobante.")
+            st.balloons()
+            st.rerun()
 
-                            except Exception as e:
-                                st.error(f"❌ Error al procesar el comprobante para el pedido: {e}")
-                                st.info("ℹ️ Revisa tu conexión a internet o los permisos de la cuenta de servicio.")
-                        else:
-                            st.warning("⚠️ Por favor, sube un archivo de comprobante antes de guardar.")
+        except Exception as e:
+            st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
+
 
 # ✅ Cargar datos de guías cacheados para evitar sobrecarga
 @st.cache_data(ttl=60)
