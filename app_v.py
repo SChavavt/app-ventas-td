@@ -280,7 +280,7 @@ with tab1:
             col4, col5 = st.columns(2)
             with col4:
                 if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "OXXO PAY"], key="terminal_input")
+                    terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal_input")
                     banco_destino = ""
                 else:
                     banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_input")
