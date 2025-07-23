@@ -389,7 +389,7 @@ with tab1:
                     values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
                 elif header == "Referencia_Comprobante":
                     values.append(referencia_pago)
-                elif header in ["Fecha_Completado", "Hora_Proceso", "Notas", "Modificacion_Surtido"]:
+                elif header in ["Fecha_Completado", "Hora_Proceso", "Modificacion_Surtido"]:
                     values.append("")
                 else:
                     values.append("")
@@ -434,7 +434,6 @@ with tab2:
     selected_order_id = None
     selected_row_data = None
     current_modificacion_surtido_value = ""
-    current_notas_value = ""
     current_estado_pago_value = "🔴 No Pagado"
     current_adjuntos_list = []
     current_adjuntos_surtido_list = []
@@ -539,7 +538,6 @@ with tab2:
                 st.write(f"**Estado de Pago:** {selected_row_data.get('Estado_Pago', '🔴 No Pagado')}")
 
                 current_modificacion_surtido_value = selected_row_data.get('Modificacion_Surtido', '')
-                current_notas_value = selected_row_data.get('Notas', '')
                 current_estado_pago_value = selected_row_data.get('Estado_Pago', '🔴 No Pagado')
 
                 current_adjuntos_str = selected_row_data.get('Adjuntos', '')
@@ -575,13 +573,6 @@ with tab2:
                         height=100,
                         key="new_modificacion_surtido_input"
                     )
-                    # MODIFICATION 2: Rename "Notas Adicionales" to "Notas de Almacén"
-                    new_notas_input = st.text_area(
-                        "✍️ Notas de Almacén",
-                        value=current_notas_value,
-                        height=100,
-                        key="new_notas_input"
-                    )
 
                     uploaded_files_surtido = st.file_uploader(
                         "📎 Subir Archivos para Modificación/Surtido",
@@ -600,9 +591,6 @@ with tab2:
                             if 'Modificacion_Surtido' not in headers:
                                 message_placeholder_tab2.error("Error: La columna 'Modificacion_Surtido' no se encuentra en el Google Sheet. Por favor, verifica el nombre EXACTO.")
                                 st.stop()
-                            if 'Notas' not in headers:
-                                message_placeholder_tab2.error("Error: La columna 'Notas' no se encuentra en el Google Sheet. Por favor, verifica el nombre EXACTO.")
-                                st.stop()
                             if 'Estado_Pago' not in headers:
                                 message_placeholder_tab2.error("Error: La columna 'Estado_Pago' no se encuentra en el Google Sheet. Por favor, verifica el nombre EXACTO.")
                                 st.stop()
@@ -618,7 +606,6 @@ with tab2:
                             gsheet_row_index = df_row_index + 2
 
                             modificacion_surtido_col_idx = headers.index('Modificacion_Surtido') + 1
-                            notas_col_idx = headers.index('Notas') + 1
                             estado_pago_col_idx = headers.index('Estado_Pago') + 1
                             adjuntos_col_idx = headers.index('Adjuntos') + 1
                             adjuntos_surtido_col_idx = headers.index('Adjuntos_Surtido') + 1
@@ -637,10 +624,6 @@ with tab2:
                                     worksheet.update_cell(gsheet_row_index, fecha_completado_col_idx, "")
                                     message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por haber sido modificado después de estar completado.")
 
-
-                            if new_notas_input != current_notas_value:
-                                worksheet.update_cell(gsheet_row_index, notas_col_idx, new_notas_input)
-                                changes_made = True
 
                             # NEW: Handle S3 upload for 'Adjuntos_Surtido'
                             new_adjuntos_surtido_urls = []
@@ -768,8 +751,7 @@ with tab3:
 
             columnas_mostrar = [
                 'ID_Pedido', 'Cliente', 'Folio_Factura', 'Vendedor_Registro', 'Tipo_Envio', 'Turno',
-                'Fecha_Entrega', 'Estado', 'Estado_Pago', 'Comentario',
-                'Notas', 'Modificacion_Surtido', 'Adjuntos', 'Adjuntos_Surtido'
+                'Fecha_Entrega', 'Estado', 'Estado_Pago', 'Comentario', 'Modificacion_Surtido', 'Adjuntos', 'Adjuntos_Surtido'
             ]
             columnas_mostrar = [c for c in columnas_mostrar if c in pedidos_sin_comprobante.columns]
 
@@ -835,10 +817,6 @@ with tab3:
                                 st.error(f"❌ Error al subir comprobante: {e}")
                         else:
                             st.warning("⚠️ Por favor, sube un archivo.")
-
-                st.markdown("### ⚠️ ¿Pago en efectivo sin comprobante?")
-                observacion = st.text_input("✍️ Observación (opcional, se guardará en la columna 'Notas')", key=f"observacion_sin_cp_{selected_pending_order_id}")
-
                 if st.button("✅ Marcar como Pagado sin Comprobante", key=f"btn_sin_cp_{selected_pending_order_id}"):
                     try:
                         headers = worksheet.row_values(1)
@@ -850,20 +828,11 @@ with tab3:
                         if 'Fecha_Pago_Comprobante' in headers:
                             worksheet.update_cell(sheet_row, headers.index('Fecha_Pago_Comprobante') + 1, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
 
-                        if 'Notas' in headers:
-                            notas_col = headers.index('Notas') + 1
-                            notas_actual = worksheet.cell(sheet_row, notas_col).value or ""
-                            nueva_nota = observacion.strip()
-                            if nueva_nota:
-                                nota_final = f"{notas_actual}\n{nueva_nota}".strip()
-                                worksheet.update_cell(sheet_row, notas_col, nota_final)
-
                         st.success("✅ Pedido marcado como pagado sin comprobante.")
                         st.balloons()
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
-
 
 # ✅ Cargar datos de guías cacheados para evitar sobrecarga
 @st.cache_data(ttl=60)
