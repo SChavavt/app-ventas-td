@@ -675,7 +675,11 @@ with tab2:
                             message_placeholder_tab2.error(f"❌ Error al guardar los cambios en el Google Sheet: {e}")
                             message_placeholder_tab2.info("ℹ️ Verifica que la cuenta de servicio tenga permisos de escritura en la hoja y que las columnas sean correctas. Asegúrate de que todas las columnas usadas existen en la primera fila de tu Google Sheet.")
 
-    if 'show_success_message' in st.session_state and st.session_state.show_success_message:
+    if (
+        'show_success_message' in st.session_state and
+        st.session_state.show_success_message and
+        'last_updated_order_id' in st.session_state
+    ):
         message_placeholder_tab2.success(f"✅ Pedido {st.session_state.last_updated_order_id} actualizado con éxito.")
         del st.session_state.show_success_message
         del st.session_state.last_updated_order_id
