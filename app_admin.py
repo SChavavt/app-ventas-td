@@ -421,15 +421,15 @@ if not df_pedidos.empty:
         st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
 
 # --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
-if (
-    'Estado_Pago' in df_pedidos.columns and
-    'Comprobante_Confirmado' in df_pedidos.columns and
-    not df_pedidos.empty
-):
-    st.markdown("---")
-    st.header("📥 Pedidos Confirmados - Comprobantes de Pago")
+st.markdown("---")
+st.header("📥 Pedidos Confirmados - Comprobantes de Pago")
 
-    with st.expander("🔽 Mostrar/Descargar Pedidos Confirmados", expanded=False):
+with st.expander("🔽 Mostrar/Descargar Pedidos Confirmados", expanded=False):
+    if (
+        'Estado_Pago' in df_pedidos.columns and
+        'Comprobante_Confirmado' in df_pedidos.columns and
+        not df_pedidos.empty
+    ):
         df_confirmados = df_pedidos[
             (df_pedidos['Estado_Pago'] == '✅ Pagado') &
             (df_pedidos['Comprobante_Confirmado'] == 'Sí')
@@ -438,7 +438,7 @@ if (
         if df_confirmados.empty:
             st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
         else:
-            # aquí sigue TODO lo que ya tienes: ordenar, enlaces S3, dataframe, botón de descarga, etc.
+            # 🔁 Aquí sigue todo el bloque original de visualización y descarga...
 
             # Convertir columnas de fecha a datetime si existen
             for col in ['Fecha_Entrega', 'Fecha_Pago_Comprobante']:
