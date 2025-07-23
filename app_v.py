@@ -566,7 +566,7 @@ with tab2:
                 st.markdown("---")
                 st.subheader("Modificar Campos y Adjuntos (Surtido)")
 
-                with st.form(key="modify_pedido_form_inner", clear_on_submit=True):
+                with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
                     new_modificacion_surtido_input = st.text_area(
                         "✍️ Notas de Modificación/Surtido",
                         value=current_modificacion_surtido_value,
@@ -660,6 +660,10 @@ with tab2:
                                             message_placeholder_tab2.error("❌ No se pudo cambiar el estado del pedido a 'Pendiente'. Verifica que las columnas 'Estado' y 'Fecha_Completado' existan.")
 
                                 st.session_state.show_success_message = True
+                                # Limpieza manual de campos tras guardar exitosamente
+                                st.session_state["new_modificacion_surtido_input"] = ""
+                                st.session_state["uploaded_files_surtido"] = None
+
                                 st.session_state.last_updated_order_id = selected_order_id
                             else:
                                 message_placeholder_tab2.info("ℹ️ No se detectaron cambios para guardar.")
