@@ -297,35 +297,43 @@ else:
                 st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
                 st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
 
-                with col2:
-                    st.subheader("📎 Archivos y Comprobantes")
+            with col2:
+                st.subheader("📎 Archivos y Comprobantes")
 
-                    if s3_client:
-                        pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
-                        files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
+                if s3_client:
+                    pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
+                    files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
 
-                        if files:
-                            comprobantes = [f for f in files if 'comprobante' in f['title'].lower()]
-                            otros = [f for f in files if f not in comprobantes]
+                    if files:
+                        comprobantes = [f for f in files if 'comprobante' in f['title'].lower()]
+                        facturas = [f for f in files if 'factura' in f['title'].lower()]
+                        otros = [f for f in files if f not in comprobantes and f not in facturas]
 
-                            if comprobantes:
-                                st.write("**🧾 Comprobantes de Pago:**")
-                                for f in comprobantes:
-                                    url = get_s3_file_download_url(s3_client, f['key'])
-                                    nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                    st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
-                            else:
-                                st.warning("⚠️ No se encontraron comprobantes.")
-
-                            if otros:
-                                with st.expander("📂 Otros archivos del pedido"):
-                                    for f in otros:
-                                        url = get_s3_file_download_url(s3_client, f['key'])
-                                        st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
+                        if comprobantes:
+                            st.write("**🧾 Comprobantes de Pago:**")
+                            for f in comprobantes:
+                                url = get_s3_file_download_url(s3_client, f['key'])
+                                nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
+                                st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                         else:
-                            st.info("📁 No se encontraron archivos en la carpeta del pedido.")
+                            st.warning("⚠️ No se encontraron comprobantes.")
+
+                        if facturas:
+                            st.write("**📑 Facturas de Venta:**")
+                            for f in facturas:
+                                url = get_s3_file_download_url(s3_client, f['key'])
+                                nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
+                                st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
+
+                        if otros:
+                            with st.expander("📂 Otros archivos del pedido"):
+                                for f in otros:
+                                    url = get_s3_file_download_url(s3_client, f['key'])
+                                    st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                     else:
-                        st.error("❌ Error de conexión con S3. Revisa las credenciales.")
+                        st.info("📁 No se encontraron archivos en la carpeta del pedido.")
+                else:
+                    st.error("❌ Error de conexión con S3. Revisa las credenciales.")
 
 
             st.subheader("✅ Confirmar Comprobante")
