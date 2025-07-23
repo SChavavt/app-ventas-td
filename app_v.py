@@ -375,8 +375,6 @@ with tab1:
                     values.append("")
                 elif header == "Estado":
                     values.append("🟡 Pendiente")
-                elif header == "Surtidor":
-                    values.append("")
                 elif header == "Estado_Pago":
                     values.append(estado_pago)
                 elif header == "Fecha_Pago_Comprobante":
@@ -391,7 +389,7 @@ with tab1:
                     values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
                 elif header == "Referencia_Comprobante":
                     values.append(referencia_pago)
-                elif header in ["Fecha_Completado", "Hora_Proceso", "Fecha_Completado_dt", "Notas", "Modificacion_Surtido"]:
+                elif header in ["Fecha_Completado", "Hora_Proceso", "Notas", "Modificacion_Surtido"]:
                     values.append("")
                 else:
                     values.append("")
@@ -1081,7 +1079,7 @@ with tab5:
         # MODIFICATION 3: Format 'Fecha_Entrega' for display
         columnas_excluidas_preview = [
             "ID_Pedido", "Adjuntos", "Adjuntos_Surtido", "Adjuntos_Guia",
-            "Completados_Limpiado", "Fecha_Completado_dt", "Fecha_Pago_Comprobante",
+            "Completados_Limpiado", "Fecha_Pago_Comprobante",
             "Terminal", "Banco_Destino_Pago", "Forma_Pago_Comprobante",
             "Monto_Comprobante", "Referencia_Comprobante"
         ]
@@ -1099,7 +1097,7 @@ with tab5:
                 # Crear copia para exportar solo columnas seguras
                 columnas_excluidas = [
                     "ID_Pedido", "Adjuntos", "Adjuntos_Surtido", "Adjuntos_Guia",
-                    "Completados_Limpiado", "Fecha_Completado_dt", "Fecha_Pago_Comprobante",
+                    "Completados_Limpiado", "Fecha_Pago_Comprobante",
                     "Terminal", "Banco_Destino_Pago", "Forma_Pago_Comprobante",
                     "Monto_Comprobante", "Referencia_Comprobante"
                 ]
