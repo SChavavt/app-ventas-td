@@ -424,8 +424,7 @@ if not df_pedidos.empty:
 st.markdown("---")
 st.header("📥 Pedidos Confirmados - Comprobantes de Pago")
 
-with st.expander("🔽 Mostrar/Descargar Pedidos Confirmados") as exp_confirmados:
-    if exp_confirmados:
+with st.expander("🔽 Mostrar/Descargar Pedidos Confirmados", expanded=False):
         df_confirmados = df_pedidos[
             (df_pedidos.get('Estado_Pago') == '✅ Pagado') &
             (df_pedidos.get('Comprobante_Confirmado') == 'Sí')
