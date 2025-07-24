@@ -439,6 +439,11 @@ with tab2:
 
         headers = worksheet.row_values(1)
         df = pd.DataFrame(worksheet.get_all_records()) if headers else pd.DataFrame()
+
+        # 🔧 Limpiar filas completamente vacías o sin campos clave
+        campos_clave = ['ID_Pedido', 'Cliente', 'Folio_Factura']
+        df = df.dropna(subset=campos_clave, how='all')  # elimina si todas las claves están vacías
+        df = df[df['ID_Pedido'].astype(str).str.strip().ne("")]  # adicional para asegurar que ID_Pedido no esté vacío
         if "Adjuntos_Guia" not in df.columns:
             df["Adjuntos_Guia"] = ""
 
