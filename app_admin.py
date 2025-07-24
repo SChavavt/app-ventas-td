@@ -432,92 +432,88 @@ if not df_pedidos.empty:
 st.markdown("---")
 mostrar_descarga_confirmados = st.toggle("🔽 Mostrar/Descargar Pedidos Confirmados", value=False)
 
+# 🧠 Inicializar caché de sesión
+if "confirmados_cargados" not in st.session_state:
+    st.session_state.confirmados_cargados = 0
+if "df_confirmados_cache" not in st.session_state:
+    st.session_state.df_confirmados_cache = pd.DataFrame()
+
 if mostrar_descarga_confirmados:
     st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
-    with st.spinner("Cargando comprobantes confirmados..."):
 
-        if (
-            'Estado_Pago' in df_pedidos.columns and
-            'Comprobante_Confirmado' in df_pedidos.columns and
-            not df_pedidos.empty
-        ):
-            df_confirmados = df_pedidos[
-                (df_pedidos['Estado_Pago'] == '✅ Pagado') &
-                (df_pedidos['Comprobante_Confirmado'] == 'Sí')
-            ].copy()
+    # Filtrar pedidos confirmados
+    df_confirmados_actuales = df_pedidos[
+        (df_pedidos['Estado_Pago'] == '✅ Pagado') &
+        (df_pedidos['Comprobante_Confirmado'] == 'Sí')
+    ].copy()
 
-            if df_confirmados.empty:
-                st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
-            else:
-                # 🔁 Aquí sigue todo el bloque original de visualización y descarga...
+    total_actual = len(df_confirmados_actuales)
 
-                # Convertir columnas de fecha a datetime si existen
-                for col in ['Fecha_Entrega', 'Fecha_Pago_Comprobante']:
-                    if col in df_confirmados.columns:
-                        df_confirmados[col] = pd.to_datetime(df_confirmados[col], errors='coerce')
+    if total_actual == 0:
+        st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
+    elif total_actual == st.session_state.confirmados_cargados:
+        st.success("✅ Mostrando comprobantes confirmados en caché.")
+        df_vista = st.session_state.df_confirmados_cache
+    else:
+        st.info("🔄 Cargando comprobantes confirmados actualizados...")
+        with st.spinner("Buscando archivos en S3..."):
 
-                # Filas ordenadas por Fecha_Pago
-                df_confirmados = df_confirmados.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
+            df_confirmados_actuales = df_confirmados_actuales.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
 
-                # 🆕 Generar enlaces permanentes a comprobantes y facturas
-                link_comprobantes = []
-                link_facturas = []
+            link_comprobantes = []
+            link_facturas = []
 
-                for _, row in df_confirmados.iterrows():
-                    pedido_id = row.get("ID_Pedido")
-                    comprobante_url = ""
-                    factura_url = ""
+            for _, row in df_confirmados_actuales.iterrows():
+                pedido_id = row.get("ID_Pedido")
+                comprobante_url = ""
+                factura_url = ""
 
-                    if pedido_id:
-                        prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
-                        files = get_files_in_s3_prefix(s3_client, prefix)
+                if pedido_id:
+                    prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
+                    files = get_files_in_s3_prefix(s3_client, prefix)
 
-                        if not files:
-                            prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
-                            files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
+                    if not files:
+                        prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
+                        files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
 
+                    comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
+                    if comprobantes:
+                        key = comprobantes[0]['key']
+                        comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
 
-                        # Comprobante
-                        comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
-                        if comprobantes:
-                            key = comprobantes[0]['key']
-                            comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
+                    facturas = [f for f in files if "factura" in f["title"].lower()]
+                    if facturas:
+                        key = facturas[0]['key']
+                        factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
 
-                        # Factura
-                        facturas = [f for f in files if "factura" in f["title"].lower()]
-                        if facturas:
-                            key = facturas[0]['key']
-                            factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
+                link_comprobantes.append(comprobante_url)
+                link_facturas.append(factura_url)
 
-                    link_comprobantes.append(comprobante_url)
-                    link_facturas.append(factura_url)
+            df_confirmados_actuales["Link_Comprobante"] = link_comprobantes
+            df_confirmados_actuales["Link_Factura"] = link_facturas
 
-                df_confirmados["Link_Comprobante"] = link_comprobantes
-                df_confirmados["Link_Factura"] = link_facturas
+            st.session_state.df_confirmados_cache = df_confirmados_actuales
+            st.session_state.confirmados_cargados = total_actual
+            df_vista = df_confirmados_actuales
 
+    columnas_a_mostrar = [
+        'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+        'Estado', 'Estado_Pago', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
+        'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
+        'Link_Comprobante', 'Link_Factura'
+    ]
+    columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista.columns]
+    st.dataframe(df_vista[columnas_existentes], use_container_width=True, hide_index=True)
 
-                columnas_a_mostrar = [
-                    'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-                    'Estado', 'Estado_Pago', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
-                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-                    'Link_Comprobante', 'Link_Factura'
-                ]
+    # Botón de descarga
+    output_confirmados = BytesIO()
+    with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
+        df_vista[columnas_existentes].to_excel(writer, index=False, sheet_name='Confirmados')
+    data_xlsx = output_confirmados.getvalue()
 
-                columnas_existentes = [col for col in columnas_a_mostrar if col in df_confirmados.columns]
-
-                df_vista = df_confirmados[columnas_existentes].copy()
-
-                st.dataframe(df_vista, use_container_width=True, hide_index=True)
-
-                # Botón de descarga
-                output_confirmados = BytesIO()
-                with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-                    df_vista.to_excel(writer, index=False, sheet_name='Confirmados')
-                data_xlsx = output_confirmados.getvalue()
-
-                st.download_button(
-                    label="📤 Descargar Excel de Confirmados",
-                    data=data_xlsx,
-                    file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+    st.download_button(
+        label="📤 Descargar Excel de Confirmados",
+        data=data_xlsx,
+        file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
