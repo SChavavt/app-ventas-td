@@ -588,26 +588,12 @@ with tab2:
                         try:
                             headers = worksheet.row_values(1)
 
-                            if 'Modificacion_Surtido' not in headers:
-                                message_placeholder_tab2.error("Error: La columna 'Modificacion_Surtido' no se encuentra en el Google Sheet. Por favor, verifica el nombre EXACTO.")
-                                st.stop()
-                            if 'Estado_Pago' not in headers:
-                                message_placeholder_tab2.error("Error: La columna 'Estado_Pago' no se encuentra en el Google Sheet. Por favor, verifica el nombre EXACTO.")
-                                st.stop()
-                            if 'Adjuntos' not in headers:
-                                message_placeholder_tab2.error("Error: La columna 'Adjuntos' no se encuentra en el Google Sheet. Por favor, verifica el nombre EXACTO.")
-                                st.stop()
-                            if 'Adjuntos_Surtido' not in headers:
-                                message_placeholder_tab2.error("Error: La columna 'Adjuntos_Surtido' no se encuentra en el Google Sheet. Por favor, agrégala o verifica el nombre EXACTO.")
-                                st.stop()
-
-
                             df_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_order_id].index[0]
                             gsheet_row_index = df_row_index + 2
 
                             modificacion_surtido_col_idx = headers.index('Modificacion_Surtido') + 1
+                            notas_col_idx = headers.index('Notas') + 1
                             estado_pago_col_idx = headers.index('Estado_Pago') + 1
-                            adjuntos_col_idx = headers.index('Adjuntos') + 1
                             adjuntos_surtido_col_idx = headers.index('Adjuntos_Surtido') + 1
 
                             changes_made = False
@@ -616,16 +602,6 @@ with tab2:
                                 worksheet.update_cell(gsheet_row_index, modificacion_surtido_col_idx, new_modificacion_surtido_input)
                                 changes_made = True
 
-                                # ✅ Si el pedido estaba completado y se agregó o modificó el campo de modificación, regresarlo a pendiente
-                                if selected_row_data.get('Estado') == "🟢 Completado":
-                                    estado_col_idx = headers.index('Estado') + 1
-                                    fecha_completado_col_idx = headers.index('Fecha_Completado') + 1
-                                    worksheet.update_cell(gsheet_row_index, estado_col_idx, "🟡 Pendiente")
-                                    worksheet.update_cell(gsheet_row_index, fecha_completado_col_idx, "")
-                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por haber sido modificado después de estar completado.")
-
-
-                            # NEW: Handle S3 upload for 'Adjuntos_Surtido'
                             new_adjuntos_surtido_urls = []
                             if uploaded_files_surtido:
                                 for uploaded_file in uploaded_files_surtido:
@@ -635,39 +611,20 @@ with tab2:
                                     success, file_url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, uploaded_file, s3_key)
                                     if success:
                                         new_adjuntos_surtido_urls.append(file_url)
-                                        changes_made = True
                                     else:
-                                        message_placeholder_tab2.warning(f"⚠️ Falló la subida de '{uploaded_file.name}' para surtido. Continuará con otros cambios.")
+                                        message_placeholder_tab2.warning(f"⚠️ Falló la subida de '{uploaded_file.name}' para surtido.")
 
                             if new_adjuntos_surtido_urls:
                                 updated_adjuntos_surtido_list = current_adjuntos_surtido_list + new_adjuntos_surtido_urls
                                 updated_adjuntos_surtido_str = ", ".join(updated_adjuntos_surtido_list)
                                 worksheet.update_cell(gsheet_row_index, adjuntos_surtido_col_idx, updated_adjuntos_surtido_str)
                                 changes_made = True
-                                message_placeholder_tab2.info(f"📎 Nuevos archivos para Surtido subidos a S3: {', '.join([os.path.basename(url) for url in new_adjuntos_surtido_urls])}")
+                                message_placeholder_tab2.info(f"📎 Nuevos archivos subidos: {', '.join([os.path.basename(url) for url in new_adjuntos_surtido_urls])}")
 
                             if changes_made:
-                                message_placeholder_tab2.success(f"✅ Pedido {selected_order_id} actualizado con éxito.")
-
-                                # ✅ Si el pedido estaba completado, y se modificó el campo de modificación o se subieron archivos nuevos de surtido, regresarlo a pendiente
-                                if selected_row_data.get('Estado') == "🟢 Completado":
-                                    if (new_modificacion_surtido_input != current_modificacion_surtido_value) or (new_adjuntos_surtido_urls):
-                                        estado_ok = update_gsheet_cell(worksheet, headers, gsheet_row_index, "Estado", "🟡 Pendiente")
-                                        fecha_ok = update_gsheet_cell(worksheet, headers, gsheet_row_index, "Fecha_Completado", "")
-                                        if estado_ok and fecha_ok:
-                                            message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por haberse modificado después de estar completado.")
-                                        else:
-                                            message_placeholder_tab2.error("❌ No se pudo cambiar el estado del pedido a 'Pendiente'. Verifica que las columnas 'Estado' y 'Fecha_Completado' existan.")
-
+                                message_placeholder_tab2.success(f"✅ Pedido `{selected_order_id}` actualizado con éxito.")
                                 st.session_state.show_success_message = True
-                                # Limpieza manual de campos tras guardar exitosamente
-                                st.session_state["new_modificacion_surtido_input"] = ""
-                                st.session_state["uploaded_files_surtido"] = None
-
                                 st.session_state.last_updated_order_id = selected_order_id
-                                # 🔄 Forzar recarga del DataFrame actualizado
-                                df_pedidos = pd.DataFrame(worksheet.get_all_records())
-
                             else:
                                 message_placeholder_tab2.info("ℹ️ No se detectaron cambios para guardar.")
                                 st.session_state.show_success_message = False
@@ -675,15 +632,8 @@ with tab2:
                             st.rerun()
 
                         except Exception as e:
-                            message_placeholder_tab2.error(f"❌ Ocurrió un error al intentar guardar los cambios: {e}")
-                            
-                            # Mensaje adaptado según el tipo de error
-                            if "403" in str(e) or "insufficient permissions" in str(e).lower():
-                                message_placeholder_tab2.info("🔒 Parece que la cuenta de servicio no tiene permisos de escritura en esta hoja.")
-                            elif "not found" in str(e).lower():
-                                message_placeholder_tab2.info("❌ Verifica que la hoja exista y que el nombre del worksheet sea correcto.")
-                            else:
-                                message_placeholder_tab2.info("ℹ️ Si el problema persiste, revisa tu conexión a internet o intenta de nuevo más tarde.")
+                            message_placeholder_tab2.error(f"❌ Error al guardar los cambios en el Google Sheet: {e}")
+                            st.info("ℹ️ Verifica que la cuenta de servicio tenga permisos de escritura y que las columnas estén correctas.")
 
     if (
         'show_success_message' in st.session_state and
