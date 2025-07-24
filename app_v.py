@@ -660,8 +660,6 @@ with tab2:
                                 worksheet.update_cell(gsheet_row_index, col_adj, updated_str)
 
                             if changes_made:
-                                st.session_state["new_modificacion_surtido_input"] = ""
-                                st.session_state["uploaded_files_surtido"] = None
                                 st.session_state["show_success_message"] = True
                                 st.session_state["last_updated_order_id"] = selected_order_id
                                 st.query_params.update({"tab": "1"})
