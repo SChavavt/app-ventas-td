@@ -202,7 +202,13 @@ with tab1:
     # ✅ Mostrar mensaje persistente si se acaba de registrar un pedido
     if "success_pedido_registrado" in st.session_state:
         st.success(f"🎉 Pedido {st.session_state['success_pedido_registrado']} registrado con éxito.")
+        if "success_adjuntos" in st.session_state and st.session_state["success_adjuntos"]:
+            st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in st.session_state["success_adjuntos"]))
+        st.balloons()
         del st.session_state["success_pedido_registrado"]
+        if "success_adjuntos" in st.session_state:
+            del st.session_state["success_adjuntos"]
+
 
 
     tipo_envio = st.selectbox(
@@ -402,19 +408,16 @@ with tab1:
                     values.append("")
 
             worksheet.append_row(values)
-            st.success(f"🎉 Pedido {id_pedido} registrado con éxito!")
-            if adjuntos_urls:
-                st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in adjuntos_urls))
-            st.balloons()
-
-            # ✅ Marcar registro exitoso antes de forzar recarga limpia
+            # ✅ Marcar registro exitoso antes de redirigir
             st.session_state["success_pedido_registrado"] = id_pedido
+            st.session_state["success_adjuntos"] = adjuntos_urls
 
-            # 🔁 Redireccionar a la misma app (pestaña 0), lo que borra todos los widgets sin modificar directamente session_state
+            # 🔁 Redirigir sin st.rerun inmediato
             st.query_params.clear()
             st.query_params.update({"tab": "0"})
 
             st.rerun()
+
 
 
 
