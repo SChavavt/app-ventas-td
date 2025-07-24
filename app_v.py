@@ -602,18 +602,32 @@ with tab2:
                                 st.stop()
 
 
-                            df_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_order_id].index[0]
-                            gsheet_row_index = df_row_index + 2
+                            # 🔄 Refrescar datos para tener índice real del pedido
+                            all_data_actual = worksheet.get_all_records()
+                            df_actual = pd.DataFrame(all_data_actual)
 
-                            modificacion_surtido_col_idx = headers.index('Modificacion_Surtido') + 1
-                            estado_pago_col_idx = headers.index('Estado_Pago') + 1
-                            adjuntos_col_idx = headers.index('Adjuntos') + 1
-                            adjuntos_surtido_col_idx = headers.index('Adjuntos_Surtido') + 1
+                            if selected_order_id not in df_actual['ID_Pedido'].values:
+                                message_placeholder_tab2.error("❌ No se encontró el ID del pedido en la hoja. Verifica que no se haya borrado.")
+                                st.stop()
+
+                            df_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0]
+                            gsheet_row_index = df_row_index + 2  # +2 porque header es fila 1
+
+                            st.write(f"🛠 Modificando fila {gsheet_row_index} del pedido {selected_order_id}")
 
                             changes_made = False
 
+                            # 📝 Modificar campo de modificación
                             if new_modificacion_surtido_input != current_modificacion_surtido_value:
-                                worksheet.update_cell(gsheet_row_index, modificacion_surtido_col_idx, new_modificacion_surtido_input)
+                                ok_mod = update_gsheet_cell(worksheet, headers, gsheet_row_index, 'Modificacion_Surtido', new_modificacion_surtido_input)
+                                changes_made = changes_made or ok_mod
+
+                                # Si estaba completado, regresarlo a Pendiente
+                                if selected_row_data.get('Estado') == "🟢 Completado":
+                                    update_gsheet_cell(worksheet, headers, gsheet_row_index, "Estado", "🟡 Pendiente")
+                                    update_gsheet_cell(worksheet, headers, gsheet_row_index, "Fecha_Completado", "")
+                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por haberse modificado después de estar completado.")
+
                                 changes_made = True
 
                                 # ✅ Si el pedido estaba completado y se agregó o modificó el campo de modificación, regresarlo a pendiente
@@ -642,8 +656,8 @@ with tab2:
                             if new_adjuntos_surtido_urls:
                                 updated_adjuntos_surtido_list = current_adjuntos_surtido_list + new_adjuntos_surtido_urls
                                 updated_adjuntos_surtido_str = ", ".join(updated_adjuntos_surtido_list)
-                                worksheet.update_cell(gsheet_row_index, adjuntos_surtido_col_idx, updated_adjuntos_surtido_str)
-                                changes_made = True
+                                ok_surtido = update_gsheet_cell(worksheet, headers, gsheet_row_index, 'Adjuntos_Surtido', updated_adjuntos_surtido_str)
+                                changes_made = changes_made or ok_surtido
                                 message_placeholder_tab2.info(f"📎 Nuevos archivos para Surtido subidos a S3: {', '.join([os.path.basename(url) for url in new_adjuntos_surtido_urls])}")
 
                             if changes_made:
