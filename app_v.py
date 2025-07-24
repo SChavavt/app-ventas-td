@@ -531,13 +531,6 @@ with tab2:
                 filtered_orders = filtered_orders.sort_values(by='Fecha_Entrega', ascending=False)
 
 
-            # Ordenar por columnas clave
-            filtered_orders = filtered_orders.sort_values(
-                by=['Folio_Factura', 'ID_Pedido'],
-                key=lambda x: x.astype(str).str.lower(),
-                na_position='last'
-            )
-
             # Mostrar selectbox limpio
             selected_order_display = st.selectbox(
                 "📝 Seleccionar Pedido para Modificar",
@@ -668,8 +661,11 @@ with tab2:
                                 st.session_state["reset_inputs_tab2"] = True
                                 st.session_state["show_success_message"] = True
                                 st.session_state["last_updated_order_id"] = selected_order_id
+                                st.session_state["new_modificacion_surtido_input"] = ""  # 🔁 limpiar textarea
+                                st.session_state["uploaded_files_surtido"] = []          # 🔁 limpiar uploader
                                 st.query_params.update({"tab": "1"})
                                 st.rerun()
+
                             else:
                                 message_placeholder_tab2.info("ℹ️ No se detectaron cambios nuevos para guardar.")
 
