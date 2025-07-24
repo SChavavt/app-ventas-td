@@ -528,7 +528,8 @@ with tab2:
             # 🆕 Ordenar por fecha de entrega descendente (más reciente primero)
             if 'Fecha_Entrega' in filtered_orders.columns:
                 filtered_orders['Fecha_Entrega'] = pd.to_datetime(filtered_orders['Fecha_Entrega'], errors='coerce')
-                filtered_orders = filtered_orders.sort_values(by='Fecha_Entrega', ascending=False)
+                filtered_orders = filtered_orders.sort_values(by='Fecha_Entrega', ascending=False).reset_index(drop=True)
+
 
 
             # Mostrar selectbox limpio
@@ -770,7 +771,8 @@ with tab3:
             # 🆕 Ordenar por Fecha_Entrega descendente para mostrar los más recientes primero
             if 'Fecha_Entrega' in pedidos_sin_comprobante.columns:
                 pedidos_sin_comprobante['Fecha_Entrega'] = pd.to_datetime(pedidos_sin_comprobante['Fecha_Entrega'], errors='coerce')
-                pedidos_sin_comprobante = pedidos_sin_comprobante.sort_values(by='Fecha_Entrega', ascending=False)
+                pedidos_sin_comprobante = pedidos_sin_comprobante.sort_values(by='Fecha_Entrega', ascending=False).reset_index(drop=True)
+
 
 
             pedidos_sin_comprobante['display_label'] = pedidos_sin_comprobante.apply(lambda row:
