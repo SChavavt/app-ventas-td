@@ -430,12 +430,12 @@ if not df_pedidos.empty:
 
 # --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
 st.markdown("---")
-st.header("📥 Pedidos Confirmados - Comprobantes de Pago")
+mostrar_descarga_confirmados = st.toggle("🔽 Mostrar/Descargar Pedidos Confirmados", value=False)
 
-expander_confirmados = st.expander("🔽 Mostrar/Descargar Pedidos Confirmados", expanded=False)
-
-if expander_confirmados:
+if mostrar_descarga_confirmados:
+    st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
     with st.spinner("Cargando comprobantes confirmados..."):
+
         if (
             'Estado_Pago' in df_pedidos.columns and
             'Comprobante_Confirmado' in df_pedidos.columns and
