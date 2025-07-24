@@ -791,8 +791,16 @@ with tab3:
                         if comprobante_file:
                             try:
                                 headers = worksheet.row_values(1)
-                                df_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
-                                sheet_row = df_index + 2
+                                all_data_actual = worksheet.get_all_records()
+                                df_actual = pd.DataFrame(all_data_actual)
+
+                                if selected_pending_order_id not in df_actual['ID_Pedido'].values:
+                                    st.error("❌ No se encontró el ID del pedido en la hoja. Verifica que no se haya borrado.")
+                                    st.stop()
+
+                                df_index = df_actual[df_actual['ID_Pedido'] == selected_pending_order_id].index[0]
+                                sheet_row = df_index + 2  # +2 porque la fila 1 es encabezado
+
 
                                 ext = os.path.splitext(comprobante_file.name)[1]
                                 s3_key = f"{selected_pending_order_id}/comprobante_{selected_pending_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
@@ -803,16 +811,26 @@ with tab3:
                                     estado_pago_col = headers.index('Estado_Pago') + 1
                                     fecha_pago_col = headers.index('Fecha_Pago_Comprobante') + 1
 
-                                    current_adjuntos = worksheet.cell(sheet_row, adj_col).value or ""
-                                    adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
-                                    adjuntos_list.append(file_url)
-                                    worksheet.update_cell(sheet_row, adj_col, ", ".join(adjuntos_list))
-                                    worksheet.update_cell(sheet_row, estado_pago_col, "✅ Pagado")
-                                    worksheet.update_cell(sheet_row, fecha_pago_col, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
+                                    try:
+                                        current_adjuntos = worksheet.cell(sheet_row, adj_col).value or ""
+                                        adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
+                                    except Exception as e:
+                                        st.error(f"❌ No se pudo leer la celda de adjuntos: {e}")
+                                        adjuntos_list = []
 
-                                    st.success("✅ Comprobante subido y estado actualizado con éxito.")
-                                    st.balloons()
-                                    st.rerun()
+                                    adjuntos_list.append(file_url)
+
+                                    try:
+                                        worksheet.update_cell(sheet_row, adj_col, ", ".join(adjuntos_list))
+                                        worksheet.update_cell(sheet_row, estado_pago_col, "✅ Pagado")
+                                        worksheet.update_cell(sheet_row, fecha_pago_col, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
+
+                                        st.success("✅ Comprobante subido y estado actualizado con éxito.")
+                                        st.balloons()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error al actualizar el pedido en Google Sheets: {e}")
+
                                 else:
                                     st.error("❌ Falló la subida a S3.")
                             except Exception as e:
