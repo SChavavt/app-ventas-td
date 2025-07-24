@@ -411,7 +411,9 @@ with tab1:
             st.session_state["success_pedido_registrado"] = id_pedido
 
             # 🔁 Redireccionar a la misma app (pestaña 0), lo que borra todos los widgets sin modificar directamente session_state
-            st.experimental_set_query_params(tab="0")
+            st.query_params.clear()
+            st.query_params.update({"tab": "0"})
+
             st.rerun()
 
 
