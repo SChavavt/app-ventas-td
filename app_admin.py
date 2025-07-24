@@ -469,8 +469,13 @@ if mostrar_descarga_confirmados:
                     factura_url = ""
 
                     if pedido_id:
-                        prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
-                        files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
+                        prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
+                        files = get_files_in_s3_prefix(s3_client, prefix)
+
+                        if not files:
+                            prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
+                            files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
+
 
                         # Comprobante
                         comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
