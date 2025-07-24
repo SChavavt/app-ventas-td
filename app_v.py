@@ -7,7 +7,7 @@ import pandas as pd
 from io import BytesIO
 import time
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 from pytz import timezone
 
 
@@ -27,47 +27,28 @@ if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo n
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
-def build_gspread_client():
-    credentials_json_str = st.secrets["google_credentials"]
-    creds_dict = json.loads(credentials_json_str)
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    return gspread.authorize(creds)
-
-_gsheets_client = None
 @st.cache_resource
 def get_google_sheets_client():
-    def try_get_client():
+    try:
         credentials_json_str = st.secrets["google_credentials"]
         creds_dict = json.loads(credentials_json_str)
         if "private_key" in creds_dict:
             creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        return gspread.authorize(creds)
 
-    try:
-        client = try_get_client()
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+
+        # Verificación inicial de conexión
         _ = client.open_by_key(GOOGLE_SHEET_ID)
         return client
-    except gspread.exceptions.APIError as e:
-        if "RESOURCE_EXHAUSTED" in str(e) or "expired" in str(e).lower():
-            st.warning("🔁 Token expirado o cuota alcanzada. Reintentando con nuevo cliente...")
-            st.cache_resource.clear()
-            time.sleep(2)
 
-            try:
-                client = try_get_client()
-                _ = client.open_by_key(GOOGLE_SHEET_ID)
-                return client
-            except Exception as e2:
-                st.error(f"❌ Falló la reconexión con Google Sheets: {e2}")
-                st.stop()
-        else:
-            st.error(f"❌ Error al conectar con Google Sheets: {e}")
-            st.stop()
+    except Exception as e:
+        st.error(f"❌ Error al conectar con Google Sheets: {e}")
+        st.stop()
 
 @st.cache_resource
 def get_worksheet():
