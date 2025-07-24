@@ -403,16 +403,12 @@ with tab1:
             st.balloons()
 
             # ✅ Si se registró con éxito, reiniciamos para limpiar formulario
-            st.session_state["fecha_pago_input"] = datetime.today().date()
-            st.session_state["forma_pago_input"] = "Transferencia"
-            st.session_state["terminal_input"] = "BANORTE"
-            st.session_state["banco_destino_input"] = "BANORTE"
-            st.session_state["monto_pago_input"] = 0.0
-            st.session_state["referencia_pago_input"] = ""
-            st.session_state["estado_pago"] = "🔴 No Pagado"
+            st.success(f"🎉 Pedido {id_pedido} registrado con éxito!")
+            if adjuntos_urls:
+                st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in adjuntos_urls))
+            st.balloons()
+            st.rerun()  # 🔄 Esto recarga y limpia todo de forma segura
 
-            time.sleep(1.5)
-            st.rerun()
 
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
