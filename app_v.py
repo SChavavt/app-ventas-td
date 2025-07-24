@@ -425,6 +425,8 @@ with tab1:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
 
 # --- TAB 2: MODIFY EXISTING ORDER ---
+if "reset_inputs_tab2" in st.session_state:
+    del st.session_state["reset_inputs_tab2"]
 with tab2:
     st.header("✏️ Modificar Pedido Existente")
 
@@ -590,12 +592,15 @@ with tab2:
                 st.subheader("Modificar Campos y Adjuntos (Surtido)")
 
                 with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
+                    default_modificacion_text = "" if st.session_state.get("reset_inputs_tab2") else current_modificacion_surtido_value
+
                     new_modificacion_surtido_input = st.text_area(
                         "✍️ Notas de Modificación/Surtido",
-                        value=current_modificacion_surtido_value,
+                        value=default_modificacion_text,
                         height=100,
                         key="new_modificacion_surtido_input"
                     )
+
 
                     uploaded_files_surtido = st.file_uploader(
                         "📎 Subir Archivos para Modificación/Surtido",
@@ -660,6 +665,7 @@ with tab2:
                                 worksheet.update_cell(gsheet_row_index, col_adj, updated_str)
 
                             if changes_made:
+                                st.session_state["reset_inputs_tab2"] = True
                                 st.session_state["show_success_message"] = True
                                 st.session_state["last_updated_order_id"] = selected_order_id
                                 st.query_params.update({"tab": "1"})
