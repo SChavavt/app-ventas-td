@@ -665,6 +665,9 @@ with tab2:
                                 st.session_state["uploaded_files_surtido"] = None
 
                                 st.session_state.last_updated_order_id = selected_order_id
+                                # 🔄 Forzar recarga del DataFrame actualizado
+                                df_pedidos = pd.DataFrame(worksheet.get_all_records())
+
                             else:
                                 message_placeholder_tab2.info("ℹ️ No se detectaron cambios para guardar.")
                                 st.session_state.show_success_message = False
@@ -672,8 +675,15 @@ with tab2:
                             st.rerun()
 
                         except Exception as e:
-                            message_placeholder_tab2.error(f"❌ Error al guardar los cambios en el Google Sheet: {e}")
-                            message_placeholder_tab2.info("ℹ️ Verifica que la cuenta de servicio tenga permisos de escritura en la hoja y que las columnas sean correctas. Asegúrate de que todas las columnas usadas existen en la primera fila de tu Google Sheet.")
+                            message_placeholder_tab2.error(f"❌ Ocurrió un error al intentar guardar los cambios: {e}")
+                            
+                            # Mensaje adaptado según el tipo de error
+                            if "403" in str(e) or "insufficient permissions" in str(e).lower():
+                                message_placeholder_tab2.info("🔒 Parece que la cuenta de servicio no tiene permisos de escritura en esta hoja.")
+                            elif "not found" in str(e).lower():
+                                message_placeholder_tab2.info("❌ Verifica que la hoja exista y que el nombre del worksheet sea correcto.")
+                            else:
+                                message_placeholder_tab2.info("ℹ️ Si el problema persiste, revisa tu conexión a internet o intenta de nuevo más tarde.")
 
     if (
         'show_success_message' in st.session_state and
