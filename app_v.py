@@ -661,29 +661,15 @@ with tab2:
                                 message_placeholder_tab2.info(f"📎 Nuevos archivos para Surtido subidos a S3: {', '.join([os.path.basename(url) for url in new_adjuntos_surtido_urls])}")
 
                             if changes_made:
-                                message_placeholder_tab2.success(f"✅ Pedido {selected_order_id} actualizado con éxito.")
-
-                                # ✅ Si el pedido estaba completado, y se modificó el campo de modificación o se subieron archivos nuevos de surtido, regresarlo a pendiente
-                                if selected_row_data.get('Estado') == "🟢 Completado":
-                                    if (new_modificacion_surtido_input != current_modificacion_surtido_value) or (new_adjuntos_surtido_urls):
-                                        estado_ok = update_gsheet_cell(worksheet, headers, gsheet_row_index, "Estado", "🟡 Pendiente")
-                                        fecha_ok = update_gsheet_cell(worksheet, headers, gsheet_row_index, "Fecha_Completado", "")
-                                        if estado_ok and fecha_ok:
-                                            message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por haberse modificado después de estar completado.")
-                                        else:
-                                            message_placeholder_tab2.error("❌ No se pudo cambiar el estado del pedido a 'Pendiente'. Verifica que las columnas 'Estado' y 'Fecha_Completado' existan.")
-
                                 st.session_state.show_success_message = True
-                                # Limpieza manual de campos tras guardar exitosamente
+                                st.session_state.last_updated_order_id = selected_order_id
+
+                                # Limpia campos del formulario
                                 st.session_state["new_modificacion_surtido_input"] = ""
                                 st.session_state["uploaded_files_surtido"] = None
 
-                                st.session_state.last_updated_order_id = selected_order_id
-                            else:
-                                message_placeholder_tab2.info("ℹ️ No se detectaron cambios para guardar.")
-                                st.session_state.show_success_message = False
+                                st.rerun()
 
-                            st.rerun()
 
                         except Exception as e:
                             message_placeholder_tab2.error(f"❌ Error al guardar los cambios en el Google Sheet: {e}")
