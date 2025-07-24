@@ -432,12 +432,13 @@ with tab2:
 
     @st.cache_data(ttl=30)
     def cargar_datos_pedidos():
-        worksheet = get_worksheet()
+        client = build_gspread_client()
+        worksheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")  # ✅ conexión segura y moderna
 
         headers = worksheet.row_values(1)
         df = pd.DataFrame(worksheet.get_all_records()) if headers else pd.DataFrame()
         if "Adjuntos_Guia" not in df.columns:
-             df["Adjuntos_Guia"] = ""
+            df["Adjuntos_Guia"] = ""
 
         return df, headers, worksheet
 
