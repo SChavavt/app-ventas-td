@@ -664,7 +664,7 @@ with tab2:
                                 st.session_state["uploaded_files_surtido"] = None
                                 st.session_state["show_success_message"] = True
                                 st.session_state["last_updated_order_id"] = selected_order_id
-                                st.experimental_set_query_params(tab="1")
+                                st.query_params.update({"tab": "1"})
                                 st.rerun()
                             else:
                                 message_placeholder_tab2.info("ℹ️ No se detectaron cambios nuevos para guardar.")
@@ -878,7 +878,7 @@ def cargar_datos_guias():
 
 # --- TAB 4: GUIAS CARGADAS ---
 def fijar_tab4_activa():
-    st.experimental_set_query_params(tab="3")
+    st.query_params.update({"tab": "3"})
 
 with tab4:
     st.header("📦 Pedidos con Guías Subidas desde Almacén")
