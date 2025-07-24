@@ -170,7 +170,7 @@ tabs_labels = [
 ]
 
 # Leer índice de pestaña desde los parámetros de la URL
-params = st.experimental_get_query_params()
+params = st.query_params
 active_tab_index = int(params.get("tab", ["0"])[0])
 
 # Crear pestañas y mantener referencia
