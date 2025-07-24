@@ -199,6 +199,11 @@ if 'last_selected_vendedor' not in st.session_state:
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
     st.header("📝 Nuevo Pedido")
+    # ✅ Mostrar mensaje persistente si se acaba de registrar un pedido
+    if "success_pedido_registrado" in st.session_state:
+        st.success(f"🎉 Pedido {st.session_state['success_pedido_registrado']} registrado con éxito.")
+        del st.session_state["success_pedido_registrado"]
+
 
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
@@ -403,11 +408,9 @@ with tab1:
             st.balloons()
 
             # ✅ Si se registró con éxito, reiniciamos para limpiar formulario
-            st.success(f"🎉 Pedido {id_pedido} registrado con éxito!")
-            if adjuntos_urls:
-                st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in adjuntos_urls))
-            st.balloons()
-            st.rerun()  # 🔄 Esto recarga y limpia todo de forma segura
+            st.session_state["success_pedido_registrado"] = id_pedido
+            st.rerun()
+
 
 
         except Exception as e:
