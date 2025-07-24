@@ -403,7 +403,6 @@ with tab1:
             st.balloons()
 
             # ✅ Si se registró con éxito, reiniciamos para limpiar formulario
-            st.session_state["new_pedido_form"] = False
             st.session_state["comprobante_uploader_final"] = None
             st.session_state["fecha_pago_input"] = datetime.today().date()
             st.session_state["forma_pago_input"] = "Transferencia"
