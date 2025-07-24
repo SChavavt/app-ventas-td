@@ -604,88 +604,68 @@ with tab2:
                         message_placeholder_tab2.empty()
                         try:
                             headers = worksheet.row_values(1)
-
-                            if 'Modificacion_Surtido' not in headers:
-                                message_placeholder_tab2.error("Error: La columna 'Modificacion_Surtido' no se encuentra en el Google Sheet. Por favor, verifica el nombre EXACTO.")
-                                st.stop()
-                            if 'Estado_Pago' not in headers:
-                                message_placeholder_tab2.error("Error: La columna 'Estado_Pago' no se encuentra en el Google Sheet. Por favor, verifica el nombre EXACTO.")
-                                st.stop()
-                            if 'Adjuntos' not in headers:
-                                message_placeholder_tab2.error("Error: La columna 'Adjuntos' no se encuentra en el Google Sheet. Por favor, verifica el nombre EXACTO.")
-                                st.stop()
-                            if 'Adjuntos_Surtido' not in headers:
-                                message_placeholder_tab2.error("Error: La columna 'Adjuntos_Surtido' no se encuentra en el Google Sheet. Por favor, agrégala o verifica el nombre EXACTO.")
+                            if 'Modificacion_Surtido' not in headers or 'Adjuntos_Surtido' not in headers:
+                                message_placeholder_tab2.error("❌ Faltan columnas necesarias en la hoja. Asegúrate de que existen 'Modificacion_Surtido' y 'Adjuntos_Surtido'.")
                                 st.stop()
 
-
-                            # 🔄 Refrescar datos para tener índice real del pedido
+                            # Refrescar datos
                             all_data_actual = worksheet.get_all_records()
                             df_actual = pd.DataFrame(all_data_actual)
 
                             if selected_order_id not in df_actual['ID_Pedido'].values:
-                                message_placeholder_tab2.error("❌ No se encontró el ID del pedido en la hoja. Verifica que no se haya borrado.")
+                                message_placeholder_tab2.error("❌ No se encontró el ID del pedido en la hoja.")
                                 st.stop()
 
                             df_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0]
-                            gsheet_row_index = df_row_index + 2  # +2 porque header es fila 1
-
-                            st.write(f"🛠 Modificando fila {gsheet_row_index} del pedido {selected_order_id}")
+                            gsheet_row_index = df_row_index + 2  # +2 por encabezado
 
                             changes_made = False
 
-                            # 📝 Modificar campo de modificación
-                            if new_modificacion_surtido_input != current_modificacion_surtido_value:
-                                mod_col = headers.index("Modificacion_Surtido") + 1
-                                worksheet.update_cell(gsheet_row_index, mod_col, new_modificacion_surtido_input)
+                            # 🔁 Verifica si el campo 'Modificacion_Surtido' fue cambiado
+                            if new_modificacion_surtido_input.strip() != current_modificacion_surtido_value.strip():
+                                mod_col_idx = headers.index("Modificacion_Surtido") + 1
+                                worksheet.update_cell(gsheet_row_index, mod_col_idx, new_modificacion_surtido_input.strip())
                                 changes_made = True
 
-                                # ✅ Si el pedido estaba completado y se agregó o modificó el campo de modificación, regresarlo a pendiente
                                 if selected_row_data.get('Estado') == "🟢 Completado":
-                                    estado_col_idx = headers.index('Estado') + 1
-                                    fecha_completado_col_idx = headers.index('Fecha_Completado') + 1
-                                    worksheet.update_cell(gsheet_row_index, estado_col_idx, "🟡 Pendiente")
-                                    worksheet.update_cell(gsheet_row_index, fecha_completado_col_idx, "")
-                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por haber sido modificado después de estar completado.")
+                                    estado_col = headers.index("Estado") + 1
+                                    fecha_completado_col = headers.index("Fecha_Completado") + 1
+                                    worksheet.update_cell(gsheet_row_index, estado_col, "🟡 Pendiente")
+                                    worksheet.update_cell(gsheet_row_index, fecha_completado_col, "")
+                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por ser modificado.")
 
-
-                            # NEW: Handle S3 upload for 'Adjuntos_Surtido'
+                            # 📎 Adjuntos
                             new_adjuntos_surtido_urls = []
                             if uploaded_files_surtido:
-                                for uploaded_file in uploaded_files_surtido:
-                                    file_extension = os.path.splitext(uploaded_file.name)[1]
-                                    s3_key = f"{selected_order_id}/surtido_{uploaded_file.name.replace(' ', '_').replace(file_extension, '')}_{uuid.uuid4().hex[:4]}{file_extension}"
-
-                                    success, file_url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, uploaded_file, s3_key)
+                                for f in uploaded_files_surtido:
+                                    ext = os.path.splitext(f.name)[1]
+                                    s3_key = f"{selected_order_id}/surtido_{f.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
+                                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, f, s3_key)
                                     if success:
-                                        new_adjuntos_surtido_urls.append(file_url)  
+                                        new_adjuntos_surtido_urls.append(url)
                                         changes_made = True
                                     else:
-                                        message_placeholder_tab2.warning(f"⚠️ Falló la subida de '{uploaded_file.name}' para surtido. Continuará con otros cambios.")
+                                        message_placeholder_tab2.warning(f"⚠️ Falló la subida de {f.name}")
 
                             if new_adjuntos_surtido_urls:
-                                updated_adjuntos_surtido_list = current_adjuntos_surtido_list + new_adjuntos_surtido_urls
-                                updated_adjuntos_surtido_str = ", ".join(updated_adjuntos_surtido_list)
-                                surtido_col = headers.index("Adjuntos_Surtido") + 1
-                                worksheet.update_cell(gsheet_row_index, surtido_col, updated_adjuntos_surtido_str)
-                                changes_made = True
-                                message_placeholder_tab2.info(f"📎 Nuevos archivos para Surtido subidos a S3: {', '.join([os.path.basename(url) for url in new_adjuntos_surtido_urls])}")
+                                updated_list = current_adjuntos_surtido_list + new_adjuntos_surtido_urls
+                                updated_str = ", ".join(updated_list)
+                                col_adj = headers.index("Adjuntos_Surtido") + 1
+                                worksheet.update_cell(gsheet_row_index, col_adj, updated_str)
 
+                            # ✅ Si hubo cambios, limpiar campos y mostrar éxito
                             if changes_made:
                                 st.session_state["new_modificacion_surtido_input"] = ""
                                 st.session_state["uploaded_files_surtido"] = None
                                 st.session_state["show_success_message"] = True
                                 st.session_state["last_updated_order_id"] = selected_order_id
-                                st.experimental_set_query_params(tab="1")  # Pestaña de modificar
+                                st.experimental_set_query_params(tab="1")
                                 st.rerun()
                             else:
                                 message_placeholder_tab2.info("ℹ️ No se detectaron cambios nuevos para guardar.")
 
-
-
                         except Exception as e:
-                            message_placeholder_tab2.error(f"❌ Error al guardar los cambios en el Google Sheet: {e}")
-                            message_placeholder_tab2.info("ℹ️ Verifica que la cuenta de servicio tenga permisos de escritura en la hoja y que las columnas sean correctas. Asegúrate de que todas las columnas usadas existen en la primera fila de tu Google Sheet.")
+                            message_placeholder_tab2.error(f"❌ Error inesperado al guardar: {e}")
 
     if (
         'show_success_message' in st.session_state and
