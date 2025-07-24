@@ -824,7 +824,7 @@ with tab3:
                                     fecha_pago_col = headers.index('Fecha_Pago_Comprobante') + 1
 
                                     try:
-                                        current_adjuntos = worksheet.cell(sheet_row, adj_col).value or ""
+                                        current_adjuntos = df_pedidos_comprobante.loc[df_index, 'Adjuntos'] if 'Adjuntos' in df_pedidos_comprobante.columns else ""
                                         adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
                                     except Exception as e:
                                         st.error(f"❌ No se pudo leer la celda de adjuntos: {e}")
