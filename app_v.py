@@ -517,6 +517,11 @@ with tab2:
                 f"📄 {(row['Folio_Factura'] if row['Folio_Factura'] else row['ID_Pedido'])} - {row['Cliente']} - {row['Estado']} - {row['Tipo_Envio']}",
                 axis=1
             )
+            # 🆕 Ordenar por fecha de entrega descendente (más reciente primero)
+            if 'Fecha_Entrega' in filtered_orders.columns:
+                filtered_orders['Fecha_Entrega'] = pd.to_datetime(filtered_orders['Fecha_Entrega'], errors='coerce')
+                filtered_orders = filtered_orders.sort_values(by='Fecha_Entrega', ascending=False)
+
 
             # Ordenar por columnas clave
             filtered_orders = filtered_orders.sort_values(
@@ -776,6 +781,12 @@ with tab3:
             st.markdown("---")
             st.subheader("Subir Comprobante para un Pedido")
 
+            # 🆕 Ordenar por Fecha_Entrega descendente para mostrar los más recientes primero
+            if 'Fecha_Entrega' in pedidos_sin_comprobante.columns:
+                pedidos_sin_comprobante['Fecha_Entrega'] = pd.to_datetime(pedidos_sin_comprobante['Fecha_Entrega'], errors='coerce')
+                pedidos_sin_comprobante = pedidos_sin_comprobante.sort_values(by='Fecha_Entrega', ascending=False)
+
+
             pedidos_sin_comprobante['display_label'] = pedidos_sin_comprobante.apply(lambda row:
                 f"📄 {row.get('Folio_Factura', 'N/A') or row.get('ID_Pedido', 'N/A')} - {row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')}", axis=1)
             pedidos_sin_comprobante = pedidos_sin_comprobante.sort_values(by=['Folio_Factura', 'ID_Pedido'], key=lambda x: x.astype(str).str.lower())
@@ -932,6 +943,12 @@ with tab4:
 
         df_guias['Folio_O_ID'] = df_guias['Folio_Factura'].astype(str).str.strip()
         df_guias.loc[df_guias['Folio_O_ID'] == '', 'Folio_O_ID'] = df_guias['ID_Pedido']
+
+        # 🆕 Ordenar por Fecha_Entrega descendente para mostrar primero los pedidos más recientes con guías
+        if 'Fecha_Entrega' in df_guias.columns:
+            df_guias['Fecha_Entrega'] = pd.to_datetime(df_guias['Fecha_Entrega'], errors='coerce')
+            df_guias = df_guias.sort_values(by='Fecha_Entrega', ascending=False)
+
 
         df_guias['display_label'] = df_guias.apply(lambda row:
             f"📄 {row['Folio_O_ID']} – {row['Cliente']} – {row['Vendedor_Registro']} ({row['Tipo_Envio']})", axis=1)
