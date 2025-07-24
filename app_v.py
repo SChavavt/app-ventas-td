@@ -619,15 +619,8 @@ with tab2:
 
                             # 📝 Modificar campo de modificación
                             if new_modificacion_surtido_input != current_modificacion_surtido_value:
-                                ok_mod = update_gsheet_cell(worksheet, headers, gsheet_row_index, 'Modificacion_Surtido', new_modificacion_surtido_input)
-                                changes_made = changes_made or ok_mod
-
-                                # Si estaba completado, regresarlo a Pendiente
-                                if selected_row_data.get('Estado') == "🟢 Completado":
-                                    update_gsheet_cell(worksheet, headers, gsheet_row_index, "Estado", "🟡 Pendiente")
-                                    update_gsheet_cell(worksheet, headers, gsheet_row_index, "Fecha_Completado", "")
-                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por haberse modificado después de estar completado.")
-
+                                mod_col = headers.index("Modificacion_Surtido") + 1
+                                worksheet.update_cell(gsheet_row_index, mod_col, new_modificacion_surtido_input)
                                 changes_made = True
 
                                 # ✅ Si el pedido estaba completado y se agregó o modificó el campo de modificación, regresarlo a pendiente
@@ -648,7 +641,7 @@ with tab2:
 
                                     success, file_url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, uploaded_file, s3_key)
                                     if success:
-                                        new_adjuntos_surtido_urls.append(file_url)
+                                        new_adjuntos_surtido_urls.append(file_url)  
                                         changes_made = True
                                     else:
                                         message_placeholder_tab2.warning(f"⚠️ Falló la subida de '{uploaded_file.name}' para surtido. Continuará con otros cambios.")
@@ -656,8 +649,9 @@ with tab2:
                             if new_adjuntos_surtido_urls:
                                 updated_adjuntos_surtido_list = current_adjuntos_surtido_list + new_adjuntos_surtido_urls
                                 updated_adjuntos_surtido_str = ", ".join(updated_adjuntos_surtido_list)
-                                ok_surtido = update_gsheet_cell(worksheet, headers, gsheet_row_index, 'Adjuntos_Surtido', updated_adjuntos_surtido_str)
-                                changes_made = changes_made or ok_surtido
+                                surtido_col = headers.index("Adjuntos_Surtido") + 1
+                                worksheet.update_cell(gsheet_row_index, surtido_col, updated_adjuntos_surtido_str)
+                                changes_made = True
                                 message_placeholder_tab2.info(f"📎 Nuevos archivos para Surtido subidos a S3: {', '.join([os.path.basename(url) for url in new_adjuntos_surtido_urls])}")
 
                             if changes_made:
