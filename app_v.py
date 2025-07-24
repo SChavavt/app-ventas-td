@@ -700,9 +700,10 @@ with tab3:
             if 'Folio_Factura' in df_pedidos_comprobante.columns:
                 df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '')
             if 'Vendedor_Registro' in df_pedidos_comprobante.columns:
-                df_pedidos_comprobante['Vendedor_Registro'] = df_pedidos_comprobante['Vendedor_Registro'].apply(
-                    lambda x: x if x in VENDEDORES_LIST else 'Otro/Desconocido' if pd.notna(x) and str(x).strip() != '' else 'N/A'
-                ).astype(str)
+                df_pedidos_comprobante['Vendedor_Registro'] = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
+                df_pedidos_comprobante.loc[~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST), 'Vendedor_Registro'] = 'Otro/Desconocido'
+                df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'].isin(['', 'nan', 'None']), 'Vendedor_Registro'] = 'N/A'
+
         else:
             st.warning("No se pudieron cargar los encabezados del Google Sheet. Asegúrate de que la primera fila no esté vacía.")
     except Exception as e:
@@ -777,7 +778,8 @@ with tab3:
 
             pedidos_sin_comprobante['display_label'] = pedidos_sin_comprobante.apply(lambda row:
                 f"📄 {row.get('Folio_Factura', 'N/A') or row.get('ID_Pedido', 'N/A')} - {row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')}", axis=1)
-            pedidos_sin_comprobante = pedidos_sin_comprobante.sort_values(by=['Folio_Factura', 'ID_Pedido'], key=lambda x: x.astype(str).str.lower())
+            # ❌ NO volver a ordenar aquí
+
 
             selected_pending_order_display = st.selectbox(
                 "📝 Seleccionar Pedido para Subir Comprobante",
