@@ -180,6 +180,7 @@ tab1, tab2, tab3, tab4, tab5 = tabs
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
+    "ALEJANDRO RODRIGUEZ",
     "ANA KAREN ORTEGA MAHUAD",
     "DANIELA LOPEZ RAMIREZ",
     "EDGAR ORLANDO GOMEZ VILLAGRAN",
@@ -190,6 +191,7 @@ VENDEDORES_LIST = sorted([
     "NORA ALEJANDRA MARTINEZ MORENO",
     "PAULINA TREJO"
 ])
+
 
 # Initialize session state for vendor
 if 'last_selected_vendedor' not in st.session_state:
@@ -248,7 +250,7 @@ with tab1:
     # --- Estado de pago después del formulario ---
     st.markdown("---")
     st.subheader("💰 Estado de Pago")
-    estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado"], index=0)
+    estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado"], index=0, key="estado_pago")
 
     comprobante_pago_file = None
     fecha_pago = None
@@ -401,7 +403,17 @@ with tab1:
             st.balloons()
 
             # ✅ Si se registró con éxito, reiniciamos para limpiar formulario
-            time.sleep(1.5)  # da tiempo para ver el mensaje
+            st.session_state["new_pedido_form"] = False
+            st.session_state["comprobante_uploader_final"] = None
+            st.session_state["fecha_pago_input"] = datetime.today().date()
+            st.session_state["forma_pago_input"] = "Transferencia"
+            st.session_state["terminal_input"] = "BANORTE"
+            st.session_state["banco_destino_input"] = "BANORTE"
+            st.session_state["monto_pago_input"] = 0.0
+            st.session_state["referencia_pago_input"] = ""
+            st.session_state["estado_pago"] = "🔴 No Pagado"
+
+            time.sleep(1.5)
             st.rerun()
 
         except Exception as e:
