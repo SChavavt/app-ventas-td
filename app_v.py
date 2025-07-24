@@ -667,14 +667,15 @@ with tab2:
                                 message_placeholder_tab2.info(f"📎 Nuevos archivos para Surtido subidos a S3: {', '.join([os.path.basename(url) for url in new_adjuntos_surtido_urls])}")
 
                             if changes_made:
-                                st.session_state.show_success_message = True
-                                st.session_state.last_updated_order_id = selected_order_id
-
-                                # Limpia campos del formulario
                                 st.session_state["new_modificacion_surtido_input"] = ""
                                 st.session_state["uploaded_files_surtido"] = None
-
+                                st.session_state["show_success_message"] = True
+                                st.session_state["last_updated_order_id"] = selected_order_id
+                                st.experimental_set_query_params(tab="1")  # Pestaña de modificar
                                 st.rerun()
+                            else:
+                                message_placeholder_tab2.info("ℹ️ No se detectaron cambios nuevos para guardar.")
+
 
 
                         except Exception as e:
