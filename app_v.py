@@ -609,38 +609,38 @@ with tab2:
                     if modify_button:
                         message_placeholder_tab2.empty()
                         try:
-                            headers = worksheet.row_values(1)
-                            if 'Modificacion_Surtido' not in headers or 'Adjuntos_Surtido' not in headers:
-                                message_placeholder_tab2.error("❌ Faltan columnas necesarias en la hoja. Asegúrate de que existen 'Modificacion_Surtido' y 'Adjuntos_Surtido'.")
-                                st.stop()
+                            # ✅ Reconexión directa y segura igual que en Tab 3
+                            client = build_gspread_client()
+                            worksheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
 
-                            # Refrescar datos
+                            headers = worksheet.row_values(1)
                             all_data_actual = worksheet.get_all_records()
                             df_actual = pd.DataFrame(all_data_actual)
+                            selected_row_data = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
+
 
                             if selected_order_id not in df_actual['ID_Pedido'].values:
                                 message_placeholder_tab2.error("❌ No se encontró el ID del pedido en la hoja.")
                                 st.stop()
 
-                            df_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0]
-                            gsheet_row_index = df_row_index + 2  # +2 por encabezado
-
+                            gsheet_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0] + 2
                             changes_made = False
 
-                            # 🔁 Verifica si el campo 'Modificacion_Surtido' fue cambiado
+                            # ✍️ Modificación_Surtido
                             if new_modificacion_surtido_input.strip() != current_modificacion_surtido_value.strip():
-                                mod_col_idx = headers.index("Modificacion_Surtido") + 1
-                                worksheet.update_cell(gsheet_row_index, mod_col_idx, new_modificacion_surtido_input.strip())
+                                col_mod = headers.index("Modificacion_Surtido") + 1
+                                worksheet.update_cell(gsheet_row_index, col_mod, new_modificacion_surtido_input.strip())
                                 changes_made = True
 
+                                # 🔁 Cambiar estado si estaba en completado
                                 if selected_row_data.get('Estado') == "🟢 Completado":
-                                    estado_col = headers.index("Estado") + 1
-                                    fecha_completado_col = headers.index("Fecha_Completado") + 1
-                                    worksheet.update_cell(gsheet_row_index, estado_col, "🟡 Pendiente")
-                                    worksheet.update_cell(gsheet_row_index, fecha_completado_col, "")
-                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por ser modificado.")
+                                    col_estado = headers.index("Estado") + 1
+                                    col_fecha = headers.index("Fecha_Completado") + 1
+                                    worksheet.update_cell(gsheet_row_index, col_estado, "🟡 Pendiente")
+                                    worksheet.update_cell(gsheet_row_index, col_fecha, "")
+                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por modificación.")
 
-                            # 📎 Adjuntos
+                            # 📎 Adjuntos Surtido
                             new_adjuntos_surtido_urls = []
                             if uploaded_files_surtido:
                                 for f in uploaded_files_surtido:
@@ -654,12 +654,11 @@ with tab2:
                                         message_placeholder_tab2.warning(f"⚠️ Falló la subida de {f.name}")
 
                             if new_adjuntos_surtido_urls:
-                                updated_list = current_adjuntos_surtido_list + new_adjuntos_surtido_urls
-                                updated_str = ", ".join(updated_list)
+                                current_urls = [x.strip() for x in selected_row_data.get("Adjuntos_Surtido", "").split(",") if x.strip()]
+                                updated_str = ", ".join(current_urls + new_adjuntos_surtido_urls)
                                 col_adj = headers.index("Adjuntos_Surtido") + 1
                                 worksheet.update_cell(gsheet_row_index, col_adj, updated_str)
 
-                            # ✅ Si hubo cambios, limpiar campos y mostrar éxito
                             if changes_made:
                                 st.session_state["new_modificacion_surtido_input"] = ""
                                 st.session_state["uploaded_files_surtido"] = None
@@ -672,6 +671,7 @@ with tab2:
 
                         except Exception as e:
                             message_placeholder_tab2.error(f"❌ Error inesperado al guardar: {e}")
+
 
     if (
         'show_success_message' in st.session_state and
