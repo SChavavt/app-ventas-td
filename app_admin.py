@@ -466,7 +466,7 @@ if mostrar_descarga_confirmados:
 
             for _, row in df_confirmados_actuales.iterrows():
                 pedido_id = row.get("ID_Pedido")
-                tipo_envio = row.get("Tipo_Envio", "").strip().lower()
+                tipo_envio = "foráneo" if "foráneo" in row.get("Tipo_Envio", "").lower() else "local"
                 comprobante_url = ""
                 factura_url = ""
                 guia_url = ""
