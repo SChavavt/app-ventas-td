@@ -490,14 +490,18 @@ if mostrar_descarga_confirmados:
                         factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{factura_url:=facturas[0]['key']}"
 
                     # 📦 GUIA
-                    extensiones_validas = [".pdf"] if tipo_envio == "foráneo" else [".xlsx"]
-                    palabras_clave = ["guia", "hoja_de_ruta", "formato_de_entrega_local", "descarga"]
+                    if tipo_envio == "foráneo":
+                        guias_filtradas = [
+                            f for f in files
+                            if f["title"].lower().endswith(".pdf")
+                            and any(p in f["title"].lower() for p in ["guia", "descarga"])
+                        ]
+                    else:  # local
+                        guias_filtradas = [
+                            f for f in files
+                            if f["title"].lower().endswith(".xlsx")
+                        ]
 
-                    guias_filtradas = [
-                        f for f in files
-                        if any(p in f["title"].lower() for p in palabras_clave)
-                        and any(f["title"].lower().endswith(ext) for ext in extensiones_validas)
-                    ]
 
                     if guias_filtradas:
                         # Priorizar si contiene 'surtido'
