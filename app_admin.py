@@ -482,12 +482,14 @@ if mostrar_descarga_confirmados:
                     # 📄 COMPROBANTE
                     comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
                     if comprobantes:
-                        comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobante_url:=comprobantes[0]['key']}"
+                        comprobante_url = comprobantes[0]['key']
+                        comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobante_url}"
 
                     # 📑 FACTURA
                     facturas = [f for f in files if "factura" in f["title"].lower()]
                     if facturas:
-                        factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{factura_url:=facturas[0]['key']}"
+                        factura_url = facturas[0]['key']
+                        factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{factura_url}"
 
                     # 📦 GUIA
                     if tipo_envio == "foráneo":
