@@ -462,11 +462,14 @@ if mostrar_descarga_confirmados:
 
             link_comprobantes = []
             link_facturas = []
+            link_guias = []
 
             for _, row in df_confirmados_actuales.iterrows():
                 pedido_id = row.get("ID_Pedido")
+                tipo_envio = row.get("Tipo_Envio", "").strip().lower()
                 comprobante_url = ""
                 factura_url = ""
+                guia_url = ""
 
                 if pedido_id:
                     prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
@@ -476,21 +479,41 @@ if mostrar_descarga_confirmados:
                         prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
                         files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
 
+                    # 📄 COMPROBANTE
                     comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
                     if comprobantes:
-                        key = comprobantes[0]['key']
-                        comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
+                        comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobante_url:=comprobantes[0]['key']}"
 
+                    # 📑 FACTURA
                     facturas = [f for f in files if "factura" in f["title"].lower()]
                     if facturas:
-                        key = facturas[0]['key']
-                        factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
+                        factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{factura_url:=facturas[0]['key']}"
+
+                    # 📦 GUIA
+                    extensiones_validas = [".pdf"] if tipo_envio == "foráneo" else [".xlsx"]
+                    palabras_clave = ["guia", "hoja_de_ruta", "formato_de_entrega_local", "descarga"]
+
+                    guias_filtradas = [
+                        f for f in files
+                        if any(p in f["title"].lower() for p in palabras_clave)
+                        and any(f["title"].lower().endswith(ext) for ext in extensiones_validas)
+                    ]
+
+                    if guias_filtradas:
+                        # Priorizar si contiene 'surtido'
+                        guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
+                        guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
+                        guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
 
                 link_comprobantes.append(comprobante_url)
                 link_facturas.append(factura_url)
+                link_guias.append(guia_url)
+
 
             df_confirmados_actuales["Link_Comprobante"] = link_comprobantes
             df_confirmados_actuales["Link_Factura"] = link_facturas
+            df_confirmados_actuales["Link_Guia"] = link_guias
+
 
             st.session_state.df_confirmados_cache = df_confirmados_actuales
             st.session_state.confirmados_cargados = total_actual
@@ -500,7 +523,7 @@ if mostrar_descarga_confirmados:
         'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
         'Estado', 'Estado_Pago', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
         'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-        'Link_Comprobante', 'Link_Factura'
+        'Link_Comprobante', 'Link_Factura', 'Link_Guia'
     ]
     columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista.columns]
     st.dataframe(df_vista[columnas_existentes], use_container_width=True, hide_index=True)
