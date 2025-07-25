@@ -492,12 +492,15 @@ if mostrar_descarga_confirmados:
                         factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{factura_url}"
 
                     # 📦 GUIA
+                    import re
+
                     if tipo_envio == "foráneo":
                         guias_filtradas = [
                             f for f in files
                             if f["title"].lower().endswith(".pdf")
-                            and any(p in f["title"].lower() for p in ["guia", "descarga"])
+                            and re.search(r"(gu[ií]a|descarga)", f["title"].lower())
                         ]
+
                     else:  # local
                         guias_filtradas = [
                             f for f in files
