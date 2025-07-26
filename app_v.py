@@ -213,10 +213,11 @@ with tab1:
 
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
-        ["📍 Pedido Local", "🚚 Pedido Foráneo", "🔁 Devolución", "🛠 Garantía"],
+        ["🚚 Pedido Foráneo", "📍 Pedido Local", "🔁 Devolución", "🛠 Garantía"],
         index=0,
         key="tipo_envio_selector_global"
     )
+
 
 
     subtipo_local = ""
