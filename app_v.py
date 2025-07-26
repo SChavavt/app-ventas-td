@@ -272,11 +272,13 @@ with tab1:
     referencia_pago = ""
 
     if estado_pago == "✅ Pagado":
-        comprobante_pago_file = st.file_uploader(
-            "💲 Comprobante de Pago",
+        comprobante_pago_files = st.file_uploader(
+            "💲 Comprobante(s) de Pago",
             type=["pdf", "jpg", "jpeg", "png"],
+            accept_multiple_files=True,
             key="comprobante_uploader_final"
         )
+
         st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
 
         with st.expander("🧾 Detalles del Pago (opcional)"):
@@ -350,15 +352,18 @@ with tab1:
                         st.error(f"❌ Falló la subida de {file.name}")
                         st.stop()
 
-            if comprobante_pago_file:
-                ext_cp = os.path.splitext(comprobante_pago_file.name)[1]
-                s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}{ext_cp}"
-                success_cp, url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, comprobante_pago_file, s3_key_cp)
-                if success_cp:
-                    adjuntos_urls.append(url_cp)
-                else:
-                    st.error("❌ Falló la subida del comprobante.")
-                    st.stop()
+            if comprobante_pago_files:
+                for archivo in comprobante_pago_files:
+                    ext_cp = os.path.splitext(archivo.name)[1]
+                    s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cp}"
+                    success_cp, url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
+                    if success_cp:
+                        adjuntos_urls.append(url_cp)
+                    else:
+                        st.error(f"❌ Falló la subida de {archivo.name}")
+                        st.stop()
+
+
 
             adjuntos_str = ", ".join(adjuntos_urls)
 
@@ -799,15 +804,17 @@ with tab3:
                 st.info(f"Subiendo comprobante para: Folio {selected_pending_row_data.get('Folio_Factura')} (ID {selected_pending_order_id})")
 
                 with st.form(key=f"upload_comprobante_form_{selected_pending_order_id}"):
-                    comprobante_file = st.file_uploader(
-                        "💲 Comprobante de Pago",
+                    comprobante_files = st.file_uploader(
+                        "💲 Comprobante(s) de Pago",
                         type=["pdf", "jpg", "jpeg", "png"],
+                        accept_multiple_files=True,
                         key=f"comprobante_uploader_{selected_pending_order_id}"
                     )
+
                     submit_comprobante = st.form_submit_button("✅ Subir Comprobante y Actualizar Estado")
 
                     if submit_comprobante:
-                        if comprobante_file:
+                        if comprobante_files:
                             try:
                                 headers = worksheet.row_values(1)
                                 all_data_actual = worksheet.get_all_records()
@@ -818,44 +825,37 @@ with tab3:
                                     st.stop()
 
                                 df_index = df_actual[df_actual['ID_Pedido'] == selected_pending_order_id].index[0]
-                                sheet_row = df_index + 2  # +2 porque la fila 1 es encabezado
+                                sheet_row = df_index + 2
 
+                                new_urls = []
+                                for archivo in comprobante_files:
+                                    ext = os.path.splitext(archivo.name)[1]
+                                    s3_key = f"{selected_pending_order_id}/comprobante_{selected_pending_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
+                                    if success:
+                                        new_urls.append(url)
+                                    else:
+                                        st.warning(f"⚠️ Falló la subida de {archivo.name}")
 
-                                ext = os.path.splitext(comprobante_file.name)[1]
-                                s3_key = f"{selected_pending_order_id}/comprobante_{selected_pending_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
-                                success, file_url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, comprobante_file, s3_key)
+                                if new_urls:
+                                    current_adjuntos = df_pedidos_comprobante.loc[df_index, 'Adjuntos'] if 'Adjuntos' in df_pedidos_comprobante.columns else ""
+                                    adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
+                                    adjuntos_list.extend(new_urls)
 
-                                if success:
-                                    adj_col = headers.index('Adjuntos') + 1
-                                    estado_pago_col = headers.index('Estado_Pago') + 1
-                                    fecha_pago_col = headers.index('Fecha_Pago_Comprobante') + 1
+                                    worksheet.update_cell(sheet_row, headers.index('Adjuntos') + 1, ", ".join(adjuntos_list))
+                                    worksheet.update_cell(sheet_row, headers.index('Estado_Pago') + 1, "✅ Pagado")
+                                    worksheet.update_cell(sheet_row, headers.index('Fecha_Pago_Comprobante') + 1, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
 
-                                    try:
-                                        current_adjuntos = df_pedidos_comprobante.loc[df_index, 'Adjuntos'] if 'Adjuntos' in df_pedidos_comprobante.columns else ""
-                                        adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
-                                    except Exception as e:
-                                        st.error(f"❌ No se pudo leer la celda de adjuntos: {e}")
-                                        adjuntos_list = []
-
-                                    adjuntos_list.append(file_url)
-
-                                    try:
-                                        worksheet.update_cell(sheet_row, adj_col, ", ".join(adjuntos_list))
-                                        worksheet.update_cell(sheet_row, estado_pago_col, "✅ Pagado")
-                                        worksheet.update_cell(sheet_row, fecha_pago_col, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
-
-                                        st.success("✅ Comprobante subido y estado actualizado con éxito.")
-                                        st.balloons()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"❌ Error al actualizar el pedido en Google Sheets: {e}")
-
+                                    st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
+                                    st.balloons()
+                                    st.rerun()
                                 else:
-                                    st.error("❌ Falló la subida a S3.")
+                                    st.warning("⚠️ No se subió ningún archivo correctamente.")
                             except Exception as e:
-                                st.error(f"❌ Error al subir comprobante: {e}")
+                                st.error(f"❌ Error al subir comprobantes: {e}")
                         else:
-                            st.warning("⚠️ Por favor, sube un archivo.")
+                            st.warning("⚠️ Por favor, sube al menos un archivo.")
+
                 if st.button("✅ Marcar como Pagado sin Comprobante", key=f"btn_sin_cp_{selected_pending_order_id}"):
                     try:
                         headers = worksheet.row_values(1)
