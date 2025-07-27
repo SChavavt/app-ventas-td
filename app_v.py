@@ -589,6 +589,15 @@ with tab2:
 
                 st.markdown("---")
                 st.subheader("Modificar Campos y Adjuntos (Surtido)")
+                st.markdown("### 🛠 Tipo de modificación")
+
+                tipo_modificacion_seleccionada = st.selectbox(
+                    "📌 ¿Qué tipo de modificación estás registrando?",
+                    ["Otro", "Nueva Ruta", "Refacturación"],
+                    index=0,
+                    key="tipo_modificacion_mod"
+                )
+
 
                 with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
                     default_modificacion_text = "" if st.session_state.get("reset_inputs_tab2") else current_modificacion_surtido_value
@@ -607,17 +616,8 @@ with tab2:
                         accept_multiple_files=True,
                         key="uploaded_files_surtido"
                     )
-                    tipo_modificacion = st.selectbox(
-                        "📌 Tipo de modificación que estás registrando:",
-                        ["Refacturación", "Nueva Ruta", "Otro"],
-                        index=0,  # 🔹 Asegura que se seleccione por defecto
-                        key="tipo_modificacion_mod"
-                    )
 
-
-
-                    # 🔒 Mostrar detalles solo si es Refacturación
-                    if tipo_modificacion == "Refacturación":
+                    if tipo_modificacion_seleccionada == "Refacturación":
                         st.markdown("### 🧾 Detalles de Refacturación")
 
                         refact_tipo = st.selectbox(
@@ -632,7 +632,7 @@ with tab2:
                                 ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
                                 key="refact_subtipo_datos_mod"
                             )
-                        else:  # Material
+                        else:
                             refact_subtipo = st.selectbox(
                                 "📦 Subtipo",
                                 ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
@@ -644,6 +644,7 @@ with tab2:
                         refact_tipo = ""
                         refact_subtipo = ""
                         refact_folio_nuevo = ""
+
 
 
                     modify_button = st.form_submit_button("💾 Guardar Cambios")
@@ -702,7 +703,7 @@ with tab2:
                                 worksheet.update_cell(gsheet_row_index, col_adj, updated_str)
 
                             # 🧾 Guardar campos de refacturación si aplica
-                            if tipo_modificacion == "Refacturación":
+                            if tipo_modificacion_seleccionada == "Refacturación":
                                 campos_refact = {
                                     "Refacturacion_Tipo": refact_tipo,
                                     "Refacturacion_Subtipo": refact_subtipo,
@@ -712,7 +713,18 @@ with tab2:
                                     if campo in headers:
                                         col_idx = headers.index(campo) + 1
                                         worksheet.update_cell(gsheet_row_index, col_idx, valor)
-                                        st.toast("🧾 Refacturación registrada con los detalles capturados.")
+                                st.toast("🧾 Refacturación registrada con los detalles capturados.")
+                            else:
+                                # 🧹 Limpiar campos si se cambió a Otro o Nueva Ruta
+                                campos_refact = [
+                                    "Refacturacion_Tipo",
+                                    "Refacturacion_Subtipo",
+                                    "Folio_Factura_Refacturada"
+                                ]
+                                for campo in campos_refact:
+                                    if campo in headers:
+                                        col_idx = headers.index(campo) + 1
+                                        worksheet.update_cell(gsheet_row_index, col_idx, "")
 
 
                             if changes_made:
