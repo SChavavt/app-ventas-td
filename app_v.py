@@ -607,18 +607,17 @@ with tab2:
                         accept_multiple_files=True,
                         key="uploaded_files_surtido"
                     )
-                    tipo_modificacion = st.selectbox("📌 Tipo de modificación que estás registrando:", ["Refacturación", "Nueva Ruta", "Otro"], key="tipo_modificacion_mod")
+                    tipo_modificacion = st.selectbox(
+                        "📌 Tipo de modificación que estás registrando:",
+                        ["Nueva Ruta", "Refacturación", "Otro"],
+                        key="tipo_modificacion_mod"
+                    )
 
-                    # Inicializar variables vacías
+
+                    # 🔒 Mostrar detalles solo si es Refacturación
                     refact_tipo = None
                     refact_subtipo = None
                     refact_folio_nuevo = None
-
-                    # Mostrar solo si es refacturación
-                    refact_tipo = None
-                    refact_subtipo = None
-                    refact_folio_nuevo = None
-
 
                     if tipo_modificacion == "Refacturación":
                         st.markdown("### 🧾 Detalles de Refacturación")
@@ -643,6 +642,7 @@ with tab2:
                             )
 
                         refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_mod")
+
 
                     modify_button = st.form_submit_button("💾 Guardar Cambios")
 
