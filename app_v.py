@@ -617,9 +617,6 @@ with tab2:
 
 
                     # 🔒 Mostrar detalles solo si es Refacturación
-                    refact_tipo = None
-                    refact_subtipo = None
-                    refact_folio_nuevo = None
 
                     if tipo_modificacion == "Refacturación":
                         st.markdown("### 🧾 Detalles de Refacturación")
@@ -636,7 +633,7 @@ with tab2:
                                 ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
                                 key="refact_subtipo_datos_mod"
                             )
-                        elif refact_tipo == "Material":
+                        else:  # Material
                             refact_subtipo = st.selectbox(
                                 "📦 Subtipo",
                                 ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
@@ -644,6 +641,7 @@ with tab2:
                             )
 
                         refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_mod")
+
 
 
                     modify_button = st.form_submit_button("💾 Guardar Cambios")
