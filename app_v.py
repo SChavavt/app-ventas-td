@@ -615,29 +615,36 @@ with tab2:
                     refact_folio_nuevo = None
 
                     # Mostrar solo si es refacturación
+                    refact_tipo = ""
+                    refact_subtipo = ""
+                    refact_folio_nuevo = ""
+
+                    refacturacion_container = st.container()
                     if tipo_modificacion == "Refacturación":
-                        st.markdown("### 🧾 Detalles de Refacturación")
+                        with refacturacion_container:
+                            st.markdown("### 🧾 Detalles de Refacturación")
 
-                        refact_tipo = st.selectbox(
-                            "🔍 Razón Principal",
-                            ["Datos Fiscales", "Material"],
-                            key="refact_tipo_mod"
-                        )
-
-                        if refact_tipo == "Datos Fiscales":
-                            refact_subtipo = st.selectbox(
-                                "📄 Subtipo",
-                                ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
-                                key="refact_subtipo_datos_mod"
-                            )
-                        elif refact_tipo == "Material":
-                            refact_subtipo = st.selectbox(
-                                "📦 Subtipo",
-                                ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
-                                key="refact_subtipo_material_mod"
+                            refact_tipo = st.selectbox(
+                                "🔍 Razón Principal",
+                                ["Datos Fiscales", "Material"],
+                                key="refact_tipo_mod"
                             )
 
-                        refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_mod")
+                            if refact_tipo == "Datos Fiscales":
+                                refact_subtipo = st.selectbox(
+                                    "📄 Subtipo",
+                                    ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
+                                    key="refact_subtipo_datos_mod"
+                                )
+                            elif refact_tipo == "Material":
+                                refact_subtipo = st.selectbox(
+                                    "📦 Subtipo",
+                                    ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
+                                    key="refact_subtipo_material_mod"
+                                )
+
+                            refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_mod")
+
 
 
 
