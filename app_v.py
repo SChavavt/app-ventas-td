@@ -210,15 +210,12 @@ with tab1:
             del st.session_state["success_adjuntos"]
 
 
-
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
         ["🚚 Pedido Foráneo", "📍 Pedido Local", "🔁 Devolución", "🛠 Garantía"],
         index=0,
         key="tipo_envio_selector_global"
     )
-
-
 
     subtipo_local = ""
     if tipo_envio == "📍 Pedido Local":
@@ -424,9 +421,6 @@ with tab1:
 
             st.rerun()
 
-
-
-
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
 
@@ -613,6 +607,28 @@ with tab2:
                         accept_multiple_files=True,
                         key="uploaded_files_surtido"
                     )
+                    tipo_modificacion = st.selectbox("📌 Tipo de modificación que estás registrando:", ["Refacturación", "Nueva Ruta", "Otro"], key="tipo_modificacion_mod")
+
+                    refact_tipo = ""
+                    refact_subtipo = ""
+                    refact_folio_nuevo = ""
+
+                    if tipo_modificacion == "Refacturación":
+                        st.markdown("### 🧾 Detalles de Refacturación")
+
+                        refact_tipo = st.selectbox("🔍 Razón Principal", ["Datos Fiscales", "Material"], key="refact_tipo_mod")
+
+                        if refact_tipo == "Datos Fiscales":
+                            refact_subtipo = st.selectbox("📄 Subtipo", [
+                                "Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"
+                            ], key="refact_subtipo_datos_mod")
+                        elif refact_tipo == "Material":
+                            refact_subtipo = st.selectbox("📦 Subtipo", [
+                                "Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"
+                            ], key="refact_subtipo_material_mod")
+
+                        refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_mod")
+
 
                     modify_button = st.form_submit_button("💾 Guardar Cambios")
 
@@ -668,6 +684,20 @@ with tab2:
                                 updated_str = ", ".join(current_urls + new_adjuntos_surtido_urls)
                                 col_adj = headers.index("Adjuntos_Surtido") + 1
                                 worksheet.update_cell(gsheet_row_index, col_adj, updated_str)
+
+                            # 🧾 Guardar campos de refacturación si aplica
+                            if tipo_modificacion == "Refacturación":
+                                campos_refact = {
+                                    "Refacturacion_Tipo": refact_tipo,
+                                    "Refacturacion_Subtipo": refact_subtipo,
+                                    "Folio_Factura_Refacturada": refact_folio_nuevo
+                                }
+                                for campo, valor in campos_refact.items():
+                                    if campo in headers:
+                                        col_idx = headers.index(campo) + 1
+                                        worksheet.update_cell(gsheet_row_index, col_idx, valor)
+                                        st.toast("🧾 Refacturación registrada con los detalles capturados.")
+
 
                             if changes_made:
                                 st.session_state["reset_inputs_tab2"] = True
