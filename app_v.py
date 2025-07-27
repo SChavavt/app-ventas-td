@@ -593,11 +593,10 @@ with tab2:
 
                 tipo_modificacion_seleccionada = st.selectbox(
                     "📌 ¿Qué tipo de modificación estás registrando?",
-                    ["Otro", "Nueva Ruta", "Refacturación"],
+                    ["Refacturación", "Nueva Ruta", "Otro"],
                     index=0,
                     key="tipo_modificacion_mod"
                 )
-
 
                 with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
                     default_modificacion_text = "" if st.session_state.get("reset_inputs_tab2") else current_modificacion_surtido_value
