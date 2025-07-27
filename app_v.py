@@ -617,7 +617,6 @@ with tab2:
 
 
                     # 🔒 Mostrar detalles solo si es Refacturación
-
                     if tipo_modificacion == "Refacturación":
                         st.markdown("### 🧾 Detalles de Refacturación")
 
@@ -641,7 +640,10 @@ with tab2:
                             )
 
                         refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_mod")
-
+                    else:
+                        refact_tipo = ""
+                        refact_subtipo = ""
+                        refact_folio_nuevo = ""
 
 
                     modify_button = st.form_submit_button("💾 Guardar Cambios")
