@@ -463,6 +463,8 @@ if mostrar_descarga_confirmados:
             link_comprobantes = []
             link_facturas = []
             link_guias = []
+            link_refacturaciones = [] 
+
 
             for _, row in df_confirmados_actuales.iterrows():
                 pedido_id = row.get("ID_Pedido")
@@ -509,19 +511,31 @@ if mostrar_descarga_confirmados:
 
 
                     if guias_filtradas:
-                        # Priorizar si contiene 'surtido'
                         guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
                         guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
                         guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
 
+                    # 📌 REFACTURACIÓN (afuera del bloque anterior)
+                    refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
+                    if refacturas:
+                        refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
+                    else:
+                        refact_url = ""
+
+
                 link_comprobantes.append(comprobante_url)
                 link_facturas.append(factura_url)
                 link_guias.append(guia_url)
+                link_refacturaciones.append(refact_url)
+
 
 
             df_confirmados_actuales["Link_Comprobante"] = link_comprobantes
             df_confirmados_actuales["Link_Factura"] = link_facturas
             df_confirmados_actuales["Link_Guia"] = link_guias
+            df_confirmados_actuales["Link_Refacturacion"] = link_refacturaciones
+
+            
 
 
             st.session_state.df_confirmados_cache = df_confirmados_actuales
@@ -529,11 +543,15 @@ if mostrar_descarga_confirmados:
             df_vista = df_confirmados_actuales
 
     columnas_a_mostrar = [
-        'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-        'Estado', 'Estado_Pago', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
+        'Folio_Factura', 'Folio_Factura_Refacturada',  # 🆕 Nuevo campo
+        'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+        'Estado', 'Estado_Pago',
+        'Refacturacion_Tipo', 'Refacturacion_Subtipo',  # 🆕 Nuevos campos
+        'Forma_Pago_Comprobante', 'Monto_Comprobante',
         'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-        'Link_Comprobante', 'Link_Factura', 'Link_Guia'
+        'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'  # 🆕 Nuevo link
     ]
+
     columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista.columns]
     st.dataframe(df_vista[columnas_existentes], use_container_width=True, hide_index=True)
 
