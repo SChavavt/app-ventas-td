@@ -261,7 +261,7 @@ with tab1:
     st.subheader("💰 Estado de Pago")
     estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado"], index=0, key="estado_pago")
 
-    comprobante_pago_file = None
+    comprobante_pago_files = None
     fecha_pago = None
     forma_pago = ""
     terminal = ""
