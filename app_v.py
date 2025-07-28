@@ -307,7 +307,7 @@ with tab1:
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
-            if estado_pago == "✅ Pagado" and comprobante_pago_file is None:
+            if estado_pago == "✅ Pagado" and not comprobante_pago_files:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                 st.stop()
 
