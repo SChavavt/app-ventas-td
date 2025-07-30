@@ -616,6 +616,15 @@ with tab2:
                         key="uploaded_files_surtido"
                     )
 
+
+                    uploaded_comprobantes_extra = st.file_uploader(
+                        "🧾 Subir Comprobante(s) Adicional(es)",
+                        type=["pdf", "jpg", "jpeg", "png"],
+                        accept_multiple_files=True,
+                        key="uploaded_comprobantes_extra"
+                    )
+
+
                     if tipo_modificacion_seleccionada == "Refacturación":
                         st.markdown("### 🧾 Detalles de Refacturación")
 
@@ -678,9 +687,9 @@ with tab2:
                                 if selected_row_data.get('Estado') == "🟢 Completado":
                                     col_estado = headers.index("Estado") + 1
                                     col_fecha = headers.index("Fecha_Completado") + 1
-                                    worksheet.update_cell(gsheet_row_index, col_estado, "🟡 Pendiente")
+                                    worksheet.update_cell(gsheet_row_index, col_estado, "🔵 En Proceso")
                                     worksheet.update_cell(gsheet_row_index, col_fecha, "")
-                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'Pendiente' por modificación.")
+                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'En Proceso' por modificación.")
 
                             # 📎 Adjuntos Surtido
                             new_adjuntos_surtido_urls = []
@@ -694,6 +703,26 @@ with tab2:
                                         changes_made = True
                                     else:
                                         message_placeholder_tab2.warning(f"⚠️ Falló la subida de {f.name}")
+                                        
+                            # 🧾 Adjuntar Comprobantes Extra
+                            comprobante_urls = []
+                            if uploaded_comprobantes_extra:
+                                for archivo in uploaded_comprobantes_extra:
+                                    ext = os.path.splitext(archivo.name)[1]
+                                    s3_key = f"{selected_order_id}/comprobante_{selected_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
+                                    if success:
+                                        comprobante_urls.append(url)
+                                        changes_made = True
+                                    else:
+                                        message_placeholder_tab2.warning(f"⚠️ Falló la subida del comprobante {archivo.name}")
+
+                                if comprobante_urls:
+                                    current_adjuntos = [x.strip() for x in selected_row_data.get("Adjuntos", "").split(",") if x.strip()]
+                                    updated_adjuntos = ", ".join(current_adjuntos + comprobante_urls)
+                                    col_idx_adj = headers.index("Adjuntos") + 1
+                                    worksheet.update_cell(gsheet_row_index, col_idx_adj, updated_adjuntos)
+
 
                             if new_adjuntos_surtido_urls:
                                 current_urls = [x.strip() for x in selected_row_data.get("Adjuntos_Surtido", "").split(",") if x.strip()]
