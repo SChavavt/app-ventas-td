@@ -559,19 +559,23 @@ with tab2:
                 selected_vendedor_mod = "Todos"
 
         with col2:
-            all_filter_options = ["Todos"] + df_pedidos['Filtro_Envio_Combinado'].unique().tolist()
-            tipo_envio_filter = st.selectbox(
-                "Filtrar por Tipo de Envío:",
-                options=all_filter_options,
-                key="tipo_envio_filter_mod"
+            fecha_filtro = st.date_input(
+                "📅 Filtrar por Fecha de Registro:",
+                value=datetime.now().date(),
+                key="filtro_fecha_registro"
             )
+
 
         # Aplicar los filtros seleccionados
         filtered_orders = df_pedidos.copy()
         if selected_vendedor_mod != "Todos":
             filtered_orders = filtered_orders[filtered_orders['Vendedor_Registro'] == selected_vendedor_mod]
-        if tipo_envio_filter != "Todos":
-            filtered_orders = filtered_orders[filtered_orders['Filtro_Envio_Combinado'] == tipo_envio_filter]
+        # Filtrar por fecha si existe columna 'Hora_Registro'
+        if 'Hora_Registro' in filtered_orders.columns:
+            filtered_orders['Hora_Registro'] = pd.to_datetime(filtered_orders['Hora_Registro'], errors='coerce')
+            filtered_orders = filtered_orders[
+                filtered_orders['Hora_Registro'].dt.date == fecha_filtro
+            ]
         if filtered_orders.empty:
             st.warning("No hay pedidos que coincidan con los filtros seleccionados.")
         else:
@@ -885,15 +889,18 @@ with tab3:
                     filtered_pedidos_comprobante = filtered_pedidos_comprobante[filtered_pedidos_comprobante['Vendedor_Registro'] == selected_vendedor_comp]
 
         with col4_tab3:
-            if 'Tipo_Envio' in filtered_pedidos_comprobante.columns:
-                unique_tipos_envio_comp = ["Todos", "📍 Pedido Local", "🚚 Pedido Foráneo", "🛠 Garantía", "🔁 Devolución"]
-                selected_tipo_envio_comp = st.selectbox(
-                    "Filtrar por Tipo de Envío:",
-                    options=unique_tipos_envio_comp,
-                    key="comprobante_tipo_envio_filter"
-                )
-                if selected_tipo_envio_comp != "Todos":
-                    filtered_pedidos_comprobante = filtered_pedidos_comprobante[filtered_pedidos_comprobante['Tipo_Envio'] == selected_tipo_envio_comp]
+            fecha_filtro_tab3 = st.date_input(
+                "📅 Filtrar por Fecha de Registro:",
+                value=datetime.now().date(),
+                key="filtro_fecha_comprobante"
+            )
+            
+        # Filtrar por fecha si existe la columna 'Hora_Registro'
+        if 'Hora_Registro' in filtered_pedidos_comprobante.columns:
+            filtered_pedidos_comprobante['Hora_Registro'] = pd.to_datetime(filtered_pedidos_comprobante['Hora_Registro'], errors='coerce')
+            filtered_pedidos_comprobante = filtered_pedidos_comprobante[
+                filtered_pedidos_comprobante['Hora_Registro'].dt.date == fecha_filtro_tab3
+            ]
 
         filtered_pedidos_comprobante = filtered_pedidos_comprobante[
             filtered_pedidos_comprobante['ID_Pedido'].astype(str).str.strip().ne('') &
@@ -1021,7 +1028,11 @@ with tab3:
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
 
-# ✅ Cargar datos de guías cacheados para evitar sobrecarga
+
+# --- TAB 4: GUIAS CARGADAS ---
+def fijar_tab4_activa():
+    st.query_params.update({"tab": "3"})
+
 @st.cache_data(ttl=60)
 def cargar_datos_guias():
     worksheet = get_worksheet()
@@ -1033,10 +1044,6 @@ def cargar_datos_guias():
         df = df[df["Adjuntos_Guia"].astype(str).str.strip() != ""]
         return df
     return pd.DataFrame()
-
-# --- TAB 4: GUIAS CARGADAS ---
-def fijar_tab4_activa():
-    st.query_params.update({"tab": "3"})
 
 with tab4:
     st.header("📦 Pedidos con Guías Subidas desde Almacén")
@@ -1060,20 +1067,23 @@ with tab4:
                 vendedores,
                 key="filtro_vendedor_guias",
                 on_change=fijar_tab4_activa
-            )            
-        with col2_tab4:
-            tipos_envio = ["Todos"] + sorted(df_guias["Tipo_Envio"].dropna().unique().tolist())
-            tipo_envio_filtrado = st.selectbox(
-                "Filtrar por Tipo de Envío",
-                tipos_envio,
-                key="filtro_tipo_envio_guias",
-                on_change=fijar_tab4_activa
             )
 
+        with col2_tab4:
+            fecha_filtro_tab4 = st.date_input(
+                "📅 Filtrar por Fecha de Registro:",
+                value=datetime.now().date(),
+                key="filtro_fecha_guias"
+            )
+
+        # Filtro por fecha
+        if 'Hora_Registro' in df_guias.columns:
+            df_guias['Hora_Registro'] = pd.to_datetime(df_guias['Hora_Registro'], errors='coerce')
+            df_guias = df_guias[df_guias['Hora_Registro'].dt.date == fecha_filtro_tab4]
+
+        # Filtro por vendedor
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
-        if tipo_envio_filtrado != "Todos":
-            df_guias = df_guias[df_guias["Tipo_Envio"] == tipo_envio_filtrado]
 
         # Mostrar tabla básica
         columnas_mostrar = ["ID_Pedido", "Cliente", "Vendedor_Registro", "Tipo_Envio", "Estado", "Fecha_Entrega"]
@@ -1087,16 +1097,19 @@ with tab4:
         df_guias['Folio_O_ID'] = df_guias['Folio_Factura'].astype(str).str.strip()
         df_guias.loc[df_guias['Folio_O_ID'] == '', 'Folio_O_ID'] = df_guias['ID_Pedido']
 
-        # 🆕 Ordenar por Fecha_Entrega descendente para mostrar primero los pedidos más recientes con guías
+        # Ordenar por fecha de entrega descendente
         if 'Fecha_Entrega' in df_guias.columns:
             df_guias['Fecha_Entrega'] = pd.to_datetime(df_guias['Fecha_Entrega'], errors='coerce')
             df_guias = df_guias.sort_values(by='Fecha_Entrega', ascending=False)
 
-
         df_guias['display_label'] = df_guias.apply(lambda row:
             f"📄 {row['Folio_O_ID']} – {row['Cliente']} – {row['Vendedor_Registro']} ({row['Tipo_Envio']})", axis=1)
 
-        pedido_seleccionado = st.selectbox("📦 Pedido con Guía", options=df_guias['display_label'].tolist(), key="select_pedido_con_guia")
+        pedido_seleccionado = st.selectbox(
+            "📦 Pedido con Guía",
+            options=df_guias['display_label'].tolist(),
+            key="select_pedido_con_guia"
+        )
 
         if pedido_seleccionado:
             pedido_row = df_guias[df_guias['display_label'] == pedido_seleccionado].iloc[0]
@@ -1307,7 +1320,8 @@ with tab6:
         cliente_normalizado = normalizar(keyword.strip()) if keyword else ""
 
     if buscar_btn:
-        st.info("🔄 Buscando, por favor espera... puede tardar unos segundos...")
+        if modo_busqueda == "🔢 Por número de guía":
+            st.info("🔄 Buscando, por favor espera... puede tardar unos segundos...")
         df_pedidos = cargar_pedidos()
         resultados = []
 
@@ -1324,38 +1338,55 @@ with tab6:
                 cliente_row = row.get("Cliente", "").strip()
                 if not cliente_row:
                     continue
-                if cliente_normalizado not in normalizar(cliente_row):
+                cliente_row_normalizado = normalizar(cliente_row)
+                if cliente_normalizado not in cliente_row_normalizado:
                     continue
-                archivos_coincidentes = []
+
                 prefix = obtener_prefijo_s3(pedido_id)
                 if not prefix:
                     continue
+
+                archivos_coincidentes = []  # no se buscan coincidencias
                 todos_los_archivos = obtener_todos_los_archivos(prefix)
-            else:
+
+            elif modo_busqueda == "🔢 Por número de guía":
                 prefix = obtener_prefijo_s3(pedido_id)
                 if not prefix:
                     continue
+
                 archivos_validos = obtener_archivos_pdf_validos(prefix)
                 archivos_coincidentes = []
+
                 for archivo in archivos_validos:
                     key = archivo["Key"]
                     texto = extraer_texto_pdf(key)
+
                     clave = keyword.strip()
                     clave_sin_espacios = clave.replace(" ", "")
                     texto_limpio = texto.replace(" ", "").replace("\n", "")
+
                     coincide = (
-                        clave in texto or
-                        clave_sin_espacios in texto_limpio or
-                        re.search(re.escape(clave), texto_limpio) or
-                        re.search(re.escape(clave_sin_espacios), texto_limpio)
+                        clave in texto
+                        or clave_sin_espacios in texto_limpio
+                        or re.search(re.escape(clave), texto_limpio)
+                        or re.search(re.escape(clave_sin_espacios), texto_limpio)
                     )
+
                     if coincide:
+                        waybill_match = re.search(r"WAYBILL[\s:]*([0-9 ]{8,})", texto, re.IGNORECASE)
+                        if waybill_match:
+                            st.code(f"📦 WAYBILL detectado: {waybill_match.group(1)}")
+
                         archivos_coincidentes.append((key, generar_url_s3(key)))
                         todos_los_archivos = obtener_todos_los_archivos(prefix)
-                        break
+                        break  # detener búsqueda tras encontrar coincidencia
                 else:
-                    continue
+                    continue  # ningún PDF coincidió
 
+            else:
+                continue  # modo no reconocido
+
+            # Una vez tenemos los archivos del pedido
             comprobantes = [f for f in todos_los_archivos if "comprobante" in f["Key"].lower()]
             facturas = [f for f in todos_los_archivos if "factura" in f["Key"].lower()]
             otros = [
@@ -1364,43 +1395,64 @@ with tab6:
                 (modo_busqueda == "🧑 Por cliente" or f["Key"] != archivos_coincidentes[0][0])
             ]
 
+            comprobantes_links = [(f["Key"], generar_url_s3(f["Key"])) for f in comprobantes]
+            facturas_links = [(f["Key"], generar_url_s3(f["Key"])) for f in facturas]
+            otros_links = [(f["Key"], generar_url_s3(f["Key"])) for f in otros]
+
             resultados.append({
+                "ID_Pedido": pedido_id,
                 "Cliente": row.get("Cliente", ""),
-                "Folio": row.get("Folio_Factura", ""),
                 "Estado": row.get("Estado", ""),
                 "Vendedor": row.get("Vendedor_Registro", ""),
-                "Hora_Registro": row.get("Hora_Registro", ""),
+                "Folio": row.get("Folio_Factura", ""),
+                "Hora_Registro": row.get("Hora_Registro", ""),  # 🆕 Agregamos este campo
                 "Coincidentes": archivos_coincidentes,
-                "Comprobantes": [(f["Key"], generar_url_s3(f["Key"])) for f in comprobantes],
-                "Facturas": [(f["Key"], generar_url_s3(f["Key"])) for f in facturas],
-                "Otros": [(f["Key"], generar_url_s3(f["Key"])) for f in otros]
+                "Comprobantes": comprobantes_links,
+                "Facturas": facturas_links,
+                "Otros": otros_links
             })
 
+
             if modo_busqueda == "🔢 Por número de guía":
-                break
+                break  # Solo detener si es búsqueda por guía
 
         st.markdown("---")
         if resultados:
             st.success(f"✅ Se encontraron coincidencias en {len(resultados)} pedido(s).")
+
             for res in resultados:
                 st.markdown(f"### 🤝 {res['Cliente']}")
                 st.markdown(f"📄 **Folio:** `{res['Folio']}`  |  🔍 **Estado:** `{res['Estado']}`  |  🧑‍💼 **Vendedor:** `{res['Vendedor']}`  |  🕒 **Hora:** `{res['Hora_Registro']}`")
+
                 with st.expander("📁 Archivos del Pedido", expanded=True):
                     if res["Coincidentes"]:
                         st.markdown("#### 🔍 Guías:")
                         for key, url in res["Coincidentes"]:
-                            st.markdown(f"- [🔍 {key.split('/')[-1]}]({url})")
+                            nombre = key.split("/")[-1]
+                            st.markdown(f"- [🔍 {nombre}]({url})")
+
                     if res["Comprobantes"]:
                         st.markdown("#### 🧾 Comprobantes:")
                         for key, url in res["Comprobantes"]:
-                            st.markdown(f"- [📄 {key.split('/')[-1]}]({url})")
+                            nombre = key.split("/")[-1]
+                            st.markdown(f"- [📄 {nombre}]({url})")
+
                     if res["Facturas"]:
                         st.markdown("#### 📁 Facturas:")
                         for key, url in res["Facturas"]:
-                            st.markdown(f"- [📄 {key.split('/')[-1]}]({url})")
+                            nombre = key.split("/")[-1]
+                            st.markdown(f"- [📄 {nombre}]({url})")
+
                     if res["Otros"]:
                         st.markdown("#### 📂 Otros Archivos:")
                         for key, url in res["Otros"]:
-                            st.markdown(f"- [📌 {key.split('/')[-1]}]({url})")
+                            nombre = key.split("/")[-1]
+                            st.markdown(f"- [📌 {nombre}]({url})")
+
         else:
-            st.warning("⚠️ No se encontraron coincidencias.")
+            mensaje = (
+                "⚠️ No se encontraron coincidencias en ningún archivo PDF."
+                if modo_busqueda == "🔢 Por número de guía"
+                else "⚠️ No se encontraron pedidos para el cliente ingresado."
+            )
+            st.warning(mensaje)
