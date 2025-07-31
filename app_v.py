@@ -1245,6 +1245,11 @@ with tab6:
         keyword = st.text_input("🧑 Ingresa el nombre del cliente a buscar:", key="cliente_input_v")
         buscar_btn = st.button("🔍 Buscar Pedido del Cliente", key="buscar_cliente_v")
 
+    # ✅ Define aquí la función cacheada
+    @st.cache_data(ttl=300)
+    def cargar_pedidos_desde_hoja():
+        worksheet = get_worksheet()
+        return worksheet.get_all_records()
     def normalizar(texto):
         import unicodedata
         return unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
@@ -1298,9 +1303,7 @@ with tab6:
 
     if buscar_btn and keyword:
         st.info("🔄 Buscando, por favor espera...")
-        worksheet = get_worksheet()
-        all_data = worksheet.get_all_records()
-        df = pd.DataFrame(all_data)
+        df = pd.DataFrame(cargar_pedidos_desde_hoja())
         resultados = []
 
         if 'Hora_Registro' in df.columns:
