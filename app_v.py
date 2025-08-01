@@ -729,18 +729,21 @@ with tab2:
                             key="refact_tipo_mod_simple"
                         )
 
-                        subtipo_opciones = {
-                            "Datos Fiscales": ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
-                            "Material": ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"]
-                        }
-
-                        # La clave es usar el valor actual de refact_tipo en la key
-                        refact_subtipo_val = st.selectbox(
-                            "📌 Subtipo",
-                            subtipo_opciones[refact_tipo],  # Acceso directo sin .get()
-                            key=f"subtipo_{refact_tipo.replace(' ', '_').lower()}",  # Key única
-                            placeholder="Selecciona una opción..."
-                        )
+                        # 🎯 Usar selectbox separados con keys diferentes (como en el ejemplo de pagos)
+                        if refact_tipo == "Datos Fiscales":
+                            refact_subtipo_val = st.selectbox(
+                                "📌 Subtipo",
+                                ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
+                                key="subtipo_datos_fiscales",  # ← Key fija para datos fiscales
+                                placeholder="Selecciona una opción..."
+                            )
+                        else:  # Material
+                            refact_subtipo_val = st.selectbox(
+                                "📌 Subtipo", 
+                                ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
+                                key="subtipo_material",  # ← Key fija para material
+                                placeholder="Selecciona una opción..."
+                            )
 
                         refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_nuevo_simple")
 
