@@ -732,14 +732,14 @@ with tab2:
                         # 🎯 Usar selectbox separados con keys diferentes (como en el ejemplo de pagos)
                         if refact_tipo == "Datos Fiscales":
                             refact_subtipo_val = st.selectbox(
-                                "📌 Subtipo",
+                                "📌 SubtipoM",
                                 ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
                                 key="subtipo_datos_fiscales",  # ← Key fija para datos fiscales
                                 placeholder="Selecciona una opción..."
                             )
                         else:  # Material
                             refact_subtipo_val = st.selectbox(
-                                "📌 Subtipo", 
+                                "📌 SubtipoF", 
                                 ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
                                 key="subtipo_material",  # ← Key fija para material
                                 placeholder="Selecciona una opción..."
