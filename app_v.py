@@ -693,6 +693,37 @@ with tab2:
                     key="tipo_modificacion_mod"
                 )
 
+                refact_tipo = ""
+                refact_subtipo_val = ""
+                refact_folio_nuevo = ""
+
+                if tipo_modificacion_seleccionada == "Refacturación":
+                    st.markdown("### 🧾 Detalles de Refacturación")
+
+                    refact_tipo = st.selectbox(
+                        "🔍 Razón Principal",
+                        ["Datos Fiscales", "Material"],
+                        key="refact_tipo_mod_outside"
+                    )
+
+                    if refact_tipo == "Datos Fiscales":
+                        refact_subtipo_val = st.selectbox(
+                            "📌 Subtipo",
+                            ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
+                            key="subtipo_datos_outside",
+                            placeholder="Selecciona una opción..."
+                        )
+                    else:  # Material
+                        refact_subtipo_val = st.selectbox(
+                            "📌 Subtipo",
+                            ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
+                            key="subtipo_material_outside",
+                            placeholder="Selecciona una opción..."
+                        )
+
+                    refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="folio_refact_outside")
+
+
                 with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
                     default_modificacion_text = "" if st.session_state.get("reset_inputs_tab2") else current_modificacion_surtido_value
 
@@ -718,39 +749,6 @@ with tab2:
                         accept_multiple_files=True,
                         key="uploaded_comprobantes_extra"
                     )
-
-
-                    if tipo_modificacion_seleccionada == "Refacturación":
-                        st.markdown("### 🧾 Detalles de Refacturación")
-
-                        refact_tipo = st.selectbox(
-                            "🔍 Razón Principal",
-                            ["Datos Fiscales", "Material"],
-                            key="refact_tipo_mod_simple"
-                        )
-
-                        # 🎯 Usar selectbox separados con keys diferentes (como en el ejemplo de pagos)
-                        if refact_tipo == "Datos Fiscales":
-                            refact_subtipo_val = st.selectbox(
-                                "📌 SubtipoM",
-                                ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
-                                key="subtipo_datos_fiscales",  # ← Key fija para datos fiscales
-                                placeholder="Selecciona una opción..."
-                            )
-                        else:  # Material
-                            refact_subtipo_val = st.selectbox(
-                                "📌 SubtipoF", 
-                                ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
-                                key="subtipo_material",  # ← Key fija para material
-                                placeholder="Selecciona una opción..."
-                            )
-
-                        refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_nuevo_simple")
-
-                    else:
-                        refact_tipo = ""
-                        refact_subtipo_val = ""
-                        refact_folio_nuevo = ""
 
 
                     modify_button = st.form_submit_button("💾 Guardar Cambios")
