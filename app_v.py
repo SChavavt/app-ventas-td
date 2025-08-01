@@ -239,7 +239,7 @@ VENDEDORES_LIST = sorted([
     "ANA KAREN ORTEGA MAHUAD",
     "DANIELA LOPEZ RAMIREZ",
     "EDGAR ORLANDO GOMEZ VILLAGRAN",
-    "GLORIA MICHELLE GARCIA TORRES",
+    "GLORIA MICHELLE GARCIA TORRES", 
     "GRISELDA CAROLINA SANCHEZ GARCIA",
     "HECTOR DEL ANGEL AREVALO ALCALA",
     "JOSELIN TRUJILLO PATRACA",
@@ -485,7 +485,7 @@ with tab1:
                 elif header == "Estado_Pago":
                     values.append(estado_pago)
                 elif header == "Fecha_Pago_Comprobante":
-                    values.append(fecha_pago.strftime('%Y-%m-%d') if fecha_pago else "")
+                    values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
                 elif header == "Forma_Pago_Comprobante":
                     values.append(forma_pago)
                 elif header == "Terminal":
