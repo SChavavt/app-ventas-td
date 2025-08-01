@@ -729,21 +729,24 @@ with tab2:
                             key="refact_tipo_mod"
                         )
 
-                        # --- Colocar subtipo de forma reactiva con if independientes
+                        # Mostrar ambos selectbox pero ocultar el que no aplica, usando claves distintas
                         if refact_tipo == "Datos Fiscales":
                             refact_subtipo = st.selectbox(
-                                "📄 Subtipo (Datos Fiscales)",
+                                "📄 Subtipo",
                                 ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
-                                key="refact_subtipo_mod"
+                                key="refact_subtipo_datos_mod"
                             )
+                            refact_subtipo_val = refact_subtipo
                         elif refact_tipo == "Material":
                             refact_subtipo = st.selectbox(
-                                "📦 Subtipo (Material)",
+                                "📦 Subtipo",
                                 ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
-                                key="refact_subtipo_mod"
+                                key="refact_subtipo_material_mod"
                             )
+                            refact_subtipo_val = refact_subtipo
                         else:
-                            refact_subtipo = ""
+                            refact_subtipo_val = ""
+
 
 
                         refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_mod")
@@ -833,7 +836,7 @@ with tab2:
                             if tipo_modificacion_seleccionada == "Refacturación":
                                 campos_refact = {
                                     "Refacturacion_Tipo": refact_tipo,
-                                    "Refacturacion_Subtipo": refact_subtipo,
+                                    "Refacturacion_Subtipo": refact_subtipo_val,
                                     "Folio_Factura_Refacturada": refact_folio_nuevo
                                 }
                                 for campo, valor in campos_refact.items():
