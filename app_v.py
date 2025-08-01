@@ -729,16 +729,22 @@ with tab2:
                             key="refact_tipo_mod"
                         )
 
+                        # --- Colocar subtipo de forma reactiva con if independientes
                         if refact_tipo == "Datos Fiscales":
-                            opciones_subtipo = ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"]
+                            refact_subtipo = st.selectbox(
+                                "📄 Subtipo (Datos Fiscales)",
+                                ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"],
+                                key="refact_subtipo_mod"
+                            )
+                        elif refact_tipo == "Material":
+                            refact_subtipo = st.selectbox(
+                                "📦 Subtipo (Material)",
+                                ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
+                                key="refact_subtipo_mod"
+                            )
                         else:
-                            opciones_subtipo = ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"]
+                            refact_subtipo = ""
 
-                        refact_subtipo = st.selectbox(
-                            "📌 Subtipo",
-                            opciones_subtipo,
-                            key="refact_subtipo_mod"  # ✅ Clave única, evita conflictos
-                        )
 
                         refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_mod")
                     else:
