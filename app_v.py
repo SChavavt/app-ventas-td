@@ -726,7 +726,7 @@ with tab2:
                         refact_tipo = st.selectbox(
                             "🔍 Razón Principal",
                             ["Datos Fiscales", "Material"],
-                            key="refact_tipo_mod"
+                            key="refact_tipo_mod_simple"
                         )
 
                         subtipo_opciones = {
@@ -734,21 +734,20 @@ with tab2:
                             "Material": ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"]
                         }
 
+                        # La clave es usar el valor actual de refact_tipo en la key
                         refact_subtipo_val = st.selectbox(
                             "📌 Subtipo",
-                            subtipo_opciones.get(refact_tipo, []),
-                            key="refact_subtipo_mod",
-                            index=None,  # esto asegura que no se conserve un valor anterior por defecto
+                            subtipo_opciones[refact_tipo],  # Acceso directo sin .get()
+                            key=f"subtipo_{refact_tipo.replace(' ', '_').lower()}",  # Key única
                             placeholder="Selecciona una opción..."
                         )
 
+                        refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_nuevo_simple")
 
-                        refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="refact_folio_mod")
                     else:
                         refact_tipo = ""
-                        refact_subtipo = ""
+                        refact_subtipo_val = ""
                         refact_folio_nuevo = ""
-
 
 
                     modify_button = st.form_submit_button("💾 Guardar Cambios")
