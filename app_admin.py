@@ -356,7 +356,12 @@ else:
 
             col_pago = st.columns(4)
             with col_pago[0]:
-                fecha_pago = st.date_input("Fecha Pago Comprobante", value=st.session_state.fecha_pago, key="date_input_payment")
+                # Manejar caso de string concatenado (doble pago) para evitar crash
+                if isinstance(st.session_state.fecha_pago, str) and " y " in st.session_state.fecha_pago:
+                    st.info(f"🗓 Pago en dos partes: {st.session_state.fecha_pago}")
+                    fecha_pago = st.session_state.fecha_pago  # Solo para conservar la variable, no se usa como input
+                else:
+                    fecha_pago = st.date_input("Fecha Pago Comprobante", value=st.session_state.fecha_pago, key="date_input_payment")
             with col_pago[1]:
                 forma_pago = st.selectbox("Forma de Pago", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], index=0, key="payment_method_select_payment")
             with col_pago[2]:
