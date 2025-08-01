@@ -273,9 +273,12 @@ else:
             selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
             st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
-            st.session_state.fecha_pago = pd.to_datetime(
-                selected_pedido_data.get('Fecha_Pago_Comprobante')
-            ).date() if selected_pedido_data.get('Fecha_Pago_Comprobante') else None
+            fecha_pago_raw = selected_pedido_data.get('Fecha_Pago_Comprobante')
+            if isinstance(fecha_pago_raw, str) and " y " in fecha_pago_raw:
+                st.session_state.fecha_pago = fecha_pago_raw  # ya viene listo como string concatenado
+            else:
+                st.session_state.fecha_pago = pd.to_datetime(fecha_pago_raw).date() if fecha_pago_raw else None
+
             st.session_state.forma_pago = selected_pedido_data.get('Forma_Pago_Comprobante', 'Transferencia')
             st.session_state.terminal = selected_pedido_data.get('Terminal', 'BANORTE')
             st.session_state.banco_destino_pago = selected_pedido_data.get('Banco_Destino_Pago', 'BANORTE')
