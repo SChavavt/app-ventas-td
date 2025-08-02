@@ -872,9 +872,13 @@ with tab2:
         st.session_state.show_success_message and
         'last_updated_order_id' in st.session_state
     ):
-        message_placeholder_tab2.success(f"✅ Pedido {st.session_state.last_updated_order_id} actualizado con éxito.")
+        pedido_id = st.session_state.last_updated_order_id
+        message_placeholder_tab2.success(f"🎉 ¡Cambios guardados con éxito para el pedido **{pedido_id}**!")
+        st.balloons()  # 🎈 Globos para destacar visualmente
+        st.toast(f"✅ Pedido {pedido_id} actualizado", icon="📦")
         del st.session_state.show_success_message
         del st.session_state.last_updated_order_id
+
 
 
 # --- TAB 3: PENDING PROOF OF PAYMENT ---
