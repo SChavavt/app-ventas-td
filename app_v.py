@@ -519,12 +519,6 @@ with tab1:
 if "reset_inputs_tab2" in st.session_state:
     del st.session_state["reset_inputs_tab2"]
 with tab2:
-    if st.session_state.get("show_success_tab2_balloons"):
-        st.balloons()
-        st.success(f"🎈 Pedido {st.session_state['success_pedido_modificado']} modificado con éxito.")
-        del st.session_state["show_success_tab2_balloons"]
-        del st.session_state["success_pedido_modificado"]
-
     st.header("✏️ Modificar Pedido Existente")
 
     message_placeholder_tab2 = st.empty()
@@ -856,10 +850,12 @@ with tab2:
                                         col_idx = headers.index(campo) + 1
                                         worksheet.update_cell(gsheet_row_index, col_idx, "")
 
+
                             if changes_made:
                                 st.session_state["reset_inputs_tab2"] = True
-                                st.session_state["show_success_tab2_balloons"] = True
-                                st.session_state["success_pedido_modificado"] = selected_order_id
+                                st.session_state["show_success_message"] = True
+                                st.session_state["last_updated_order_id"] = selected_order_id
+                                st.session_state["new_modificacion_surtido_input"] = ""  # 🔁 limpiar textarea
                                 st.session_state["uploaded_files_surtido"] = []          # 🔁 limpiar uploader
                                 st.query_params.update({"tab": "1"})
                                 st.rerun()
@@ -869,6 +865,16 @@ with tab2:
 
                         except Exception as e:
                             message_placeholder_tab2.error(f"❌ Error inesperado al guardar: {e}")
+
+
+    if (
+        'show_success_message' in st.session_state and
+        st.session_state.show_success_message and
+        'last_updated_order_id' in st.session_state
+    ):
+        message_placeholder_tab2.success(f"✅ Pedido {st.session_state.last_updated_order_id} actualizado con éxito.")
+        del st.session_state.show_success_message
+        del st.session_state.last_updated_order_id
 
 
 # --- TAB 3: PENDING PROOF OF PAYMENT ---
