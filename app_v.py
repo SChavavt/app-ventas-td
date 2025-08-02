@@ -860,7 +860,6 @@ with tab2:
                                 st.session_state["reset_inputs_tab2"] = True
                                 st.session_state["show_success_tab2_balloons"] = True
                                 st.session_state["success_pedido_modificado"] = selected_order_id
-                                st.session_state["new_modificacion_surtido_input"] = ""  # 🔁 limpiar textarea
                                 st.session_state["uploaded_files_surtido"] = []          # 🔁 limpiar uploader
                                 st.query_params.update({"tab": "1"})
                                 st.rerun()
