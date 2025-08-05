@@ -349,46 +349,99 @@ else:
             st.subheader("✅ Confirmar Comprobante")
 
             fecha_list, forma_list, banco_list, terminal_list, monto_list, ref_list = [], [], [], [], [], []
+            # --- Prellenar valores si ya están registrados en la hoja ---
+            fecha_list = str(selected_pedido_data.get('Fecha_Pago_Comprobante', '')).split(" y ")
+            forma_list = str(selected_pedido_data.get('Forma_Pago_Comprobante', '')).split(", ")
+            banco_list = str(selected_pedido_data.get('Banco_Destino_Pago', '')).split(", ")
+            terminal_list = str(selected_pedido_data.get('Terminal', '')).split(", ")
+            monto_list_raw = selected_pedido_data.get('Monto_Comprobante', '')
+            ref_list = str(selected_pedido_data.get('Referencia_Comprobante', '')).split(", ")
+
+            # 🔍 Convertir monto a lista numérica (aunque venga como 3360.00 o "3360.00, 0.00")
+            if isinstance(monto_list_raw, str) and "," in monto_list_raw:
+                monto_list = [float(m.strip()) if m.strip() else 0.0 for m in monto_list_raw.split(",")]
+            else:
+                try:
+                    monto_list = [float(monto_list_raw)] if monto_list_raw else []
+                except:
+                    monto_list = []
+
+            # Completar con valores vacíos si alguna lista es más corta que el número de comprobantes
+            while len(fecha_list) < num_comprobantes:
+                fecha_list.append("")
+            while len(forma_list) < num_comprobantes:
+                forma_list.append("Transferencia")
+            while len(banco_list) < num_comprobantes:
+                banco_list.append("")
+            while len(terminal_list) < num_comprobantes:
+                terminal_list.append("")
+            while len(monto_list) < num_comprobantes:
+                monto_list.append(0.0)
+            while len(ref_list) < num_comprobantes:
+                ref_list.append("")
+
 
             for i in range(num_comprobantes):
                 st.markdown(f"### 🧾 Comprobante {i+1}")
 
                 col_pago = st.columns(4)
                 with col_pago[0]:
-                    fecha_i = st.date_input(f"Fecha Pago {i+1}", key=f"fecha_pago_{i}")
+                    fecha_i = st.date_input(
+                        f"Fecha Pago {i+1}",
+                        value=pd.to_datetime(fecha_list[i], errors='coerce').date() if fecha_list[i] else None,
+                        key=f"fecha_pago_{i}"
+                    )
                 with col_pago[1]:
                     forma_i = st.selectbox(
                         f"Forma de Pago {i+1}",
                         ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"],
+                        index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(forma_list[i]) if forma_list[i] in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0,
                         key=f"forma_pago_{i}"
                     )
                 with col_pago[2]:
                     if forma_i in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                        terminal_options = ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"]
                         terminal_i = st.selectbox(
                             f"Terminal {i+1}",
-                            ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"],
+                            terminal_options,
+                            index=terminal_options.index(terminal_list[i]) if terminal_list[i] in terminal_options else 0,
                             key=f"terminal_pago_{i}"
                         )
+
                         banco_i = ""
                     else:
+                        banco_options = ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"]
                         banco_i = st.selectbox(
                             f"Banco Destino {i+1}",
-                            ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"],
+                            banco_options,
+                            index=banco_options.index(banco_list[i]) if banco_list[i] in banco_options else 0,
                             key=f"banco_pago_{i}"
                         )
+
                         terminal_i = ""
                 with col_pago[3]:
-                    monto_i = st.number_input(f"Monto {i+1}", min_value=0.0, format="%.2f", key=f"monto_pago_{i}")
+                    monto_i = st.number_input(
+                        f"Monto {i+1}",
+                        min_value=0.0,
+                        format="%.2f",
+                        value=monto_list[i] if i < len(monto_list) else 0.0,
+                        key=f"monto_pago_{i}"
+                    )
 
-                referencia_i = st.text_input(f"Referencia {i+1}", key=f"ref_pago_{i}")
+
+                referencia_i = st.text_input(
+                    f"Referencia {i+1}",
+                    value=ref_list[i] if i < len(ref_list) else "",
+                    key=f"ref_pago_{i}"
+                )
 
                 # Guardar en listas
-                fecha_list.append(str(fecha_i))
-                forma_list.append(forma_i)
-                banco_list.append(banco_i)
-                terminal_list.append(terminal_i)
-                monto_list.append(monto_i)
-                ref_list.append(referencia_i)
+                fecha_list[i] = str(fecha_i)
+                forma_list[i] = forma_i
+                banco_list[i] = banco_i
+                terminal_list[i] = terminal_i
+                monto_list[i] = monto_i
+                ref_list[i] = referencia_i
 
             col1, col2, col3 = st.columns([2, 1, 1])
             with col1:
