@@ -779,13 +779,22 @@ with tab2:
                                 worksheet.update_cell(gsheet_row_index, col_mod, new_modificacion_surtido_input.strip())
                                 changes_made = True
 
-                                # 🔁 Cambiar estado si estaba en completado
-                                if selected_row_data.get('Estado') == "🟢 Completado":
+                                # 🔁 Cambiar estado si NO es refacturación por Datos Fiscales
+                                aplicar_estado_modificacion = True
+                                if tipo_modificacion_seleccionada == "Refacturación" and refact_tipo == "Datos Fiscales":
+                                    aplicar_estado_modificacion = False
+
+                                if aplicar_estado_modificacion:
                                     col_estado = headers.index("Estado") + 1
-                                    col_fecha = headers.index("Fecha_Completado") + 1
-                                    worksheet.update_cell(gsheet_row_index, col_estado, "🔵 En Proceso")
-                                    worksheet.update_cell(gsheet_row_index, col_fecha, "")
-                                    message_placeholder_tab2.warning("🔁 El pedido fue regresado a 'En Proceso' por modificación.")
+                                    worksheet.update_cell(gsheet_row_index, col_estado, "🛠 Modificación")
+
+                                    if "Fecha_Completado" in headers:
+                                        col_fecha = headers.index("Fecha_Completado") + 1
+                                        worksheet.update_cell(gsheet_row_index, col_fecha, "")
+
+                                    message_placeholder_tab2.warning("🛠 El estado del pedido se cambió a 'Modificación' por los cambios realizados.")
+
+
 
                             # 📎 Adjuntos Surtido
                             new_adjuntos_surtido_urls = []
