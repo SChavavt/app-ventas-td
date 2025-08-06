@@ -63,6 +63,10 @@ def get_google_sheets_client():
         st.stop()
 
 df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
+if df_pedidos.empty:
+    st.warning("⚠️ No se cargaron pedidos desde la hoja de cálculo. Verifica que la hoja 'datos_pedidos' no esté vacía o dañada.")
+    st.stop()
+
 worksheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
 
 # --- CONFIGURACIÓN DE AWS S3 ---
@@ -704,6 +708,7 @@ with tab1:
 
 # --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
 with tab2:
+    st.info("🧪 Entrando a tab2 (Confirmados)")
     st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
 
     if "confirmados_cargados" not in st.session_state:
