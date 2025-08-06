@@ -710,53 +710,56 @@ with tab1:
 
 # --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
 with tab2:
-    # --- ESTADÍSTICAS GENERALES (Antes estaba en tab3) ---
-    st.header("📊 Estadísticas Generales")
+    with st.spinner("🔄 Cargando pestaña de confirmados..."):
 
-    if not df_pedidos.empty:
-        col1, col2, col3, col4 = st.columns(4)
+        # --- ESTADÍSTICAS GENERALES ---
+        st.header("📊 Estadísticas Generales")
 
-        with col1:
-            total_pedidos = len(df_pedidos)
-            st.metric("Total Pedidos", total_pedidos)
+        if not df_pedidos.empty:
+            col1, col2, col3, col4 = st.columns(4)
 
-        with col2:
-            pedidos_pagados = len(df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado']) if 'Estado_Pago' in df_pedidos.columns else 0
-            st.metric("Pedidos Pagados", pedidos_pagados)
+            with col1:
+                st.metric("Total Pedidos", len(df_pedidos))
 
-        with col3:
-            pedidos_confirmados = len(df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí']) if 'Comprobante_Confirmado' in df_pedidos.columns else 0
-            st.metric("Comprobantes Confirmados", pedidos_confirmados)
+            with col2:
+                pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
+                st.metric("Pedidos Pagados", len(pagados))
 
-        with col4:
-            pedidos_pendientes_confirmacion = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
-            st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
+            with col3:
+                confirmados = df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí'] if 'Comprobante_Confirmado' in df_pedidos.columns else pd.DataFrame()
+                st.metric("Comprobantes Confirmados", len(confirmados))
 
-    # --- LÍNEA DIVISORIA ---
-    st.markdown("---")
-    st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
+            with col4:
+                pendientes = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
+                st.metric("Pendientes Confirmación", pendientes)
 
-    if "confirmados_cargados" not in st.session_state:
-        st.session_state.confirmados_cargados = 0
-    if "df_confirmados_cache" not in st.session_state:
-        st.session_state.df_confirmados_cache = pd.DataFrame()
+        st.markdown("---")
+        st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
 
-    df_confirmados_actuales = df_pedidos[
-        (df_pedidos['Estado_Pago'] == '✅ Pagado') & (df_pedidos['Comprobante_Confirmado'] == 'Sí')
-    ].copy()
+        if "confirmados_cargados" not in st.session_state:
+            st.session_state.confirmados_cargados = 0
+        if "df_confirmados_cache" not in st.session_state:
+            st.session_state.df_confirmados_cache = pd.DataFrame()
 
-    total_actual = len(df_confirmados_actuales)
+        df_confirmados_actuales = df_pedidos[
+            (df_pedidos['Estado_Pago'] == '✅ Pagado') & (df_pedidos['Comprobante_Confirmado'] == 'Sí')
+        ].copy()
 
-    if total_actual == 0:
-        st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
-    elif total_actual == st.session_state.confirmados_cargados:
-        st.success("✅ Mostrando comprobantes confirmados en caché.")
-        df_vista = st.session_state.df_confirmados_cache
-    else:
-        st.info("🔄 Cargando comprobantes confirmados actualizados...")
-        with st.spinner("Buscando archivos en S3..."):
+        total_actual = len(df_confirmados_actuales)
+
+        if total_actual == 0:
+            st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
+        elif total_actual == st.session_state.confirmados_cargados:
+            st.success("✅ Mostrando comprobantes confirmados en caché.")
+            df_vista = st.session_state.df_confirmados_cache
+        else:
             import re
             df_confirmados_actuales = df_confirmados_actuales.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
+
+            @st.cache_data(ttl=300)
+            def obtener_archivos_s3(prefix):
+                return get_files_in_s3_prefix(s3_client, prefix)
+
             link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
 
             for _, row in df_confirmados_actuales.iterrows():
@@ -766,10 +769,10 @@ with tab2:
 
                 if pedido_id:
                     prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
-                    files = get_files_in_s3_prefix(s3_client, prefix)
+                    files = obtener_archivos_s3(prefix)
                     if not files:
                         prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
-                        files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
+                        files = obtener_archivos_s3(prefix) if prefix else []
 
                     comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
                     if comprobantes:
@@ -784,9 +787,7 @@ with tab2:
                             f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())
                         ]
                     else:
-                        guias_filtradas = [
-                            f for f in files if f["title"].lower().endswith(".xlsx")
-                        ]
+                        guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
 
                     if guias_filtradas:
                         guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
@@ -811,27 +812,27 @@ with tab2:
             st.session_state.confirmados_cargados = total_actual
             df_vista = df_confirmados_actuales
 
-    columnas_a_mostrar = [
-        'Folio_Factura', 'Folio_Factura_Refacturada',
-        'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-        'Estado', 'Estado_Pago',
-        'Refacturacion_Tipo', 'Refacturacion_Subtipo',
-        'Forma_Pago_Comprobante', 'Monto_Comprobante',
-        'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-        'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
-    ]
+        columnas_a_mostrar = [
+            'Folio_Factura', 'Folio_Factura_Refacturada',
+            'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+            'Estado', 'Estado_Pago',
+            'Refacturacion_Tipo', 'Refacturacion_Subtipo',
+            'Forma_Pago_Comprobante', 'Monto_Comprobante',
+            'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
+            'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
+        ]
 
-    columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista.columns]
-    st.dataframe(df_vista[columnas_existentes], use_container_width=True, hide_index=True)
+        columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista.columns]
+        st.dataframe(df_vista[columnas_existentes], use_container_width=True, hide_index=True)
 
-    output_confirmados = BytesIO()
-    with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-        df_vista[columnas_existentes].to_excel(writer, index=False, sheet_name='Confirmados')
-    data_xlsx = output_confirmados.getvalue()
+        output_confirmados = BytesIO()
+        with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
+            df_vista[columnas_existentes].to_excel(writer, index=False, sheet_name='Confirmados')
+        data_xlsx = output_confirmados.getvalue()
 
-    st.download_button(
-        label="📤 Descargar Excel de Confirmados",
-        data=data_xlsx,
-        file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        st.download_button(
+            label="📤 Descargar Excel de Confirmados",
+            data=data_xlsx,
+            file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
