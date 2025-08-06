@@ -298,10 +298,10 @@ else:
                     st.write(f"**🗒 Comentario del Pedido:** {selected_pedido_data.get('Comentario', 'Sin comentario')}")
                     st.write(f"**🤝 Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
                     st.write(f"**🧑‍💼 Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
-                    st.write(f"**🚚 Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
+                    st.write(f"**Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
                     st.write(f"**📅 Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
-                    st.write(f"**📌 Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
-                    st.write(f"**💳 Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
+                    st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
+                    st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
 
                 with col2:
                     st.subheader("📎 Archivos y Comprobantes")
