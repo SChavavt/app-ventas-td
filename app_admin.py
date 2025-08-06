@@ -15,6 +15,24 @@ st.set_page_config(page_title="App Admin TD", layout="wide")
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
+@st.cache_data(ttl=60)
+def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
+    gc = get_google_sheets_client()
+    spreadsheet = gc.open_by_key(sheet_id)
+    worksheet = spreadsheet.worksheet(worksheet_name)
+    headers = worksheet.row_values(1)
+
+    if headers:
+        df = pd.DataFrame(worksheet.get_all_records())
+        df = df.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
+        df = df[
+            df['ID_Pedido'].astype(str).str.strip().ne('') &
+            df['ID_Pedido'].astype(str).str.lower().ne('n/a') &
+            df['ID_Pedido'].astype(str).str.lower().ne('nan')
+        ]
+        return df, headers
+    else:
+        return pd.DataFrame(), []
 
 @st.cache_resource
 def get_google_sheets_client():
@@ -43,6 +61,9 @@ def get_google_sheets_client():
     except Exception as e:
         st.error(f"❌ Error crítico al autenticar con Google Sheets: {e}")
         st.stop()
+
+df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
+worksheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
 
 # --- CONFIGURACIÓN DE AWS S3 ---
 try:
@@ -196,9 +217,7 @@ except Exception as e:
     st.info("- La cuenta de AWS tenga permisos de lectura en el bucket S3.")
     st.stop()
 
-
 tab1, tab2, tab3 = st.tabs(["💳 Pendientes de Confirmar", "📥 Confirmados", "📊 Estadísticas"])
-
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
@@ -208,30 +227,6 @@ with tab1:
         st.cache_data.clear()
         st.cache_resource.clear()
         st.rerun()
-
-    def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
-        @st.cache_data(ttl=60)
-        def _load():
-            gc = get_google_sheets_client()
-            spreadsheet = gc.open_by_key(sheet_id)
-            worksheet = spreadsheet.worksheet(worksheet_name)
-            headers = worksheet.row_values(1)
-
-            if headers:
-                df = pd.DataFrame(worksheet.get_all_records())
-                df = df.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
-                df = df[
-                    df['ID_Pedido'].astype(str).str.strip().ne('') &
-                    df['ID_Pedido'].astype(str).str.lower().ne('n/a') &
-                    df['ID_Pedido'].astype(str).str.lower().ne('nan')
-                ]
-                return df, headers
-            else:
-                return pd.DataFrame(), []
-        return _load()
-
-    df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
-    worksheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
 
     if df_pedidos.empty:
         st.info("ℹ️ No hay pedidos cargados en este momento.")
