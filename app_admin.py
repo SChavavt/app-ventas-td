@@ -288,27 +288,46 @@ with tab1:
 
             if selected_index is not None:
                 selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
-                # 👉 Lógica alternativa si es un pedido a crédito
+
+                # Si es crédito, solo mostrar encabezado y bloque exclusivo
                 if selected_pedido_data.get("Estado_Pago", "").strip() == "💳 CREDITO":
                     st.subheader("📝 Confirmación de Pedido a Crédito")
+
+                # Si NO es crédito, mostrar el resto
+                if selected_pedido_data.get("Estado_Pago", "").strip() != "💳 CREDITO":
+                    # Mostrar Información del Pedido + Archivos + Confirmación
+
                     selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
                     st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
+                    fecha_pago_raw = selected_pedido_data.get('Fecha_Pago_Comprobante')
+                    if isinstance(fecha_pago_raw, str) and " y " in fecha_pago_raw:
+                        st.session_state.fecha_pago = fecha_pago_raw
+                    else:
+                        st.session_state.fecha_pago = pd.to_datetime(fecha_pago_raw).date() if fecha_pago_raw else None
+
+                    st.session_state.forma_pago = selected_pedido_data.get('Forma_Pago_Comprobante', 'Transferencia')
+                    st.session_state.terminal = selected_pedido_data.get('Terminal', 'BANORTE')
+                    st.session_state.banco_destino_pago = selected_pedido_data.get('Banco_Destino_Pago', 'BANORTE')
+                    try:
+                        st.session_state.monto_pago = float(selected_pedido_data.get('Monto_Comprobante', 0.0))
+                    except Exception:
+                        st.session_state.monto_pago = 0.0
+                    st.session_state.referencia_pago = selected_pedido_data.get('Referencia_Comprobante', '')
 
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("📋 Información del Pedido")
-                        st.write(f"**📄 Folio Factura:** {selected_pedido_data.get('Folio_Factura', 'N/A')}")
+                        st.write(f"**Folio Factura:** {selected_pedido_data.get('Folio_Factura', 'N/A')}")
                         st.write(f"**🗒 Comentario del Pedido:** {selected_pedido_data.get('Comentario', 'Sin comentario')}")
-                        st.write(f"**🤝 Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
-                        st.write(f"**🧑‍💼 Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
+                        st.write(f"**Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
+                        st.write(f"**Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
                         st.write(f"**Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
-                        st.write(f"**📅 Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
+                        st.write(f"**Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
                         st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
 
                     with col2:
                         st.subheader("📎 Archivos y Comprobantes")
-
                         if s3_client:
                             pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
                             files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
@@ -343,6 +362,7 @@ with tab1:
                                 st.info("📁 No se encontraron archivos en la carpeta del pedido.")
                         else:
                             st.error("❌ Error de conexión con S3. Revisa las credenciales.")
+
 
 
                     confirmacion_credito = st.selectbox("¿Confirmar que el pedido fue autorizado como crédito?", ["", "Sí", "No"])
