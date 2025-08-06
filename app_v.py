@@ -314,7 +314,7 @@ with tab1:
     # --- Estado de pago después del formulario ---
     st.markdown("---")
     st.subheader("💰 Estado de Pago")
-    estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado"], index=0, key="estado_pago")
+    estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
 
     comprobante_pago_files = None
     fecha_pago = None
