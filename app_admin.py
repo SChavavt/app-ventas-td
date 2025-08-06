@@ -373,7 +373,10 @@ with tab1:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
-                        mostrar = False  # ⛔ No mostrar el resto del contenido
+
+                    # 🚫 IMPORTANTE: Detener todo el flujo restante
+                    st.stop()
+
 
                 # ✅ Mostrar sección normal si no se detuvo el flujo
                 if mostrar:
