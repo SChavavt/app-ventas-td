@@ -372,7 +372,7 @@ with tab1:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
-                        st.markdown("🔚 Fin de revisión de crédito.")
+                    st.stop()
 
 
                 elif (
@@ -561,8 +561,7 @@ with tab1:
                 num_comprobantes = len(comprobantes)
                 if num_comprobantes == 0:
                     st.warning("⚠️ No hay comprobantes para confirmar.")
-                    st.markdown("🔚 Fin de revisión del pedido.")
-
+                    st.stop()
 
                 st.subheader("✅ Confirmar Comprobante")
 
