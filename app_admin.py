@@ -378,11 +378,18 @@ with tab1:
                     st.stop()
 
 
-                # ✅ Mostrar sección normal si no se detuvo el flujo
-                if mostrar:
-                    st.subheader("✅ Confirmar Comprobante")
-                    # Aquí puedes continuar con comprobantes normales, locales, etc.
+        # ✅ Mostrar sección normal si no se detuvo el flujo
+        if mostrar:
+            st.subheader("✅ Confirmar Comprobante")
 
+            # 🚫 Si es pedido foráneo ya pagado, no mostrar el bloque de subida de comprobantes
+            if (
+                selected_pedido_data.get("Tipo_Envio", "").strip() == "🚚 Pedido Foráneo" and
+                selected_pedido_data.get("Estado_Pago", "").strip() == "✅ Pagado"
+            ):
+                mostrar_contenido = False
+            else:
+                # ✅ Aquí sí mostramos el bloque de carga (solo si NO es foráneo ya pagado)
                 if (
                     selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
                     selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
@@ -392,6 +399,7 @@ with tab1:
                     pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
 
                     comprobantes_nuevo = []
+
                     if not pago_doble:
                         comprobantes_nuevo = st.file_uploader(
                             "📤 Subir Comprobante(s) de Pago",
