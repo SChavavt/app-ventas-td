@@ -270,6 +270,39 @@ else:
 
         if selected_index is not None:
             selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
+            # 👉 Lógica alternativa si es un pedido a crédito
+            if selected_pedido_data.get("Estado_Pago", "").strip() == "💳 CREDITO":
+                st.subheader("📝 Confirmación de Pedido a Crédito")
+
+                confirmacion_credito = st.selectbox("¿Confirmar que el pedido fue autorizado como crédito?", ["", "Sí", "No"])
+                comentario_credito = st.text_area("✍️ Comentario administrativo")
+
+                if confirmacion_credito:
+                    if st.button("💾 Guardar Confirmación de Crédito"):
+                        try:
+                            gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
+
+                            if "Comprobante_Confirmado" in headers:
+                                worksheet.update_cell(gsheet_row_index, headers.index("Comprobante_Confirmado") + 1, confirmacion_credito)
+
+                            if "Comentario" in headers:
+                                comentario_existente = selected_pedido_data.get("Comentario", "")
+                                nuevo_comentario = f"Comentario de CREDITO: {comentario_credito.strip()}"
+                                comentario_final = f"{comentario_existente}\n{nuevo_comentario}" if comentario_existente else nuevo_comentario
+                                worksheet.update_cell(gsheet_row_index, headers.index("Comentario") + 1, comentario_final)
+
+                            st.success("✅ Confirmación de crédito guardada exitosamente.")
+                            st.balloons()
+                            time.sleep(2)
+                            st.cache_data.clear()
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(f"❌ Error al guardar la confirmación: {e}")
+                else:
+                    st.info("Selecciona una opción para confirmar el crédito.")
+                st.stop()
+
             selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
             st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
