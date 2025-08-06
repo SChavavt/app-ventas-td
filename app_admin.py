@@ -375,7 +375,7 @@ with tab1:
                         st.info("Selecciona una opción para confirmar el crédito.")
 
                     # 🚫 IMPORTANTE: Detener todo el flujo restante para crédito
-                    continue
+                    # Eliminado 'return' porque no se permite fuera de funciones
 
                 # ✅ Continuar con lógica normal para pedidos no-crédito
                 if (
@@ -488,7 +488,6 @@ with tab1:
 
                     except Exception as e:
                         st.error(f"❌ Error al guardar el comprobante: {e}")
-                    continue
 
                 # Resto del código para pedidos normales con comprobantes existentes
                 selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
