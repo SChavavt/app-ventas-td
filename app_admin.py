@@ -378,13 +378,10 @@ with tab1:
                     st.stop()
 
 
-                # ✅ Mostrar sección normal si no se detuvo el flujo y NO es foráneo pagado
-                if mostrar and not (
-                    selected_pedido_data.get("Tipo_Envio", "").strip() == "🚚 Pedido Foráneo" and
-                    selected_pedido_data.get("Estado_Pago", "").strip() == "✅ Pagado"
-                ):
+                # ✅ Mostrar sección normal si no se detuvo el flujo
+                if mostrar:
                     st.subheader("✅ Confirmar Comprobante")
-
+                    # Aquí puedes continuar con comprobantes normales, locales, etc.
 
                 if (
                     selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
@@ -578,10 +575,7 @@ with tab1:
                     st.warning("⚠️ No hay comprobantes para confirmar.")
                     mostrar_contenido = False
 
-                if mostrar_contenido and not (
-                    selected_pedido_data.get("Tipo_Envio", "").strip() == "🚚 Pedido Foráneo" and
-                    selected_pedido_data.get("Estado_Pago", "").strip() == "✅ Pagado"
-                ):
+                if mostrar_contenido:
                     st.subheader("✅ Confirmar Comprobante")
 
                     fecha_list, forma_list, banco_list, terminal_list, monto_list, ref_list = [], [], [], [], [], []
