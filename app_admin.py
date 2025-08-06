@@ -483,9 +483,7 @@ else:
                     except Exception as e:
                         st.error(f"❌ Error al guardar el comprobante: {e}")
 
-                st.session_state.mostrar_descarga_activa = True
-                st.rerun()
-
+                st.stop()
 
 
             selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
@@ -561,9 +559,7 @@ else:
             num_comprobantes = len(comprobantes)
             if num_comprobantes == 0:
                 st.warning("⚠️ No hay comprobantes para confirmar.")
-                st.session_state.mostrar_descarga_activa = True
-                st.rerun()
-
+                st.stop()
 
             st.subheader("✅ Confirmar Comprobante")
 
@@ -728,10 +724,7 @@ if not df_pedidos.empty:
 
 # --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
 st.markdown("---")
-mostrar_descarga_confirmados = st.toggle(
-    "🔽 Mostrar/Descargar Pedidos Confirmados",
-    value=st.session_state.pop("mostrar_descarga_activa", False)
-)
+mostrar_descarga_confirmados = st.toggle("🔽 Mostrar/Descargar Pedidos Confirmados", value=False)
 
 # 🧠 Inicializar caché de sesión
 if "confirmados_cargados" not in st.session_state:
