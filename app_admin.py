@@ -489,8 +489,6 @@ with tab1:
                         except Exception as e:
                             st.error(f"❌ Error al guardar el comprobante: {e}")
 
-                    st.stop()
-
 
                 selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
