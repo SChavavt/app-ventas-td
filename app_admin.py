@@ -218,6 +218,8 @@ except Exception as e:
     st.stop()
 
 tab1, tab2, tab3 = st.tabs(["💳 Pendientes de Confirmar", "📥 Confirmados", "📊 Estadísticas"])
+if "show_tab2_3" not in st.session_state:
+    st.session_state["show_tab2_3"] = True
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
@@ -368,7 +370,8 @@ with tab1:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
-                    st.stop()
+                        st.markdown("🔚 Fin de revisión de crédito.")
+
 
                 elif (
                     selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
@@ -558,7 +561,8 @@ with tab1:
                 num_comprobantes = len(comprobantes)
                 if num_comprobantes == 0:
                     st.warning("⚠️ No hay comprobantes para confirmar.")
-                    st.stop()
+                    st.markdown("🔚 Fin de revisión del pedido.")
+
 
                 st.subheader("✅ Confirmar Comprobante")
 
