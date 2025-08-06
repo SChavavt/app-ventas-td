@@ -226,6 +226,7 @@ tab1, tab2 = st.tabs(["💳 Pendientes de Confirmar", "📥 Confirmados"])
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
+    mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
     if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
         st.cache_data.clear()
@@ -247,6 +248,7 @@ with tab1:
         else:
             st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes.")
 
+            # Mostrar tabla
             columns_to_show = [
                 'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio',
                 'Fecha_Entrega', 'Estado', 'Estado_Pago'
@@ -256,7 +258,6 @@ with tab1:
             if existing_columns:
                 df_vista = pedidos_pagados_no_confirmados[existing_columns].copy()
 
-                # 🔧 Formatear Fecha_Entrega si existe
                 if 'Fecha_Entrega' in df_vista.columns:
                     df_vista['Fecha_Entrega'] = pd.to_datetime(df_vista['Fecha_Entrega'], errors='coerce').dt.strftime('%d/%m/%Y')
 
@@ -269,14 +270,13 @@ with tab1:
             st.markdown("---")
             st.subheader("🔍 Revisar Comprobante de Pago")
 
-            # 💄 Mostrar pedidos con formato limpio y emojis bonitos, sin repetir los del Excel
+            # Opciones de selección
             pedidos_pagados_no_confirmados['display_label'] = pedidos_pagados_no_confirmados.apply(lambda row: (
                 f"📄 {row.get('Folio_Factura', 'N/A')} - "
                 f"👤 {row.get('Cliente', 'N/A')} - "
                 f"{row.get('Estado', 'N/A')} - "
                 f"{row.get('Tipo_Envio', 'N/A')}"
             ), axis=1)
-
 
             pedido_options = pedidos_pagados_no_confirmados['display_label'].tolist()
             selected_index = st.selectbox(
@@ -289,40 +289,22 @@ with tab1:
             if selected_index is not None:
                 selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
 
-                # Si es crédito, solo mostrar encabezado y bloque exclusivo
+                # 🚨 Lógica especial si es pedido a crédito
                 if selected_pedido_data.get("Estado_Pago", "").strip() == "💳 CREDITO":
                     st.subheader("📝 Confirmación de Pedido a Crédito")
-
-                # Si NO es crédito, mostrar el resto
-                if selected_pedido_data.get("Estado_Pago", "").strip() != "💳 CREDITO":
-                    # Mostrar Información del Pedido + Archivos + Confirmación
-
                     selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
                     st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
-                    fecha_pago_raw = selected_pedido_data.get('Fecha_Pago_Comprobante')
-                    if isinstance(fecha_pago_raw, str) and " y " in fecha_pago_raw:
-                        st.session_state.fecha_pago = fecha_pago_raw
-                    else:
-                        st.session_state.fecha_pago = pd.to_datetime(fecha_pago_raw).date() if fecha_pago_raw else None
 
-                    st.session_state.forma_pago = selected_pedido_data.get('Forma_Pago_Comprobante', 'Transferencia')
-                    st.session_state.terminal = selected_pedido_data.get('Terminal', 'BANORTE')
-                    st.session_state.banco_destino_pago = selected_pedido_data.get('Banco_Destino_Pago', 'BANORTE')
-                    try:
-                        st.session_state.monto_pago = float(selected_pedido_data.get('Monto_Comprobante', 0.0))
-                    except Exception:
-                        st.session_state.monto_pago = 0.0
-                    st.session_state.referencia_pago = selected_pedido_data.get('Referencia_Comprobante', '')
-
+                    # Mostrar información del pedido
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("📋 Información del Pedido")
-                        st.write(f"**Folio Factura:** {selected_pedido_data.get('Folio_Factura', 'N/A')}")
+                        st.write(f"**📄 Folio Factura:** {selected_pedido_data.get('Folio_Factura', 'N/A')}")
                         st.write(f"**🗒 Comentario del Pedido:** {selected_pedido_data.get('Comentario', 'Sin comentario')}")
-                        st.write(f"**Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
-                        st.write(f"**Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
+                        st.write(f"**🤝 Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
+                        st.write(f"**🧑‍💼 Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
                         st.write(f"**Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
-                        st.write(f"**Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
+                        st.write(f"**📅 Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
                         st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
 
@@ -363,8 +345,7 @@ with tab1:
                         else:
                             st.error("❌ Error de conexión con S3. Revisa las credenciales.")
 
-
-
+                    # Confirmación de crédito
                     confirmacion_credito = st.selectbox("¿Confirmar que el pedido fue autorizado como crédito?", ["", "Sí", "No"])
                     comentario_credito = st.text_area("✍️ Comentario administrativo")
 
@@ -392,119 +373,124 @@ with tab1:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
-                        st.markdown("🔚 Fin de revisión de crédito.")
+                        mostrar = False  # ⛔ No mostrar el resto del contenido
 
-                elif (
+                # ✅ Mostrar sección normal si no se detuvo el flujo
+                if mostrar:
+                    st.subheader("✅ Confirmar Comprobante")
+                    # Aquí puedes continuar con comprobantes normales, locales, etc.
+
+                if (
                     selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
                     selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
                 ):
                     st.subheader("🧾 Subir Comprobante de Pago")
 
-                    pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
+                pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
 
-                    # --- Campos y subida de comprobantes ---
-                    comprobantes_nuevo = []
-                    if not pago_doble:
-                        comprobantes_nuevo = st.file_uploader(
-                            "📤 Subir Comprobante(s) de Pago",
-                            type=["pdf", "jpg", "jpeg", "png"],
-                            accept_multiple_files=True,
-                            key="comprobante_local_no_pagado"
-                        )
+                comprobantes_nuevo = []
+                if not pago_doble:
+                    comprobantes_nuevo = st.file_uploader(
+                        "📤 Subir Comprobante(s) de Pago",
+                        type=["pdf", "jpg", "jpeg", "png"],
+                        accept_multiple_files=True,
+                        key="comprobante_local_no_pagado"
+                    )
 
-                        with st.expander("📝 Detalles del Pago"):
-                            fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_local")
-                            forma_pago = st.selectbox("💳 Forma de Pago", [
-                                "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
-                            ], key="forma_pago_local")
-                            monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_local")
+                    with st.expander("📝 Detalles del Pago"):
+                        fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_local")
+                        forma_pago = st.selectbox("💳 Forma de Pago", [
+                            "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
+                        ], key="forma_pago_local")
+                        monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_local")
 
-                            if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                                terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal_local")
-                                banco_destino = ""
-                            else:
-                                banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_local")
-                                terminal = ""
+                        if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                            terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal_local")
+                            banco_destino = ""
+                        else:
+                            banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_local")
+                            terminal = ""
 
-                            referencia = st.text_input("🔢 Referencia (opcional)", key="referencia_local")
+                        referencia = st.text_input("🔢 Referencia (opcional)", key="referencia_local")
 
+                else:
+                    st.markdown("### 1️⃣ Primer Pago")
+                    comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1_admin")
+                    fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1_admin")
+                    forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1_admin")
+                    monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1_admin")
+                    terminal1 = banco1 = ""
+                    if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                        terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1_admin")
                     else:
-                        st.markdown("### 1️⃣ Primer Pago")
-                        comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1_admin")
-                        fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1_admin")
-                        forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1_admin")
-                        monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1_admin")
-                        terminal1 = banco1 = ""
-                        if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                            terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1_admin")
-                        else:
-                            banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1_admin")
-                        ref1 = st.text_input("🔢 Referencia 1", key="ref1_admin")
+                        banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1_admin")
+                    ref1 = st.text_input("🔢 Referencia 1", key="ref1_admin")
 
-                        st.markdown("### 2️⃣ Segundo Pago")
-                        comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2_admin")
-                        fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2_admin")
-                        forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2_admin")
-                        monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2_admin")
-                        terminal2 = banco2 = ""
-                        if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                            terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2_admin")
-                        else:
-                            banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2_admin")
-                        ref2 = st.text_input("🔢 Referencia 2", key="ref2_admin")
+                    st.markdown("### 2️⃣ Segundo Pago")
+                    comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2_admin")
+                    fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2_admin")
+                    forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2_admin")
+                    monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2_admin")
+                    terminal2 = banco2 = ""
+                    if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                        terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2_admin")
+                    else:
+                        banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2_admin")
+                    ref2 = st.text_input("🔢 Referencia 2", key="ref2_admin")
 
-                        # Unificar comprobantes y campos
-                        comprobantes_nuevo = (comp1 or []) + (comp2 or [])
-                        fecha_pago = f"{fecha1.strftime('%Y-%m-%d')} y {fecha2.strftime('%Y-%m-%d')}"
-                        forma_pago = f"{forma1}, {forma2}"
-                        terminal = f"{terminal1}, {terminal2}" if forma1.startswith("Tarjeta") or forma2.startswith("Tarjeta") else ""
-                        banco_destino = f"{banco1}, {banco2}" if forma1 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] or forma2 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] else ""
-                        monto_pago = monto1 + monto2
-                        referencia = f"{ref1}, {ref2}"
+                    # Unificar comprobantes y campos
+                    comprobantes_nuevo = (comp1 or []) + (comp2 or [])
+                    fecha_pago = f"{fecha1.strftime('%Y-%m-%d')} y {fecha2.strftime('%Y-%m-%d')}"
+                    forma_pago = f"{forma1}, {forma2}"
+                    terminal = f"{terminal1}, {terminal2}" if forma1.startswith("Tarjeta") or forma2.startswith("Tarjeta") else ""
+                    banco_destino = f"{banco1}, {banco2}" if forma1 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] or forma2 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] else ""
+                    monto_pago = monto1 + monto2
+                    referencia = f"{ref1}, {ref2}"
 
-                    # --- GUARDADO ---
-                    if st.button("💾 Guardar Comprobante y Datos de Pago"):
-                        try:
-                            gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
-                            adjuntos_urls = []
+                if st.button("💾 Guardar Comprobante y Datos de Pago"):
+                    try:
+                        gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
+                        adjuntos_urls = []
 
-                            # Subir archivos a S3
-                            if comprobantes_nuevo:
-                                for file in comprobantes_nuevo:
-                                    ext = os.path.splitext(file.name)[1]
-                                    s3_key = f"{selected_pedido_data['ID_Pedido']}/comprobante_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
-                                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
-                                    if success:
-                                        adjuntos_urls.append(url)
+                        # Subir archivos a S3
+                        if comprobantes_nuevo:
+                            for file in comprobantes_nuevo:
+                                ext = os.path.splitext(file.name)[1]
+                                s3_key = f"{selected_pedido_data['ID_Pedido']}/comprobante_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
+                                if success:
+                                    adjuntos_urls.append(url)
 
-                            updates = {
-                                'Estado_Pago': '✅ Pagado',
-                                'Comprobante_Confirmado': 'Sí',
-                                'Fecha_Pago_Comprobante': fecha_pago if isinstance(fecha_pago, str) else fecha_pago.strftime('%Y-%m-%d'),
-                                'Forma_Pago_Comprobante': forma_pago,
-                                'Monto_Comprobante': monto_pago,
-                                'Referencia_Comprobante': referencia,
-                                'Terminal': terminal,
-                                'Banco_Destino_Pago': banco_destino,
-                            }
+                        updates = {
+                            'Estado_Pago': '✅ Pagado',
+                            'Comprobante_Confirmado': 'Sí',
+                            'Fecha_Pago_Comprobante': fecha_pago.strftime('%Y-%m-%d') if isinstance(fecha_pago, datetime) else fecha_pago,
+                            'Forma_Pago_Comprobante': forma_pago,
+                            'Monto_Comprobante': monto_pago,
+                            'Referencia_Comprobante': referencia,
+                            'Terminal': terminal,
+                            'Banco_Destino_Pago': banco_destino,
+                        }
 
-                            for col, val in updates.items():
-                                if col in headers:
-                                    worksheet.update_cell(gsheet_row_index, headers.index(col) + 1, val)
+                        for col, val in updates.items():
+                            if col in headers:
+                                worksheet.update_cell(gsheet_row_index, headers.index(col) + 1, val)
 
-                            if adjuntos_urls and "Adjuntos" in headers:
-                                adjuntos_actuales = selected_pedido_data.get("Adjuntos", "")
-                                nuevo_valor_adjuntos = ", ".join(filter(None, [adjuntos_actuales] + adjuntos_urls))
-                                worksheet.update_cell(gsheet_row_index, headers.index("Adjuntos") + 1, nuevo_valor_adjuntos)
+                        # Concatenar nuevos adjuntos al campo existente de "Adjuntos"
+                        if adjuntos_urls and "Adjuntos" in headers:
+                            adjuntos_actuales = selected_pedido_data.get("Adjuntos", "")
+                            nuevo_valor_adjuntos = ", ".join(filter(None, [adjuntos_actuales] + adjuntos_urls))
+                            worksheet.update_cell(gsheet_row_index, headers.index("Adjuntos") + 1, nuevo_valor_adjuntos)
 
-                            st.success("✅ Comprobante y datos de pago guardados exitosamente.")
-                            st.balloons()
-                            time.sleep(2)
-                            st.cache_data.clear()
-                            st.rerun()
+                        st.success("✅ Comprobante y datos de pago guardados exitosamente.")
+                        st.balloons()
+                        time.sleep(2)
+                        st.cache_data.clear()
+                        st.rerun()
 
-                        except Exception as e:
-                            st.error(f"❌ Error al guardar el comprobante: {e}")
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar el comprobante: {e}")
+                    mostrar = False  # ✅ Para evitar seguir mostrando debajo en tab1 si ya se completó
 
 
 
@@ -576,145 +562,147 @@ with tab1:
                     else:
                         st.error("❌ Error de conexión con S3. Revisa las credenciales.")
 
-                # SOLO mostrar confirmación si NO es pedido de crédito
-                if selected_pedido_data.get("Estado_Pago", "").strip() != "💳 CREDITO":
 
-                    # Detectar cuántos comprobantes hay
-                    num_comprobantes = len(comprobantes)
-                    if num_comprobantes == 0:
-                        st.warning("⚠️ No hay comprobantes para confirmar.")
-                        st.markdown("🔚 Fin de revisión del pedido.")
+                # Detectar cuántos comprobantes hay
+                num_comprobantes = len(comprobantes)
+                mostrar_contenido = True
+
+                if num_comprobantes == 0:
+                    st.warning("⚠️ No hay comprobantes para confirmar.")
+                    mostrar_contenido = False
+
+                if mostrar_contenido:
+                    st.subheader("✅ Confirmar Comprobante")
+
+                    fecha_list, forma_list, banco_list, terminal_list, monto_list, ref_list = [], [], [], [], [], []
+
+                    # --- Prellenar valores si ya están registrados en la hoja ---
+                    fecha_list = str(selected_pedido_data.get('Fecha_Pago_Comprobante', '')).split(" y ")
+                    forma_list = str(selected_pedido_data.get('Forma_Pago_Comprobante', '')).split(", ")
+                    banco_list = str(selected_pedido_data.get('Banco_Destino_Pago', '')).split(", ")
+                    terminal_list = str(selected_pedido_data.get('Terminal', '')).split(", ")
+                    monto_list_raw = selected_pedido_data.get('Monto_Comprobante', '')
+                    ref_list = str(selected_pedido_data.get('Referencia_Comprobante', '')).split(", ")
+
+                    if isinstance(monto_list_raw, str) and "," in monto_list_raw:
+                        monto_list = [float(m.strip()) if m.strip() else 0.0 for m in monto_list_raw.split(",")]
                     else:
-                        st.subheader("✅ Confirmar Comprobante")
+                        try:
+                            monto_list = [float(monto_list_raw)] if monto_list_raw else []
+                        except Exception:
+                            monto_list = []
 
-                        fecha_list, forma_list, banco_list, terminal_list, monto_list, ref_list = [], [], [], [], [], []
-                        # --- Prellenar valores si ya están registrados en la hoja ---
-                        fecha_list = str(selected_pedido_data.get('Fecha_Pago_Comprobante', '')).split(" y ")
-                        forma_list = str(selected_pedido_data.get('Forma_Pago_Comprobante', '')).split(", ")
-                        banco_list = str(selected_pedido_data.get('Banco_Destino_Pago', '')).split(", ")
-                        terminal_list = str(selected_pedido_data.get('Terminal', '')).split(", ")
-                        monto_list_raw = selected_pedido_data.get('Monto_Comprobante', '')
-                        ref_list = str(selected_pedido_data.get('Referencia_Comprobante', '')).split(", ")
+                    while len(fecha_list) < num_comprobantes:
+                        fecha_list.append("")
+                    while len(forma_list) < num_comprobantes:
+                        forma_list.append("Transferencia")
+                    while len(banco_list) < num_comprobantes:
+                        banco_list.append("")
+                    while len(terminal_list) < num_comprobantes:
+                        terminal_list.append("")
+                    while len(monto_list) < num_comprobantes:
+                        monto_list.append(0.0)
+                    while len(ref_list) < num_comprobantes:
+                        ref_list.append("")
 
-                        # 🔍 Convertir monto a lista numérica
-                        if isinstance(monto_list_raw, str) and "," in monto_list_raw:
-                            monto_list = [float(m.strip()) if m.strip() else 0.0 for m in monto_list_raw.split(",")]
+                    for i in range(num_comprobantes):
+                        if num_comprobantes == 1:
+                            st.markdown("### 🧾 Comprobante")
                         else:
-                            try:
-                                monto_list = [float(monto_list_raw)] if monto_list_raw else []
-                            except Exception:
-                                monto_list = []
+                            emoji_num = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
+                            st.markdown(f"### {emoji_num[i]} 🧾 Comprobante {i+1}")
 
-                        # Completar listas si son más cortas que el número de comprobantes
-                        while len(fecha_list) < num_comprobantes:
-                            fecha_list.append("")
-                        while len(forma_list) < num_comprobantes:
-                            forma_list.append("Transferencia")
-                        while len(banco_list) < num_comprobantes:
-                            banco_list.append("")
-                        while len(terminal_list) < num_comprobantes:
-                            terminal_list.append("")
-                        while len(monto_list) < num_comprobantes:
-                            monto_list.append(0.0)
-                        while len(ref_list) < num_comprobantes:
-                            ref_list.append("")
-
-                        for i in range(num_comprobantes):
-                            if num_comprobantes == 1:
-                                st.markdown("### 🧾 Comprobante")
+                        col_pago = st.columns(4)
+                        with col_pago[0]:
+                            fecha_i = st.date_input(
+                                f"📅 Fecha Pago {i+1}",
+                                value=pd.to_datetime(fecha_list[i], errors='coerce').date() if fecha_list[i] else None,
+                                key=f"fecha_pago_{i}"
+                            )
+                        with col_pago[1]:
+                            forma_i = st.selectbox(
+                                f"💳 Forma de Pago {i+1}",
+                                ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"],
+                                index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(forma_list[i]) if forma_list[i] in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0,
+                                key=f"forma_pago_{i}"
+                            )
+                        with col_pago[2]:
+                            if forma_i in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                                terminal_options = ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"]
+                                terminal_i = st.selectbox(
+                                    f"🏧 Terminal {i+1}",
+                                    terminal_options,
+                                    index=terminal_options.index(terminal_list[i]) if terminal_list[i] in terminal_options else 0,
+                                    key=f"terminal_pago_{i}"
+                                )
+                                banco_i = ""
                             else:
-                                emoji_num = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
-                                st.markdown(f"### {emoji_num[i]} 🧾 Comprobante {i+1}")
+                                banco_options = ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"]
+                                banco_i = st.selectbox(
+                                    f"🏦 Banco Destino {i+1}",
+                                    banco_options,
+                                    index=banco_options.index(banco_list[i]) if banco_list[i] in banco_options else 0,
+                                    key=f"banco_pago_{i}"
+                                )
+                                terminal_i = ""
 
-                            col_pago = st.columns(4)
-                            with col_pago[0]:
-                                fecha_i = st.date_input(
-                                    f"📅 Fecha Pago {i+1}",
-                                    value=pd.to_datetime(fecha_list[i], errors='coerce').date() if fecha_list[i] else None,
-                                    key=f"fecha_pago_{i}"
-                                )
-                            with col_pago[1]:
-                                forma_i = st.selectbox(
-                                    f"💳 Forma de Pago {i+1}",
-                                    ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"],
-                                    index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(forma_list[i]) if forma_list[i] in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0,
-                                    key=f"forma_pago_{i}"
-                                )
-                            with col_pago[2]:
-                                if forma_i in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                                    terminal_options = ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"]
-                                    terminal_i = st.selectbox(
-                                        f"🏧 Terminal {i+1}",
-                                        terminal_options,
-                                        index=terminal_options.index(terminal_list[i]) if terminal_list[i] in terminal_options else 0,
-                                        key=f"terminal_pago_{i}"
-                                    )
-                                    banco_i = ""
-                                else:
-                                    banco_options = ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"]
-                                    banco_i = st.selectbox(
-                                        f"🏦 Banco Destino {i+1}",
-                                        banco_options,
-                                        index=banco_options.index(banco_list[i]) if banco_list[i] in banco_options else 0,
-                                        key=f"banco_pago_{i}"
-                                    )
-                                    terminal_i = ""
-                            with col_pago[3]:
-                                monto_i = st.number_input(
-                                    f"💲 Monto {i+1}",
-                                    min_value=0.0,
-                                    format="%.2f",
-                                    value=monto_list[i] if i < len(monto_list) else 0.0,
-                                    key=f"monto_pago_{i}"
-                                )
-
-                            referencia_i = st.text_input(
-                                f"🔢 Referencia {i+1}",
-                                value=ref_list[i] if i < len(ref_list) else "",
-                                key=f"ref_pago_{i}"
+                        with col_pago[3]:
+                            monto_i = st.number_input(
+                                f"💲 Monto {i+1}",
+                                min_value=0.0,
+                                format="%.2f",
+                                value=monto_list[i] if i < len(monto_list) else 0.0,
+                                key=f"monto_pago_{i}"
                             )
 
-                            # Guardar en listas
-                            fecha_list[i] = str(fecha_i)
-                            forma_list[i] = forma_i
-                            banco_list[i] = banco_i
-                            terminal_list[i] = terminal_i
-                            monto_list[i] = monto_i
-                            ref_list[i] = referencia_i
+                        referencia_i = st.text_input(
+                            f"🔢 Referencia {i+1}",
+                            value=ref_list[i] if i < len(ref_list) else "",
+                            key=f"ref_pago_{i}"
+                        )
 
-                        col1, col2, col3 = st.columns([2, 1, 1])
-                        with col1:
-                            st.info("👆 Revisa los comprobantes antes de confirmar.")
-                        with col2:
-                            if st.button("✅ Confirmar Comprobante", use_container_width=True):
-                                try:
-                                    gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0] + 2
-                                    updates = {
-                                        'Comprobante_Confirmado': 'Sí',
-                                        'Fecha_Pago_Comprobante': " y ".join(fecha_list),
-                                        'Forma_Pago_Comprobante': ", ".join(forma_list),
-                                        'Monto_Comprobante': sum(monto_list),
-                                        'Referencia_Comprobante': ", ".join(ref_list),
-                                        'Terminal': ", ".join([t for t in terminal_list if t]),
-                                        'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
-                                    }
-                                    for col, val in updates.items():
-                                        if col in headers:
-                                            worksheet.update_cell(gsheet_row_index, headers.index(col) + 1, val)
+                        fecha_list[i] = str(fecha_i)
+                        forma_list[i] = forma_i
+                        banco_list[i] = banco_i
+                        terminal_list[i] = terminal_i
+                        monto_list[i] = monto_i
+                        ref_list[i] = referencia_i
 
-                                    st.success("🎉 Comprobante confirmado exitosamente.")
-                                    st.balloons()
-                                    time.sleep(3)
-                                    st.cache_data.clear()
-                                    st.rerun()
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    with col1:
+                        st.info("👆 Revisa los comprobantes antes de confirmar.")
 
-                                except Exception as e:
-                                    st.error(f"❌ Error al confirmar comprobante: {e}")
+                    with col2:
+                        if st.button("✅ Confirmar Comprobante", use_container_width=True):
+                            try:
+                                gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0] + 2
 
-                        with col3:
-                            if st.button("❌ Rechazar Comprobante", use_container_width=True):
-                                st.warning("Funcionalidad pendiente.")
+                                updates = {
+                                    'Comprobante_Confirmado': 'Sí',
+                                    'Fecha_Pago_Comprobante': " y ".join(fecha_list),
+                                    'Forma_Pago_Comprobante': ", ".join(forma_list),
+                                    'Monto_Comprobante': sum(monto_list),
+                                    'Referencia_Comprobante': ", ".join(ref_list),
+                                    'Terminal': ", ".join([t for t in terminal_list if t]),
+                                    'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
+                                }
 
+                                for col, val in updates.items():
+                                    if col in headers:
+                                        worksheet.update_cell(gsheet_row_index, headers.index(col)+1, val)
+
+                                st.success("🎉 Comprobante confirmado exitosamente.")
+                                st.balloons()
+                                time.sleep(3)
+                                st.cache_data.clear()
+                                st.rerun()
+
+                            except Exception as e:
+                                st.error(f"❌ Error al confirmar comprobante: {e}")
+
+                    with col3:
+                        if st.button("❌ Rechazar Comprobante", use_container_width=True):
+                            st.warning("Funcionalidad pendiente.")
 
 
 # --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
