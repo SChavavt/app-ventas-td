@@ -181,7 +181,7 @@ except Exception as e:
     st.info("- La cuenta de AWS tenga permisos de lectura en el bucket S3.")
     st.stop()
 
---- INTERFAZ PRINCIPAL --- 
+# --- INTERFAZ PRINCIPAL ---
 
 st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
 
@@ -502,7 +502,7 @@ if not df_pedidos.empty:
     with col4:
         pedidos_pendientes_confirmacion = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
         st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
-        
+
 # --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
 st.markdown("---")
 mostrar_descarga_confirmados = st.toggle("🔽 Mostrar/Descargar Pedidos Confirmados", value=False)
