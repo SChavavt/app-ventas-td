@@ -389,66 +389,67 @@ with tab1:
                 ):
                     st.subheader("🧾 Subir Comprobante de Pago")
 
-                pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
+                    pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
 
-                comprobantes_nuevo = []
-                if not pago_doble:
-                    comprobantes_nuevo = st.file_uploader(
-                        "📤 Subir Comprobante(s) de Pago",
-                        type=["pdf", "jpg", "jpeg", "png"],
-                        accept_multiple_files=True,
-                        key="comprobante_local_no_pagado"
-                    )
+                    comprobantes_nuevo = []
+                    if not pago_doble:
+                        comprobantes_nuevo = st.file_uploader(
+                            "📤 Subir Comprobante(s) de Pago",
+                            type=["pdf", "jpg", "jpeg", "png"],
+                            accept_multiple_files=True,
+                            key="comprobante_local_no_pagado"
+                        )
 
-                    with st.expander("📝 Detalles del Pago"):
-                        fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_local")
-                        forma_pago = st.selectbox("💳 Forma de Pago", [
-                            "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
-                        ], key="forma_pago_local")
-                        monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_local")
+                        with st.expander("📝 Detalles del Pago"):
+                            fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_local")
+                            forma_pago = st.selectbox("💳 Forma de Pago", [
+                                "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
+                            ], key="forma_pago_local")
+                            monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_local")
 
-                        if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                            terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal_local")
-                            banco_destino = ""
+                            if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                                terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal_local")
+                                banco_destino = ""
+                            else:
+                                banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_local")
+                                terminal = ""
+
+                            referencia = st.text_input("🔢 Referencia (opcional)", key="referencia_local")
+
+                    else:
+                        st.markdown("### 1️⃣ Primer Pago")
+                        comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1_admin")
+                        fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1_admin")
+                        forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1_admin")
+                        monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1_admin")
+                        terminal1 = banco1 = ""
+                        if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                            terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1_admin")
                         else:
-                            banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_local")
-                            terminal = ""
+                            banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1_admin")
+                        ref1 = st.text_input("🔢 Referencia 1", key="ref1_admin")
 
-                        referencia = st.text_input("🔢 Referencia (opcional)", key="referencia_local")
+                        st.markdown("### 2️⃣ Segundo Pago")
+                        comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2_admin")
+                        fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2_admin")
+                        forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2_admin")
+                        monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2_admin")
+                        terminal2 = banco2 = ""
+                        if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                            terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2_admin")
+                        else:
+                            banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2_admin")
+                        ref2 = st.text_input("🔢 Referencia 2", key="ref2_admin")
 
-                else:
-                    st.markdown("### 1️⃣ Primer Pago")
-                    comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1_admin")
-                    fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1_admin")
-                    forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1_admin")
-                    monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1_admin")
-                    terminal1 = banco1 = ""
-                    if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                        terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1_admin")
-                    else:
-                        banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1_admin")
-                    ref1 = st.text_input("🔢 Referencia 1", key="ref1_admin")
+                        # Unificar comprobantes y campos
+                        comprobantes_nuevo = (comp1 or []) + (comp2 or [])
+                        fecha_pago = f"{fecha1.strftime('%Y-%m-%d')} y {fecha2.strftime('%Y-%m-%d')}"
+                        forma_pago = f"{forma1}, {forma2}"
+                        terminal = f"{terminal1}, {terminal2}" if forma1.startswith("Tarjeta") or forma2.startswith("Tarjeta") else ""
+                        banco_destino = f"{banco1}, {banco2}" if forma1 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] or forma2 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] else ""
+                        monto_pago = monto1 + monto2
+                        referencia = f"{ref1}, {ref2}"
 
-                    st.markdown("### 2️⃣ Segundo Pago")
-                    comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2_admin")
-                    fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2_admin")
-                    forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2_admin")
-                    monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2_admin")
-                    terminal2 = banco2 = ""
-                    if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                        terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2_admin")
-                    else:
-                        banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2_admin")
-                    ref2 = st.text_input("🔢 Referencia 2", key="ref2_admin")
-
-                    # Unificar comprobantes y campos
-                    comprobantes_nuevo = (comp1 or []) + (comp2 or [])
-                    fecha_pago = f"{fecha1.strftime('%Y-%m-%d')} y {fecha2.strftime('%Y-%m-%d')}"
-                    forma_pago = f"{forma1}, {forma2}"
-                    terminal = f"{terminal1}, {terminal2}" if forma1.startswith("Tarjeta") or forma2.startswith("Tarjeta") else ""
-                    banco_destino = f"{banco1}, {banco2}" if forma1 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] or forma2 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] else ""
-                    monto_pago = monto1 + monto2
-                    referencia = f"{ref1}, {ref2}"
 
                 if st.button("💾 Guardar Comprobante y Datos de Pago"):
                     try:
@@ -836,3 +837,4 @@ with tab2:
             file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
