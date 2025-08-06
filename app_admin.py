@@ -374,8 +374,6 @@ with tab1:
                         st.info("Selecciona una opción para confirmar el crédito.")
                         st.markdown("🔚 Fin de revisión de crédito.")
 
-
-
                 elif (
                     selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
                     selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
@@ -384,6 +382,7 @@ with tab1:
 
                     pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
 
+                    # --- Campos y subida de comprobantes ---
                     comprobantes_nuevo = []
                     if not pago_doble:
                         comprobantes_nuevo = st.file_uploader(
@@ -443,7 +442,7 @@ with tab1:
                         monto_pago = monto1 + monto2
                         referencia = f"{ref1}, {ref2}"
 
-
+                    # --- GUARDADO ---
                     if st.button("💾 Guardar Comprobante y Datos de Pago"):
                         try:
                             gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
@@ -457,10 +456,11 @@ with tab1:
                                     success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
                                     if success:
                                         adjuntos_urls.append(url)
+
                             updates = {
                                 'Estado_Pago': '✅ Pagado',
                                 'Comprobante_Confirmado': 'Sí',
-                                'Fecha_Pago_Comprobante': fecha_pago.strftime('%Y-%m-%d'),
+                                'Fecha_Pago_Comprobante': fecha_pago if isinstance(fecha_pago, str) else fecha_pago.strftime('%Y-%m-%d'),
                                 'Forma_Pago_Comprobante': forma_pago,
                                 'Monto_Comprobante': monto_pago,
                                 'Referencia_Comprobante': referencia,
@@ -468,12 +468,10 @@ with tab1:
                                 'Banco_Destino_Pago': banco_destino,
                             }
 
-
                             for col, val in updates.items():
                                 if col in headers:
                                     worksheet.update_cell(gsheet_row_index, headers.index(col) + 1, val)
 
-                            # Concatenar nuevos adjuntos al campo existente de "Adjuntos"
                             if adjuntos_urls and "Adjuntos" in headers:
                                 adjuntos_actuales = selected_pedido_data.get("Adjuntos", "")
                                 nuevo_valor_adjuntos = ", ".join(filter(None, [adjuntos_actuales] + adjuntos_urls))
@@ -487,6 +485,7 @@ with tab1:
 
                         except Exception as e:
                             st.error(f"❌ Error al guardar el comprobante: {e}")
+
 
 
                 selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
