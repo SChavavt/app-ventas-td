@@ -545,18 +545,22 @@ else:
 
 
             for i in range(num_comprobantes):
-                st.markdown(f"### 🧾 Comprobante {i+1}")
+                if num_comprobantes == 1:
+                    st.markdown("### 🧾 Comprobante")
+                else:
+                    emoji_num = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
+                    st.markdown(f"### {emoji_num[i]} 🧾 Comprobante {i+1}")
 
                 col_pago = st.columns(4)
                 with col_pago[0]:
                     fecha_i = st.date_input(
-                        f"Fecha Pago {i+1}",
+                        f"📅 Fecha Pago {i+1}",
                         value=pd.to_datetime(fecha_list[i], errors='coerce').date() if fecha_list[i] else None,
                         key=f"fecha_pago_{i}"
                     )
                 with col_pago[1]:
                     forma_i = st.selectbox(
-                        f"Forma de Pago {i+1}",
+                        f"💳 Forma de Pago {i+1}",
                         ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"],
                         index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(forma_list[i]) if forma_list[i] in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0,
                         key=f"forma_pago_{i}"
@@ -565,7 +569,7 @@ else:
                     if forma_i in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
                         terminal_options = ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"]
                         terminal_i = st.selectbox(
-                            f"Terminal {i+1}",
+                            f"🏧 Terminal {i+1}",
                             terminal_options,
                             index=terminal_options.index(terminal_list[i]) if terminal_list[i] in terminal_options else 0,
                             key=f"terminal_pago_{i}"
@@ -575,7 +579,7 @@ else:
                     else:
                         banco_options = ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"]
                         banco_i = st.selectbox(
-                            f"Banco Destino {i+1}",
+                            f"🏦 Banco Destino {i+1}",
                             banco_options,
                             index=banco_options.index(banco_list[i]) if banco_list[i] in banco_options else 0,
                             key=f"banco_pago_{i}"
@@ -584,7 +588,7 @@ else:
                         terminal_i = ""
                 with col_pago[3]:
                     monto_i = st.number_input(
-                        f"Monto {i+1}",
+                        f"💲 Monto {i+1}",
                         min_value=0.0,
                         format="%.2f",
                         value=monto_list[i] if i < len(monto_list) else 0.0,
@@ -593,7 +597,7 @@ else:
 
 
                 referencia_i = st.text_input(
-                    f"Referencia {i+1}",
+                    f"🔢 Referencia {i+1}",
                     value=ref_list[i] if i < len(ref_list) else "",
                     key=f"ref_pago_{i}"
                 )
