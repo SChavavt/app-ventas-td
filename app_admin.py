@@ -703,7 +703,7 @@ with tab1:
 with tab2:
     st.header("📊 Estadísticas Generales")
 
-    # Ensure spreadsheet is defined for tab2
+    # Define spreadsheet for tab2
     spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
 
     if not df_pedidos.empty:
@@ -727,7 +727,6 @@ with tab2:
     st.markdown("---")
     st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
 
-    # --- Cargar hoja de confirmados guardados ---
     @st.cache_data(ttl=60)
     def cargar_confirmados_guardados():
         try:
@@ -764,10 +763,19 @@ with tab2:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    # --- Botón para generar enlaces de nuevos pedidos ---
     if st.button("🔄 Actualizar Enlaces de Nuevos Pedidos", help="Solo se agregarán los que no estén ya guardados"):
         with st.spinner("🔄 Generando enlaces de archivos nuevos..."):
             import re
+
+            columnas_guardar = [
+                'ID_Pedido', 'Folio_Factura', 'Folio_Factura_Refacturada',
+                'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+                'Estado', 'Estado_Pago', 'Comprobante_Confirmado',
+                'Refacturacion_Tipo', 'Refacturacion_Subtipo',
+                'Forma_Pago_Comprobante', 'Monto_Comprobante',
+                'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
+                'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
+            ]
 
             ids_existentes = set(df_confirmados_guardados["ID_Pedido"].astype(str)) if not df_confirmados_guardados.empty else set()
             df_nuevos = df_pedidos[
@@ -828,14 +836,19 @@ with tab2:
             df_nuevos["Link_Guia"] = link_guias
             df_nuevos["Link_Refacturacion"] = link_refacturaciones
 
+            df_nuevos = df_nuevos[[col for col in columnas_guardar if col in df_nuevos.columns]].fillna("").astype(str)
+
             try:
                 hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
             except gspread.exceptions.WorksheetNotFound:
                 hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
 
             datos_existentes = hoja_confirmados.get_all_values()
-            headers_existentes = datos_existentes[0] if datos_existentes else df_nuevos.columns.tolist()
-            rows_nuevas = df_nuevos[headers_existentes].fillna("").astype(str).values.tolist()
-            hoja_confirmados.append_rows(rows_nuevas, value_input_option="USER_ENTERED")
+
+            if not datos_existentes:
+                hoja_confirmados.append_row(columnas_guardar, value_input_option="USER_ENTERED")
+
+            filas_nuevas = df_nuevos[columnas_guardar].values.tolist()
+            hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
             st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
