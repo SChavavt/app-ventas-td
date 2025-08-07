@@ -218,10 +218,8 @@ if df_pedidos.empty:
     st.info("ℹ️ No hay pedidos cargados en este momento.")
 else:
     if 'Comprobante_Confirmado' in df_pedidos.columns:
-        pedidos_pagados_no_confirmados = df_pedidos[
-            df_pedidos['Comprobante_Confirmado'].astype(str).str.strip().str.lower() != 'sí'
-        ].copy()
-
+        pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Estado_Pago'] == '✅ Pagado'].copy()
+        pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['Comprobante_Confirmado'] != 'Sí']
     else:
         st.warning("⚠️ La columna 'Comprobante_Confirmado' no se encontró en la hoja de cálculo.")
         pedidos_pagados_no_confirmados = pd.DataFrame()
