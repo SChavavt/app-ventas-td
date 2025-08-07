@@ -384,6 +384,8 @@ with tab1:
 
                 else:
                     # ✅ Continuar con lógica normal para pedidos no-crédito
+                    pago_doble = False  # Por defecto
+
                     if (
                         selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
                         selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
