@@ -386,7 +386,6 @@ with tab1:
                 selected_pedido_data.get("Estado_Pago", "").strip() == "✅ Pagado"
             ):
                 st.info("ℹ️ Pedido foráneo ya pagado. Solo revisa los archivos y confirma si es necesario.")
-                st.stop()
 
             # ✅ Si no es foráneo ya pagado, mostrar normalmente
             st.subheader("✅ Confirmar Comprobante")
