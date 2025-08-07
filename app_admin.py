@@ -294,6 +294,7 @@ with tab1:
             if selected_index is not None:
                 selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
 
+                pago_doble = False  # Inicializar por defecto para todos los pedidos
                 # 🚨 Lógica especial si es pedido a crédito
                 if selected_pedido_data.get("Estado_Pago", "").strip() == "💳 CREDITO":
                     st.subheader("📝 Confirmación de Pedido a Crédito")
