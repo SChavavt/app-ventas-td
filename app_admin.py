@@ -382,14 +382,16 @@ with tab1:
                     # 🚫 IMPORTANTE: Detener todo el flujo restante para crédito
                     # Eliminado 'return' porque no puede usarse fuera de una función
 
-                # ✅ Continuar con lógica normal para pedidos no-crédito
-                if (
-                    selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
-                    selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
-                ):
-                    st.subheader("🧾 Subir Comprobante de Pago")
+                else:
+                    # ✅ Continuar con lógica normal para pedidos no-crédito
+                    if (
+                        selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
+                        selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
+                    ):
+                        st.subheader("🧾 Subir Comprobante de Pago")
 
-                pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
+                    pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
+
 
                 comprobantes_nuevo = []
                 if not pago_doble:
