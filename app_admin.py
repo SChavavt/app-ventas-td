@@ -790,10 +790,10 @@ with tab2:
 
             ids_existentes = set(df_confirmados_guardados["ID_Pedido"].astype(str)) if not df_confirmados_guardados.empty else set()
             df_nuevos = df_pedidos[
-                (df_pedidos['Estado_Pago'] == '✅ Pagado') &
                 (df_pedidos['Comprobante_Confirmado'] == 'Sí') &
                 (~df_pedidos['ID_Pedido'].astype(str).isin(ids_existentes))
             ].copy()
+
 
             if df_nuevos.empty:
                 st.info("✅ Todos los pedidos confirmados ya están registrados.")
