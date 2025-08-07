@@ -727,12 +727,23 @@ with tab2:
     st.markdown("---")
     st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
 
-    @st.cache_data(ttl=60)
     def cargar_confirmados_guardados():
         try:
             hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
             data = hoja_confirmados.get_all_records()
-            return pd.DataFrame(data)
+            df = pd.DataFrame(data)
+
+            # ✅ Filtrar filas realmente vacías
+            campos_clave = ['ID_Pedido', 'Cliente', 'Folio_Factura']
+            if all(col in df.columns for col in campos_clave):
+                df = df.dropna(how='all')  # quitar filas totalmente vacías
+                df = df[df[campos_clave].apply(
+                    lambda row: any(str(val).strip().lower() not in ["", "nan", "n/a"] for val in row),
+                    axis=1
+                )]
+
+            return df
+
         except gspread.exceptions.WorksheetNotFound:
             spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
             return pd.DataFrame()
