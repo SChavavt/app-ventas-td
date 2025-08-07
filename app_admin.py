@@ -221,6 +221,12 @@ except Exception as e:
     st.info("- La cuenta de AWS tenga permisos de lectura en el bucket S3.")
     st.stop()
 
+# Calcular pedidos pendientes para usar en ambos tabs
+if 'Comprobante_Confirmado' in df_pedidos.columns:
+    pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
+else:
+    pedidos_pagados_no_confirmados = pd.DataFrame()
+
 tab1, tab2 = st.tabs(["💳 Pendientes de Confirmar", "📥 Confirmados"])
 
 # --- INTERFAZ PRINCIPAL ---
@@ -236,12 +242,6 @@ with tab1:
     if df_pedidos.empty:
         st.info("ℹ️ No hay pedidos cargados en este momento.")
     else:
-        if 'Comprobante_Confirmado' in df_pedidos.columns:
-            pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
-        else:
-            st.warning("⚠️ La columna 'Comprobante_Confirmado' no se encontró en la hoja de cálculo.")
-            pedidos_pagados_no_confirmados = pd.DataFrame()
-
         if pedidos_pagados_no_confirmados.empty:
             st.success("🎉 ¡No hay comprobantes pendientes de confirmación!")
             st.info("Todos los pedidos pagados han sido confirmados.")
@@ -374,34 +374,19 @@ with tab1:
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
 
-                    # 🚫 IMPORTANTE: Detener todo el flujo restante
-                    st.stop()
+                    # 🚫 IMPORTANTE: Detener todo el flujo restante para crédito
+                    # Eliminado 'return' porque no se permite fuera de funciones
 
-        # ✅ Mostrar sección normal si no se detuvo el flujo
-        if mostrar:
-
-            # 🚫 Si es pedido foráneo ya pagado, no mostrar el bloque de subida de comprobantes ni botones
-            if (
-                selected_pedido_data.get("Tipo_Envio", "").strip() == "🚚 Pedido Foráneo" and
-                selected_pedido_data.get("Estado_Pago", "").strip() == "✅ Pagado"
-            ):
-                st.info("ℹ️ Pedido foráneo ya pagado. Solo revisa los archivos y confirma si es necesario.")
-                st.stop()
-
-            # ✅ Si no es foráneo ya pagado, mostrar normalmente
-            st.subheader("✅ Confirmar Comprobante")
-
-            if (
-                selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
-                selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
-            ):
-
-                st.subheader("🧾 Subir Comprobante de Pago")
+                # ✅ Continuar con lógica normal para pedidos no-crédito
+                if (
+                    selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
+                    selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
+                ):
+                    st.subheader("🧾 Subir Comprobante de Pago")
 
                 pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
 
                 comprobantes_nuevo = []
-
                 if not pago_doble:
                     comprobantes_nuevo = st.file_uploader(
                         "📤 Subir Comprobante(s) de Pago",
@@ -460,7 +445,6 @@ with tab1:
                     monto_pago = monto1 + monto2
                     referencia = f"{ref1}, {ref2}"
 
-
                 if st.button("💾 Guardar Comprobante y Datos de Pago"):
                     try:
                         gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
@@ -504,10 +488,8 @@ with tab1:
 
                     except Exception as e:
                         st.error(f"❌ Error al guardar el comprobante: {e}")
-                    mostrar = False  # ✅ Para evitar seguir mostrando debajo en tab1 si ya se completó
 
-
-
+                # Resto del código para pedidos normales con comprobantes existentes
                 selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
                 st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
@@ -576,9 +558,8 @@ with tab1:
                     else:
                         st.error("❌ Error de conexión con S3. Revisa las credenciales.")
 
-
                 # Detectar cuántos comprobantes hay
-                num_comprobantes = len(comprobantes)
+                num_comprobantes = len(comprobantes) if 'comprobantes' in locals() else 0
                 mostrar_contenido = True
 
                 if num_comprobantes == 0:
@@ -717,7 +698,6 @@ with tab1:
                     with col3:
                         if st.button("❌ Rechazar Comprobante", use_container_width=True):
                             st.warning("Funcionalidad pendiente.")
-
 
 # --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
 with tab2:
