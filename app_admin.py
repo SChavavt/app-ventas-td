@@ -221,12 +221,6 @@ except Exception as e:
     st.info("- La cuenta de AWS tenga permisos de lectura en el bucket S3.")
     st.stop()
 
-# Calcular pedidos pendientes para usar en ambos tabs
-if 'Comprobante_Confirmado' in df_pedidos.columns:
-    pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
-else:
-    pedidos_pagados_no_confirmados = pd.DataFrame()
-
 tab1, tab2 = st.tabs(["💳 Pendientes de Confirmar", "📥 Confirmados"])
 
 # --- INTERFAZ PRINCIPAL ---
@@ -242,6 +236,12 @@ with tab1:
     if df_pedidos.empty:
         st.info("ℹ️ No hay pedidos cargados en este momento.")
     else:
+        if 'Comprobante_Confirmado' in df_pedidos.columns:
+            pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
+        else:
+            st.warning("⚠️ La columna 'Comprobante_Confirmado' no se encontró en la hoja de cálculo.")
+            pedidos_pagados_no_confirmados = pd.DataFrame()
+
         if pedidos_pagados_no_confirmados.empty:
             st.success("🎉 ¡No hay comprobantes pendientes de confirmación!")
             st.info("Todos los pedidos pagados han sido confirmados.")
@@ -374,19 +374,34 @@ with tab1:
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
 
-                    # 🚫 IMPORTANTE: Detener todo el flujo restante para crédito
-                    # Eliminado 'return' porque no se permite fuera de funciones
+                    # 🚫 IMPORTANTE: Detener todo el flujo restante
+                    st.stop()
 
-                # ✅ Continuar con lógica normal para pedidos no-crédito
-                if (
-                    selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
-                    selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
-                ):
-                    st.subheader("🧾 Subir Comprobante de Pago")
+        # ✅ Mostrar sección normal si no se detuvo el flujo
+        if mostrar:
+
+            # 🚫 Si es pedido foráneo ya pagado, no mostrar el bloque de subida de comprobantes ni botones
+            if (
+                selected_pedido_data.get("Tipo_Envio", "").strip() == "🚚 Pedido Foráneo" and
+                selected_pedido_data.get("Estado_Pago", "").strip() == "✅ Pagado"
+            ):
+                st.info("ℹ️ Pedido foráneo ya pagado. Solo revisa los archivos y confirma si es necesario.")
+                st.stop()
+
+            # ✅ Si no es foráneo ya pagado, mostrar normalmente
+            st.subheader("✅ Confirmar Comprobante")
+
+            if (
+                selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
+                selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
+            ):
+
+                st.subheader("🧾 Subir Comprobante de Pago")
 
                 pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
 
                 comprobantes_nuevo = []
+
                 if not pago_doble:
                     comprobantes_nuevo = st.file_uploader(
                         "📤 Subir Comprobante(s) de Pago",
@@ -445,6 +460,7 @@ with tab1:
                     monto_pago = monto1 + monto2
                     referencia = f"{ref1}, {ref2}"
 
+
                 if st.button("💾 Guardar Comprobante y Datos de Pago"):
                     try:
                         gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
@@ -488,8 +504,10 @@ with tab1:
 
                     except Exception as e:
                         st.error(f"❌ Error al guardar el comprobante: {e}")
+                    mostrar = False  # ✅ Para evitar seguir mostrando debajo en tab1 si ya se completó
 
-                # Resto del código para pedidos normales con comprobantes existentes
+
+
                 selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
                 st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
@@ -558,8 +576,9 @@ with tab1:
                     else:
                         st.error("❌ Error de conexión con S3. Revisa las credenciales.")
 
+
                 # Detectar cuántos comprobantes hay
-                num_comprobantes = len(comprobantes) if 'comprobantes' in locals() else 0
+                num_comprobantes = len(comprobantes)
                 mostrar_contenido = True
 
                 if num_comprobantes == 0:
@@ -700,159 +719,132 @@ with tab1:
                             st.warning("Funcionalidad pendiente.")
 
 
-# --- TAB 2: PEDIDOS CONFIRMADOS ---
+# --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
 with tab2:
-    st.header("📊 Estadísticas Generales")
+    with st.spinner("🔄 Cargando pestaña de confirmados..."):
 
-    if not df_pedidos.empty:
-        col1, col2, col3, col4 = st.columns(4)
+        # --- ESTADÍSTICAS GENERALES ---
+        st.header("📊 Estadísticas Generales")
 
-        with col1:
-            st.metric("Total Pedidos", len(df_pedidos))
+        if not df_pedidos.empty:
+            col1, col2, col3, col4 = st.columns(4)
 
-        with col2:
-            pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Pedidos Pagados", len(pagados))
+            with col1:
+                st.metric("Total Pedidos", len(df_pedidos))
 
-        with col3:
-            confirmados = df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí'] if 'Comprobante_Confirmado' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Comprobantes Confirmados", len(confirmados))
+            with col2:
+                pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
+                st.metric("Pedidos Pagados", len(pagados))
 
-        with col4:
-            pendientes = len(pedidos_pagados_no_confirmados)
-            st.metric("Pendientes Confirmación", pendientes)
+            with col3:
+                confirmados = df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí'] if 'Comprobante_Confirmado' in df_pedidos.columns else pd.DataFrame()
+                st.metric("Comprobantes Confirmados", len(confirmados))
 
-    st.markdown("---")
-    st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
+            with col4:
+                pendientes = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
+                st.metric("Pendientes Confirmación", pendientes)
 
-    # Filtrar pedidos confirmados
-    try:
+        st.markdown("---")
+        st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
+
+        if "confirmados_cargados" not in st.session_state:
+            st.session_state.confirmados_cargados = 0
+        if "df_confirmados_cache" not in st.session_state:
+            st.session_state.df_confirmados_cache = pd.DataFrame()
+
         df_confirmados_actuales = df_pedidos[
             (df_pedidos['Estado_Pago'] == '✅ Pagado') & (df_pedidos['Comprobante_Confirmado'] == 'Sí')
         ].copy()
-    except Exception:
-        df_confirmados_actuales = pd.DataFrame()
 
-    if df_confirmados_actuales.empty:
-        st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
-    else:
-        st.success(f"✅ Se encontraron {len(df_confirmados_actuales)} pedidos confirmados.")
-        
-        # Mostrar tabla básica primero
-        columnas_basicas = ['Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 
-                           'Fecha_Entrega', 'Estado_Pago', 'Comprobante_Confirmado', 
-                           'Forma_Pago_Comprobante', 'Monto_Comprobante']
-        
-        columnas_existentes_basicas = [col for col in columnas_basicas if col in df_confirmados_actuales.columns]
-        
-        if columnas_existentes_basicas:
-            st.dataframe(
-                df_confirmados_actuales[columnas_existentes_basicas].sort_values(
-                    by='Fecha_Entrega' if 'Fecha_Entrega' in columnas_existentes_basicas else columnas_existentes_basicas[0]
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
+        total_actual = len(df_confirmados_actuales)
 
-        # Generar enlaces a archivos S3 (proceso más lento)
-        if st.button("🔗 Generar Enlaces de Descarga", help="Esto puede tardar unos segundos"):
-            with st.spinner("🔄 Generando enlaces de archivos..."):
-                import re
-                
-                df_confirmados_actuales = df_confirmados_actuales.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
+        if total_actual == 0:
+            st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
+        elif total_actual == st.session_state.confirmados_cargados:
+            st.success("✅ Mostrando comprobantes confirmados en caché.")
+            df_vista = st.session_state.df_confirmados_cache
+        else:
+            import re
+            df_confirmados_actuales = df_confirmados_actuales.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
 
-                link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
+            @st.cache_data(ttl=300)
+            def obtener_archivos_s3(prefix):
+                return get_files_in_s3_prefix(s3_client, prefix)
 
-                for _, row in df_confirmados_actuales.iterrows():
-                    pedido_id = row.get("ID_Pedido")
-                    tipo_envio = "foráneo" if "foráneo" in row.get("Tipo_Envio", "").lower() else "local"
-                    comprobante_url = factura_url = guia_url = refact_url = ""
+            link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
 
-                    if pedido_id and s3_client:
-                        prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
-                        files = get_files_in_s3_prefix(s3_client, prefix)
-                        if not files:
-                            prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
-                            files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
+            for _, row in df_confirmados_actuales.iterrows():
+                pedido_id = row.get("ID_Pedido")
+                tipo_envio = "foráneo" if "foráneo" in row.get("Tipo_Envio", "").lower() else "local"
+                comprobante_url = factura_url = guia_url = refact_url = ""
 
-                        # Buscar comprobantes
-                        comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
-                        if comprobantes:
-                            comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
+                if pedido_id:
+                    prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
+                    files = obtener_archivos_s3(prefix)
+                    if not files:
+                        prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
+                        files = obtener_archivos_s3(prefix) if prefix else []
 
-                        # Buscar facturas
-                        facturas = [f for f in files if "factura" in f["title"].lower()]
-                        if facturas:
-                            factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
+                    comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
+                    if comprobantes:
+                        comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
 
-                        # Buscar guías según tipo de envío
-                        if tipo_envio == "foráneo":
-                            guias_filtradas = [
-                                f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())
-                            ]
-                        else:
-                            guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
+                    facturas = [f for f in files if "factura" in f["title"].lower()]
+                    if facturas:
+                        factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
 
-                        if guias_filtradas:
-                            guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
-                            guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
-                            guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
+                    if tipo_envio == "foráneo":
+                        guias_filtradas = [
+                            f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())
+                        ]
+                    else:
+                        guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
 
-                        # Buscar refacturaciones
-                        refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
-                        if refacturas:
-                            refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
+                    if guias_filtradas:
+                        guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
+                        guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
+                        guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
 
-                    link_comprobantes.append(comprobante_url)
-                    link_facturas.append(factura_url)
-                    link_guias.append(guia_url)
-                    link_refacturaciones.append(refact_url)
+                    refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
+                    if refacturas:
+                        refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
 
-                # Agregar columnas de enlaces
-                df_confirmados_actuales["Link_Comprobante"] = link_comprobantes
-                df_confirmados_actuales["Link_Factura"] = link_facturas
-                df_confirmados_actuales["Link_Guia"] = link_guias
-                df_confirmados_actuales["Link_Refacturacion"] = link_refacturaciones
+                link_comprobantes.append(comprobante_url)
+                link_facturas.append(factura_url)
+                link_guias.append(guia_url)
+                link_refacturaciones.append(refact_url)
 
-                # Mostrar tabla completa con enlaces
-                columnas_completas = [
-                    'Folio_Factura', 'Folio_Factura_Refacturada',
-                    'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-                    'Estado', 'Estado_Pago',
-                    'Refacturacion_Tipo', 'Refacturacion_Subtipo',
-                    'Forma_Pago_Comprobante', 'Monto_Comprobante',
-                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-                    'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
-                ]
+            df_confirmados_actuales["Link_Comprobante"] = link_comprobantes
+            df_confirmados_actuales["Link_Factura"] = link_facturas
+            df_confirmados_actuales["Link_Guia"] = link_guias
+            df_confirmados_actuales["Link_Refacturacion"] = link_refacturaciones
 
-                columnas_existentes_completas = [col for col in columnas_completas if col in df_confirmados_actuales.columns]
-                
-                st.markdown("### 📋 Tabla Completa con Enlaces")
-                st.dataframe(df_confirmados_actuales[columnas_existentes_completas], use_container_width=True, hide_index=True)
+            st.session_state.df_confirmados_cache = df_confirmados_actuales
+            st.session_state.confirmados_cargados = total_actual
+            df_vista = df_confirmados_actuales
 
-                # Generar archivo Excel
-                output_confirmados = BytesIO()
-                with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-                    df_confirmados_actuales[columnas_existentes_completas].to_excel(writer, index=False, sheet_name='Confirmados')
-                data_xlsx = output_confirmados.getvalue()
+        columnas_a_mostrar = [
+            'Folio_Factura', 'Folio_Factura_Refacturada',
+            'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+            'Estado', 'Estado_Pago',
+            'Refacturacion_Tipo', 'Refacturacion_Subtipo',
+            'Forma_Pago_Comprobante', 'Monto_Comprobante',
+            'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
+            'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
+        ]
 
-                st.download_button(
-                    label="📤 Descargar Excel de Confirmados",
-                    data=data_xlsx,
-                    file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+        columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista.columns]
+        st.dataframe(df_vista[columnas_existentes], use_container_width=True, hide_index=True)
 
-        # Descargar datos básicos sin enlaces
-        output_basico = BytesIO()
-        with pd.ExcelWriter(output_basico, engine='xlsxwriter') as writer:
-            df_confirmados_actuales[columnas_existentes_basicas].to_excel(writer, index=False, sheet_name='Confirmados_Basico')
-        data_xlsx_basico = output_basico.getvalue()
+        output_confirmados = BytesIO()
+        with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
+            df_vista[columnas_existentes].to_excel(writer, index=False, sheet_name='Confirmados')
+        data_xlsx = output_confirmados.getvalue()
 
         st.download_button(
-            label="📊 Descargar Excel Básico (Sin Enlaces)",
-            data=data_xlsx_basico,
-            file_name=f"pedidos_confirmados_basico_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Descarga rápida sin enlaces de archivos"
+            label="📤 Descargar Excel de Confirmados",
+            data=data_xlsx,
+            file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
