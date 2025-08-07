@@ -374,19 +374,34 @@ with tab1:
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
 
-                    # 🚫 IMPORTANTE: Detener todo el flujo restante para crédito
-                    # Eliminado 'return' porque no se permite fuera de funciones
+                    # 🚫 IMPORTANTE: Detener todo el flujo restante
+                    st.stop()
 
-                # ✅ Continuar con lógica normal para pedidos no-crédito
-                if (
-                    selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
-                    selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
-                ):
-                    st.subheader("🧾 Subir Comprobante de Pago")
+        # ✅ Mostrar sección normal si no se detuvo el flujo
+        if mostrar:
+
+            # 🚫 Si es pedido foráneo ya pagado, no mostrar el bloque de subida de comprobantes ni botones
+            if (
+                selected_pedido_data.get("Tipo_Envio", "").strip() == "🚚 Pedido Foráneo" and
+                selected_pedido_data.get("Estado_Pago", "").strip() == "✅ Pagado"
+            ):
+                st.info("ℹ️ Pedido foráneo ya pagado. Solo revisa los archivos y confirma si es necesario.")
+                st.stop()
+
+            # ✅ Si no es foráneo ya pagado, mostrar normalmente
+            st.subheader("✅ Confirmar Comprobante")
+
+            if (
+                selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
+                selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
+            ):
+
+                st.subheader("🧾 Subir Comprobante de Pago")
 
                 pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
 
                 comprobantes_nuevo = []
+
                 if not pago_doble:
                     comprobantes_nuevo = st.file_uploader(
                         "📤 Subir Comprobante(s) de Pago",
