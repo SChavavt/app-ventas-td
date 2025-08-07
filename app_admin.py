@@ -373,6 +373,7 @@ with tab1:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
+                    st.stop()
 
                     # 🚫 IMPORTANTE: Detener todo el flujo restante para crédito
                     # Eliminado 'return' porque no se permite fuera de funciones
