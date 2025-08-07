@@ -12,6 +12,8 @@ import os
 import uuid
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
+if "active_tab_admin_index" not in st.session_state:
+    st.session_state["active_tab_admin_index"] = 0
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
@@ -227,7 +229,10 @@ if 'Comprobante_Confirmado' in df_pedidos.columns:
 else:
     pedidos_pagados_no_confirmados = pd.DataFrame()
 
-tab1, tab2 = st.tabs(["💳 Pendientes de Confirmar", "📥 Confirmados"])
+tab_names = ["💳 Pendientes de Confirmar", "📥 Confirmados"]
+tab_index = st.session_state.get("active_tab_admin_index", 0)
+tab1, tab2 = st.tabs(tab_names)
+
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
@@ -767,12 +772,17 @@ with tab2:
             df_confirmados_guardados.to_excel(writer, index=False, sheet_name='Confirmados')
         data_xlsx = output_confirmados.getvalue()
 
+        st.session_state["active_tab_admin_index"] = 1
         st.download_button(
             label="📥 Descargar Excel Confirmados (desde hoja)",
             data=data_xlsx,
             file_name=f"confirmados_guardados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            mime="application/vnd.openxmlformats-o" \
+            "fficedocument.spreadsheetml.sheet"
         )
+
+
+    st.session_state["active_tab_admin_index"] = 1
 
     if st.button("🔄 Actualizar Enlaces de Nuevos Pedidos", help="Solo se agregarán los que no estén ya guardados"):
         with st.spinner("🔄 Generando enlaces de archivos nuevos..."):
@@ -863,3 +873,4 @@ with tab2:
             hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
             st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
+
