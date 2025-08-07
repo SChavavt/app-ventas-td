@@ -63,10 +63,6 @@ def get_google_sheets_client():
         st.stop()
 
 df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
-if df_pedidos.empty:
-    st.warning("⚠️ No se cargaron pedidos desde la hoja de cálculo. Verifica que la hoja 'datos_pedidos' no esté vacía o dañada.")
-    st.stop()
-
 worksheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
 
 # --- CONFIGURACIÓN DE AWS S3 ---
@@ -221,184 +217,13 @@ except Exception as e:
     st.info("- La cuenta de AWS tenga permisos de lectura en el bucket S3.")
     st.stop()
 
-# Calcular pedidos pendientes para usar en ambos tabs
-if 'Comprobante_Confirmado' in df_pedidos.columns:
-    pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
-else:
-    pedidos_pagados_no_confirmados = pd.DataFrame()
-
-# --- TAB 2: PEDIDOS CONFIRMADOS ---
-def mostrar_tab2():
-    st.header("📊 Estadísticas Generales")
-
-    if not df_pedidos.empty:
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            st.metric("Total Pedidos", len(df_pedidos))
-
-        with col2:
-            pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Pedidos Pagados", len(pagados))
-
-        with col3:
-            confirmados = df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí'] if 'Comprobante_Confirmado' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Comprobantes Confirmados", len(confirmados))
-
-        with col4:
-            pendientes = len(pedidos_pagados_no_confirmados)
-            st.metric("Pendientes Confirmación", pendientes)
-
-    st.markdown("---")
-    st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
-
-    # Filtrar pedidos confirmados
-    try:
-        df_confirmados_actuales = df_pedidos[
-            (df_pedidos['Estado_Pago'] == '✅ Pagado') & (df_pedidos['Comprobante_Confirmado'] == 'Sí')
-        ].copy()
-    except Exception:
-        df_confirmados_actuales = pd.DataFrame()
-
-    if df_confirmados_actuales.empty:
-        st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
-    else:
-        st.success(f"✅ Se encontraron {len(df_confirmados_actuales)} pedidos confirmados.")
-        
-        # Mostrar tabla básica primero
-        columnas_basicas = ['Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 
-                           'Fecha_Entrega', 'Estado_Pago', 'Comprobante_Confirmado', 
-                           'Forma_Pago_Comprobante', 'Monto_Comprobante']
-        
-        columnas_existentes_basicas = [col for col in columnas_basicas if col in df_confirmados_actuales.columns]
-        
-        if columnas_existentes_basicas:
-            st.dataframe(
-                df_confirmados_actuales[columnas_existentes_basicas].sort_values(
-                    by='Fecha_Entrega' if 'Fecha_Entrega' in columnas_existentes_basicas else columnas_existentes_basicas[0]
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
-
-        # Generar enlaces a archivos S3 (proceso más lento)
-        if st.button("🔗 Generar Enlaces de Descarga", help="Esto puede tardar unos segundos"):
-            with st.spinner("🔄 Generando enlaces de archivos..."):
-                import re
-                
-                df_confirmados_actuales = df_confirmados_actuales.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
-
-                link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
-
-                for _, row in df_confirmados_actuales.iterrows():
-                    pedido_id = row.get("ID_Pedido")
-                    tipo_envio = "foráneo" if "foráneo" in row.get("Tipo_Envio", "").lower() else "local"
-                    comprobante_url = factura_url = guia_url = refact_url = ""
-
-                    if pedido_id and s3_client:
-                        prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
-                        files = get_files_in_s3_prefix(s3_client, prefix)
-                        if not files:
-                            prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
-                            files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
-
-                        # Buscar comprobantes
-                        comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
-                        if comprobantes:
-                            comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
-
-                        # Buscar facturas
-                        facturas = [f for f in files if "factura" in f["title"].lower()]
-                        if facturas:
-                            factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
-
-                        # Buscar guías según tipo de envío
-                        if tipo_envio == "foráneo":
-                            guias_filtradas = [
-                                f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())
-                            ]
-                        else:
-                            guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
-
-                        if guias_filtradas:
-                            guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
-                            guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
-                            guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
-
-                        # Buscar refacturaciones
-                        refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
-                        if refacturas:
-                            refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
-
-                    link_comprobantes.append(comprobante_url)
-                    link_facturas.append(factura_url)
-                    link_guias.append(guia_url)
-                    link_refacturaciones.append(refact_url)
-
-                # Agregar columnas de enlaces
-                df_confirmados_actuales["Link_Comprobante"] = link_comprobantes
-                df_confirmados_actuales["Link_Factura"] = link_facturas
-                df_confirmados_actuales["Link_Guia"] = link_guias
-                df_confirmados_actuales["Link_Refacturacion"] = link_refacturaciones
-
-                # Mostrar tabla completa con enlaces
-                columnas_completas = [
-                    'Folio_Factura', 'Folio_Factura_Refacturada',
-                    'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-                    'Estado', 'Estado_Pago',
-                    'Refacturacion_Tipo', 'Refacturacion_Subtipo',
-                    'Forma_Pago_Comprobante', 'Monto_Comprobante',
-                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-                    'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
-                ]
-
-                columnas_existentes_completas = [col for col in columnas_completas if col in df_confirmados_actuales.columns]
-                
-                st.markdown("### 📋 Tabla Completa con Enlaces")
-                st.dataframe(df_confirmados_actuales[columnas_existentes_completas], use_container_width=True, hide_index=True)
-
-                # Generar archivo Excel
-                output_confirmados = BytesIO()
-                with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-                    df_confirmados_actuales[columnas_existentes_completas].to_excel(writer, index=False, sheet_name='Confirmados')
-                data_xlsx = output_confirmados.getvalue()
-
-                st.download_button(
-                    label="📤 Descargar Excel de Confirmados",
-                    data=data_xlsx,
-                    file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-        # Descargar datos básicos sin enlaces
-        output_basico = BytesIO()
-        with pd.ExcelWriter(output_basico, engine='xlsxwriter') as writer:
-            df_confirmados_actuales[columnas_existentes_basicas].to_excel(writer, index=False, sheet_name='Confirmados_Basico')
-        data_xlsx_basico = output_basico.getvalue()
-
-        st.download_button(
-            label="📊 Descargar Excel Básico (Sin Enlaces)",
-            data=data_xlsx_basico,
-            file_name=f"pedidos_confirmados_basico_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Descarga rápida sin enlaces de archivos"
-        )
+tab1, tab2, tab3 = st.tabs(["💳 Pendientes de Confirmar", "📥 Confirmados", "📊 Estadísticas"])
+if "show_tab2_3" not in st.session_state:
+    st.session_state["show_tab2_3"] = True
 
 # --- INTERFAZ PRINCIPAL ---
-def mostrar_tab1():
+with tab1:
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
-    # mostrar = True  # ✅ Se inicializa desde el inicio del tab (eliminado por no usarse)
-    # ... (rest of mostrar_tab1 code remains unchanged)
-
-
-tabs = st.tabs(["💳 Pendientes de Confirmar", "📥 Confirmados"])
-with tabs[0]:
-    mostrar_tab1()
-
-with tabs[1]:
-    mostrar_tab2()
-    st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
-    mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
     if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
         st.cache_data.clear()
@@ -408,13 +233,18 @@ with tabs[1]:
     if df_pedidos.empty:
         st.info("ℹ️ No hay pedidos cargados en este momento.")
     else:
+        if 'Comprobante_Confirmado' in df_pedidos.columns:
+            pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
+        else:
+            st.warning("⚠️ La columna 'Comprobante_Confirmado' no se encontró en la hoja de cálculo.")
+            pedidos_pagados_no_confirmados = pd.DataFrame()
+
         if pedidos_pagados_no_confirmados.empty:
             st.success("🎉 ¡No hay comprobantes pendientes de confirmación!")
             st.info("Todos los pedidos pagados han sido confirmados.")
         else:
             st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes.")
 
-            # Mostrar tabla
             columns_to_show = [
                 'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio',
                 'Fecha_Entrega', 'Estado', 'Estado_Pago'
@@ -424,6 +254,7 @@ with tabs[1]:
             if existing_columns:
                 df_vista = pedidos_pagados_no_confirmados[existing_columns].copy()
 
+                # 🔧 Formatear Fecha_Entrega si existe
                 if 'Fecha_Entrega' in df_vista.columns:
                     df_vista['Fecha_Entrega'] = pd.to_datetime(df_vista['Fecha_Entrega'], errors='coerce').dt.strftime('%d/%m/%Y')
 
@@ -436,13 +267,14 @@ with tabs[1]:
             st.markdown("---")
             st.subheader("🔍 Revisar Comprobante de Pago")
 
-            # Opciones de selección
+            # 💄 Mostrar pedidos con formato limpio y emojis bonitos, sin repetir los del Excel
             pedidos_pagados_no_confirmados['display_label'] = pedidos_pagados_no_confirmados.apply(lambda row: (
                 f"📄 {row.get('Folio_Factura', 'N/A')} - "
                 f"👤 {row.get('Cliente', 'N/A')} - "
                 f"{row.get('Estado', 'N/A')} - "
                 f"{row.get('Tipo_Envio', 'N/A')}"
             ), axis=1)
+
 
             pedido_options = pedidos_pagados_no_confirmados['display_label'].tolist()
             selected_index = st.selectbox(
@@ -454,14 +286,12 @@ with tabs[1]:
 
             if selected_index is not None:
                 selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
-
-                # 🚨 Lógica especial si es pedido a crédito
+                # 👉 Lógica alternativa si es un pedido a crédito
                 if selected_pedido_data.get("Estado_Pago", "").strip() == "💳 CREDITO":
                     st.subheader("📝 Confirmación de Pedido a Crédito")
                     selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
                     st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
 
-                    # Mostrar información del pedido
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("📋 Información del Pedido")
@@ -476,6 +306,7 @@ with tabs[1]:
 
                     with col2:
                         st.subheader("📎 Archivos y Comprobantes")
+
                         if s3_client:
                             pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
                             files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
@@ -511,7 +342,7 @@ with tabs[1]:
                         else:
                             st.error("❌ Error de conexión con S3. Revisa las credenciales.")
 
-                    # Confirmación de crédito
+
                     confirmacion_credito = st.selectbox("¿Confirmar que el pedido fue autorizado como crédito?", ["", "Sí", "No"])
                     comentario_credito = st.text_area("✍️ Comentario administrativo")
 
@@ -541,122 +372,121 @@ with tabs[1]:
                         st.info("Selecciona una opción para confirmar el crédito.")
                     st.stop()
 
-                    # 🚫 IMPORTANTE: Detener todo el flujo restante para crédito
-                    # Eliminado 'return' porque no se permite fuera de funciones
-
-                # ✅ Continuar con lógica normal para pedidos no-crédito
-                if (
+                elif (
                     selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
                     selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
                 ):
                     st.subheader("🧾 Subir Comprobante de Pago")
 
-                pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
+                    pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
 
-                comprobantes_nuevo = []
-                if not pago_doble:
-                    comprobantes_nuevo = st.file_uploader(
-                        "📤 Subir Comprobante(s) de Pago",
-                        type=["pdf", "jpg", "jpeg", "png"],
-                        accept_multiple_files=True,
-                        key="comprobante_local_no_pagado"
-                    )
+                    comprobantes_nuevo = []
+                    if not pago_doble:
+                        comprobantes_nuevo = st.file_uploader(
+                            "📤 Subir Comprobante(s) de Pago",
+                            type=["pdf", "jpg", "jpeg", "png"],
+                            accept_multiple_files=True,
+                            key="comprobante_local_no_pagado"
+                        )
 
-                    with st.expander("📝 Detalles del Pago"):
-                        fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_local")
-                        forma_pago = st.selectbox("💳 Forma de Pago", [
-                            "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
-                        ], key="forma_pago_local")
-                        monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_local")
+                        with st.expander("📝 Detalles del Pago"):
+                            fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_local")
+                            forma_pago = st.selectbox("💳 Forma de Pago", [
+                                "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
+                            ], key="forma_pago_local")
+                            monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_local")
 
-                        if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                            terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal_local")
-                            banco_destino = ""
+                            if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                                terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal_local")
+                                banco_destino = ""
+                            else:
+                                banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_local")
+                                terminal = ""
+
+                            referencia = st.text_input("🔢 Referencia (opcional)", key="referencia_local")
+
+                    else:
+                        st.markdown("### 1️⃣ Primer Pago")
+                        comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1_admin")
+                        fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1_admin")
+                        forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1_admin")
+                        monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1_admin")
+                        terminal1 = banco1 = ""
+                        if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                            terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1_admin")
                         else:
-                            banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_local")
-                            terminal = ""
+                            banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1_admin")
+                        ref1 = st.text_input("🔢 Referencia 1", key="ref1_admin")
 
-                        referencia = st.text_input("🔢 Referencia (opcional)", key="referencia_local")
+                        st.markdown("### 2️⃣ Segundo Pago")
+                        comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2_admin")
+                        fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2_admin")
+                        forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2_admin")
+                        monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2_admin")
+                        terminal2 = banco2 = ""
+                        if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                            terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2_admin")
+                        else:
+                            banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2_admin")
+                        ref2 = st.text_input("🔢 Referencia 2", key="ref2_admin")
 
-                else:
-                    st.markdown("### 1️⃣ Primer Pago")
-                    comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1_admin")
-                    fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1_admin")
-                    forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1_admin")
-                    monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1_admin")
-                    terminal1 = banco1 = ""
-                    if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                        terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1_admin")
-                    else:
-                        banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1_admin")
-                    ref1 = st.text_input("🔢 Referencia 1", key="ref1_admin")
+                        # Unificar comprobantes y campos
+                        comprobantes_nuevo = (comp1 or []) + (comp2 or [])
+                        fecha_pago = f"{fecha1.strftime('%Y-%m-%d')} y {fecha2.strftime('%Y-%m-%d')}"
+                        forma_pago = f"{forma1}, {forma2}"
+                        terminal = f"{terminal1}, {terminal2}" if forma1.startswith("Tarjeta") or forma2.startswith("Tarjeta") else ""
+                        banco_destino = f"{banco1}, {banco2}" if forma1 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] or forma2 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] else ""
+                        monto_pago = monto1 + monto2
+                        referencia = f"{ref1}, {ref2}"
 
-                    st.markdown("### 2️⃣ Segundo Pago")
-                    comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2_admin")
-                    fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2_admin")
-                    forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2_admin")
-                    monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2_admin")
-                    terminal2 = banco2 = ""
-                    if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                        terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2_admin")
-                    else:
-                        banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2_admin")
-                    ref2 = st.text_input("🔢 Referencia 2", key="ref2_admin")
 
-                    # Unificar comprobantes y campos
-                    comprobantes_nuevo = (comp1 or []) + (comp2 or [])
-                    fecha_pago = f"{fecha1.strftime('%Y-%m-%d')} y {fecha2.strftime('%Y-%m-%d')}"
-                    forma_pago = f"{forma1}, {forma2}"
-                    terminal = f"{terminal1}, {terminal2}" if forma1.startswith("Tarjeta") or forma2.startswith("Tarjeta") else ""
-                    banco_destino = f"{banco1}, {banco2}" if forma1 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] or forma2 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] else ""
-                    monto_pago = monto1 + monto2
-                    referencia = f"{ref1}, {ref2}"
+                    if st.button("💾 Guardar Comprobante y Datos de Pago"):
+                        try:
+                            gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
+                            adjuntos_urls = []
 
-                if st.button("💾 Guardar Comprobante y Datos de Pago"):
-                    try:
-                        gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
-                        adjuntos_urls = []
+                            # Subir archivos a S3
+                            if comprobantes_nuevo:
+                                for file in comprobantes_nuevo:
+                                    ext = os.path.splitext(file.name)[1]
+                                    s3_key = f"{selected_pedido_data['ID_Pedido']}/comprobante_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
+                                    if success:
+                                        adjuntos_urls.append(url)
+                            updates = {
+                                'Estado_Pago': '✅ Pagado',
+                                'Comprobante_Confirmado': 'Sí',
+                                'Fecha_Pago_Comprobante': fecha_pago.strftime('%Y-%m-%d'),
+                                'Forma_Pago_Comprobante': forma_pago,
+                                'Monto_Comprobante': monto_pago,
+                                'Referencia_Comprobante': referencia,
+                                'Terminal': terminal,
+                                'Banco_Destino_Pago': banco_destino,
+                            }
 
-                        # Subir archivos a S3
-                        if comprobantes_nuevo:
-                            for file in comprobantes_nuevo:
-                                ext = os.path.splitext(file.name)[1]
-                                s3_key = f"{selected_pedido_data['ID_Pedido']}/comprobante_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
-                                success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
-                                if success:
-                                    adjuntos_urls.append(url)
 
-                        updates = {
-                            'Estado_Pago': '✅ Pagado',
-                            'Comprobante_Confirmado': 'Sí',
-                            'Fecha_Pago_Comprobante': fecha_pago.strftime('%Y-%m-%d') if isinstance(fecha_pago, datetime) else fecha_pago,
-                            'Forma_Pago_Comprobante': forma_pago,
-                            'Monto_Comprobante': monto_pago,
-                            'Referencia_Comprobante': referencia,
-                            'Terminal': terminal,
-                            'Banco_Destino_Pago': banco_destino,
-                        }
+                            for col, val in updates.items():
+                                if col in headers:
+                                    worksheet.update_cell(gsheet_row_index, headers.index(col) + 1, val)
 
-                        for col, val in updates.items():
-                            if col in headers:
-                                worksheet.update_cell(gsheet_row_index, headers.index(col) + 1, val)
+                            # Concatenar nuevos adjuntos al campo existente de "Adjuntos"
+                            if adjuntos_urls and "Adjuntos" in headers:
+                                adjuntos_actuales = selected_pedido_data.get("Adjuntos", "")
+                                nuevo_valor_adjuntos = ", ".join(filter(None, [adjuntos_actuales] + adjuntos_urls))
+                                worksheet.update_cell(gsheet_row_index, headers.index("Adjuntos") + 1, nuevo_valor_adjuntos)
 
-                        # Concatenar nuevos adjuntos al campo existente de "Adjuntos"
-                        if adjuntos_urls and "Adjuntos" in headers:
-                            adjuntos_actuales = selected_pedido_data.get("Adjuntos", "")
-                            nuevo_valor_adjuntos = ", ".join(filter(None, [adjuntos_actuales] + adjuntos_urls))
-                            worksheet.update_cell(gsheet_row_index, headers.index("Adjuntos") + 1, nuevo_valor_adjuntos)
+                            st.success("✅ Comprobante y datos de pago guardados exitosamente.")
+                            st.balloons()
+                            time.sleep(2)
+                            st.cache_data.clear()
+                            st.rerun()
 
-                        st.success("✅ Comprobante y datos de pago guardados exitosamente.")
-                        st.balloons()
-                        time.sleep(2)
-                        st.cache_data.clear()
-                        st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error al guardar el comprobante: {e}")
 
-                    except Exception as e:
-                        st.error(f"❌ Error al guardar el comprobante: {e}")
+                    st.stop()
 
-                # Resto del código para pedidos normales con comprobantes existentes
+
                 selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
 
                 st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
@@ -725,301 +555,275 @@ with tabs[1]:
                     else:
                         st.error("❌ Error de conexión con S3. Revisa las credenciales.")
 
-                # Detectar cuántos comprobantes hay
-                num_comprobantes = len(comprobantes) if 'comprobantes' in locals() else 0
-                mostrar_contenido = True
 
+                # Detectar cuántos comprobantes hay
+                num_comprobantes = len(comprobantes)
                 if num_comprobantes == 0:
                     st.warning("⚠️ No hay comprobantes para confirmar.")
-                    mostrar_contenido = False
+                    st.stop()
 
-                if mostrar_contenido:
-                    st.subheader("✅ Confirmar Comprobante")
+                st.subheader("✅ Confirmar Comprobante")
 
-                    fecha_list, forma_list, banco_list, terminal_list, monto_list, ref_list = [], [], [], [], [], []
+                fecha_list, forma_list, banco_list, terminal_list, monto_list, ref_list = [], [], [], [], [], []
+                # --- Prellenar valores si ya están registrados en la hoja ---
+                fecha_list = str(selected_pedido_data.get('Fecha_Pago_Comprobante', '')).split(" y ")
+                forma_list = str(selected_pedido_data.get('Forma_Pago_Comprobante', '')).split(", ")
+                banco_list = str(selected_pedido_data.get('Banco_Destino_Pago', '')).split(", ")
+                terminal_list = str(selected_pedido_data.get('Terminal', '')).split(", ")
+                monto_list_raw = selected_pedido_data.get('Monto_Comprobante', '')
+                ref_list = str(selected_pedido_data.get('Referencia_Comprobante', '')).split(", ")
 
-                    # --- Prellenar valores si ya están registrados en la hoja ---
-                    fecha_list = str(selected_pedido_data.get('Fecha_Pago_Comprobante', '')).split(" y ")
-                    forma_list = str(selected_pedido_data.get('Forma_Pago_Comprobante', '')).split(", ")
-                    banco_list = str(selected_pedido_data.get('Banco_Destino_Pago', '')).split(", ")
-                    terminal_list = str(selected_pedido_data.get('Terminal', '')).split(", ")
-                    monto_list_raw = selected_pedido_data.get('Monto_Comprobante', '')
-                    ref_list = str(selected_pedido_data.get('Referencia_Comprobante', '')).split(", ")
+                # 🔍 Convertir monto a lista numérica (aunque venga como 3360.00 o "3360.00, 0.00")
+                if isinstance(monto_list_raw, str) and "," in monto_list_raw:
+                    monto_list = [float(m.strip()) if m.strip() else 0.0 for m in monto_list_raw.split(",")]
+                else:
+                    try:
+                        monto_list = [float(monto_list_raw)] if monto_list_raw else []
+                    except Exception:
+                        monto_list = []
 
-                    if isinstance(monto_list_raw, str) and "," in monto_list_raw:
-                        monto_list = [float(m.strip()) if m.strip() else 0.0 for m in monto_list_raw.split(",")]
+                # Completar con valores vacíos si alguna lista es más corta que el número de comprobantes
+                while len(fecha_list) < num_comprobantes:
+                    fecha_list.append("")
+                while len(forma_list) < num_comprobantes:
+                    forma_list.append("Transferencia")
+                while len(banco_list) < num_comprobantes:
+                    banco_list.append("")
+                while len(terminal_list) < num_comprobantes:
+                    terminal_list.append("")
+                while len(monto_list) < num_comprobantes:
+                    monto_list.append(0.0)
+                while len(ref_list) < num_comprobantes:
+                    ref_list.append("")
+
+
+                for i in range(num_comprobantes):
+                    if num_comprobantes == 1:
+                        st.markdown("### 🧾 Comprobante")
                     else:
-                        try:
-                            monto_list = [float(monto_list_raw)] if monto_list_raw else []
-                        except Exception:
-                            monto_list = []
+                        emoji_num = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
+                        st.markdown(f"### {emoji_num[i]} 🧾 Comprobante {i+1}")
 
-                    while len(fecha_list) < num_comprobantes:
-                        fecha_list.append("")
-                    while len(forma_list) < num_comprobantes:
-                        forma_list.append("Transferencia")
-                    while len(banco_list) < num_comprobantes:
-                        banco_list.append("")
-                    while len(terminal_list) < num_comprobantes:
-                        terminal_list.append("")
-                    while len(monto_list) < num_comprobantes:
-                        monto_list.append(0.0)
-                    while len(ref_list) < num_comprobantes:
-                        ref_list.append("")
+                    col_pago = st.columns(4)
+                    with col_pago[0]:
+                        fecha_i = st.date_input(
+                            f"📅 Fecha Pago {i+1}",
+                            value=pd.to_datetime(fecha_list[i], errors='coerce').date() if fecha_list[i] else None,
+                            key=f"fecha_pago_{i}"
+                        )
+                    with col_pago[1]:
+                        forma_i = st.selectbox(
+                            f"💳 Forma de Pago {i+1}",
+                            ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"],
+                            index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(forma_list[i]) if forma_list[i] in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0,
+                            key=f"forma_pago_{i}"
+                        )
+                    with col_pago[2]:
+                        if forma_i in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                            terminal_options = ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"]
+                            terminal_i = st.selectbox(
+                                f"🏧 Terminal {i+1}",
+                                terminal_options,
+                                index=terminal_options.index(terminal_list[i]) if terminal_list[i] in terminal_options else 0,
+                                key=f"terminal_pago_{i}"
+                            )
 
-                    for i in range(num_comprobantes):
-                        if num_comprobantes == 1:
-                            st.markdown("### 🧾 Comprobante")
+                            banco_i = ""
                         else:
-                            emoji_num = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
-                            st.markdown(f"### {emoji_num[i]} 🧾 Comprobante {i+1}")
-
-                        col_pago = st.columns(4)
-                        with col_pago[0]:
-                            fecha_i = st.date_input(
-                                f"📅 Fecha Pago {i+1}",
-                                value=pd.to_datetime(fecha_list[i], errors='coerce').date() if fecha_list[i] else None,
-                                key=f"fecha_pago_{i}"
-                            )
-                        with col_pago[1]:
-                            forma_i = st.selectbox(
-                                f"💳 Forma de Pago {i+1}",
-                                ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"],
-                                index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(forma_list[i]) if forma_list[i] in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0,
-                                key=f"forma_pago_{i}"
-                            )
-                        with col_pago[2]:
-                            if forma_i in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                                terminal_options = ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"]
-                                terminal_i = st.selectbox(
-                                    f"🏧 Terminal {i+1}",
-                                    terminal_options,
-                                    index=terminal_options.index(terminal_list[i]) if terminal_list[i] in terminal_options else 0,
-                                    key=f"terminal_pago_{i}"
-                                )
-                                banco_i = ""
-                            else:
-                                banco_options = ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"]
-                                banco_i = st.selectbox(
-                                    f"🏦 Banco Destino {i+1}",
-                                    banco_options,
-                                    index=banco_options.index(banco_list[i]) if banco_list[i] in banco_options else 0,
-                                    key=f"banco_pago_{i}"
-                                )
-                                terminal_i = ""
-
-                        with col_pago[3]:
-                            monto_i = st.number_input(
-                                f"💲 Monto {i+1}",
-                                min_value=0.0,
-                                format="%.2f",
-                                value=monto_list[i] if i < len(monto_list) else 0.0,
-                                key=f"monto_pago_{i}"
+                            banco_options = ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"]
+                            banco_i = st.selectbox(
+                                f"🏦 Banco Destino {i+1}",
+                                banco_options,
+                                index=banco_options.index(banco_list[i]) if banco_list[i] in banco_options else 0,
+                                key=f"banco_pago_{i}"
                             )
 
-                        referencia_i = st.text_input(
-                            f"🔢 Referencia {i+1}",
-                            value=ref_list[i] if i < len(ref_list) else "",
-                            key=f"ref_pago_{i}"
+                            terminal_i = ""
+                    with col_pago[3]:
+                        monto_i = st.number_input(
+                            f"💲 Monto {i+1}",
+                            min_value=0.0,
+                            format="%.2f",
+                            value=monto_list[i] if i < len(monto_list) else 0.0,
+                            key=f"monto_pago_{i}"
                         )
 
-                        fecha_list[i] = str(fecha_i)
-                        forma_list[i] = forma_i
-                        banco_list[i] = banco_i
-                        terminal_list[i] = terminal_i
-                        monto_list[i] = monto_i
-                        ref_list[i] = referencia_i
 
-                    col1, col2, col3 = st.columns([2, 1, 1])
-                    with col1:
-                        st.info("👆 Revisa los comprobantes antes de confirmar.")
+                    referencia_i = st.text_input(
+                        f"🔢 Referencia {i+1}",
+                        value=ref_list[i] if i < len(ref_list) else "",
+                        key=f"ref_pago_{i}"
+                    )
 
-                    with col2:
-                        if st.button("✅ Confirmar Comprobante", use_container_width=True):
-                            try:
-                                gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0] + 2
+                    # Guardar en listas
+                    fecha_list[i] = str(fecha_i)
+                    forma_list[i] = forma_i
+                    banco_list[i] = banco_i
+                    terminal_list[i] = terminal_i
+                    monto_list[i] = monto_i
+                    ref_list[i] = referencia_i
 
-                                updates = {
-                                    'Comprobante_Confirmado': 'Sí',
-                                    'Fecha_Pago_Comprobante': " y ".join(fecha_list),
-                                    'Forma_Pago_Comprobante': ", ".join(forma_list),
-                                    'Monto_Comprobante': sum(monto_list),
-                                    'Referencia_Comprobante': ", ".join(ref_list),
-                                    'Terminal': ", ".join([t for t in terminal_list if t]),
-                                    'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
-                                }
+                col1, col2, col3 = st.columns([2, 1, 1])
+                with col1:
+                    st.info("👆 Revisa los comprobantes antes de confirmar.")
 
-                                for col, val in updates.items():
-                                    if col in headers:
-                                        worksheet.update_cell(gsheet_row_index, headers.index(col)+1, val)
+                with col2:
+                    if st.button("✅ Confirmar Comprobante", use_container_width=True):
+                        try:
+                            gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0] + 2
 
-                                st.success("🎉 Comprobante confirmado exitosamente.")
-                                st.balloons()
-                                time.sleep(3)
-                                st.cache_data.clear()
-                                st.rerun()
+                            updates = {
+                                'Comprobante_Confirmado': 'Sí',
+                                'Fecha_Pago_Comprobante': " y ".join(fecha_list),
+                                'Forma_Pago_Comprobante': ", ".join(forma_list),
+                                'Monto_Comprobante': sum(monto_list),
+                                'Referencia_Comprobante': ", ".join(ref_list),
+                                'Terminal': ", ".join([t for t in terminal_list if t]),
+                                'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
+                            }
 
-                            except Exception as e:
-                                st.error(f"❌ Error al confirmar comprobante: {e}")
+                            for col, val in updates.items():
+                                if col in headers:
+                                    worksheet.update_cell(gsheet_row_index, headers.index(col)+1, val)
 
-                    with col3:
-                        if st.button("❌ Rechazar Comprobante", use_container_width=True):
-                            st.warning("Funcionalidad pendiente.")
+                            st.success("🎉 Comprobante confirmado exitosamente.")
+                            st.balloons()
+                            time.sleep(3)
+                            st.cache_data.clear()
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(f"❌ Error al confirmar comprobante: {e}")
+
+                with col3:
+                    if st.button("❌ Rechazar Comprobante", use_container_width=True):
+                        st.warning("Funcionalidad pendiente.")
 
 
-# --- TAB 2: PEDIDOS CONFIRMADOS ---
-def mostrar_tab2():
+# --- NUEVA PESTAÑA: DESCARGA DE COMPROBANTES CONFIRMADOS ---
+with tab2:
+    st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
+
+    if "confirmados_cargados" not in st.session_state:
+        st.session_state.confirmados_cargados = 0
+    if "df_confirmados_cache" not in st.session_state:
+        st.session_state.df_confirmados_cache = pd.DataFrame()
+
+    df_confirmados_actuales = df_pedidos[
+        (df_pedidos['Estado_Pago'] == '✅ Pagado') & (df_pedidos['Comprobante_Confirmado'] == 'Sí')
+    ].copy()
+
+    total_actual = len(df_confirmados_actuales)
+
+    if total_actual == 0:
+        st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
+    elif total_actual == st.session_state.confirmados_cargados:
+        st.success("✅ Mostrando comprobantes confirmados en caché.")
+        df_vista = st.session_state.df_confirmados_cache
+    else:
+        st.info("🔄 Cargando comprobantes confirmados actualizados...")
+        with st.spinner("Buscando archivos en S3..."):
+            import re
+            df_confirmados_actuales = df_confirmados_actuales.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
+            link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
+
+            for _, row in df_confirmados_actuales.iterrows():
+                pedido_id = row.get("ID_Pedido")
+                tipo_envio = "foráneo" if "foráneo" in row.get("Tipo_Envio", "").lower() else "local"
+                comprobante_url = factura_url = guia_url = refact_url = ""
+
+                if pedido_id:
+                    prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
+                    files = get_files_in_s3_prefix(s3_client, prefix)
+                    if not files:
+                        prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
+                        files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
+
+                    comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
+                    if comprobantes:
+                        comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
+
+                    facturas = [f for f in files if "factura" in f["title"].lower()]
+                    if facturas:
+                        factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
+
+                    if tipo_envio == "foráneo":
+                        guias_filtradas = [
+                            f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())
+                        ]
+                    else:
+                        guias_filtradas = [
+                            f for f in files if f["title"].lower().endswith(".xlsx")
+                        ]
+
+                    if guias_filtradas:
+                        guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
+                        guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
+                        guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
+
+                    refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
+                    if refacturas:
+                        refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
+
+                link_comprobantes.append(comprobante_url)
+                link_facturas.append(factura_url)
+                link_guias.append(guia_url)
+                link_refacturaciones.append(refact_url)
+
+            df_confirmados_actuales["Link_Comprobante"] = link_comprobantes
+            df_confirmados_actuales["Link_Factura"] = link_facturas
+            df_confirmados_actuales["Link_Guia"] = link_guias
+            df_confirmados_actuales["Link_Refacturacion"] = link_refacturaciones
+
+            st.session_state.df_confirmados_cache = df_confirmados_actuales
+            st.session_state.confirmados_cargados = total_actual
+            df_vista = df_confirmados_actuales
+
+    columnas_a_mostrar = [
+        'Folio_Factura', 'Folio_Factura_Refacturada',
+        'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+        'Estado', 'Estado_Pago',
+        'Refacturacion_Tipo', 'Refacturacion_Subtipo',
+        'Forma_Pago_Comprobante', 'Monto_Comprobante',
+        'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
+        'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
+    ]
+
+    columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista.columns]
+    st.dataframe(df_vista[columnas_existentes], use_container_width=True, hide_index=True)
+
+    output_confirmados = BytesIO()
+    with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
+        df_vista[columnas_existentes].to_excel(writer, index=False, sheet_name='Confirmados')
+    data_xlsx = output_confirmados.getvalue()
+
+    st.download_button(
+        label="📤 Descargar Excel de Confirmados",
+        data=data_xlsx,
+        file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+
+# --- ESTADÍSTICAS GENERALES ---
+with tab3:
     st.header("📊 Estadísticas Generales")
 
     if not df_pedidos.empty:
         col1, col2, col3, col4 = st.columns(4)
-
+        
         with col1:
-            st.metric("Total Pedidos", len(df_pedidos))
-
+            total_pedidos = len(df_pedidos)
+            st.metric("Total Pedidos", total_pedidos)
+        
         with col2:
-            pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Pedidos Pagados", len(pagados))
-
+            pedidos_pagados = len(df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado']) if 'Estado_Pago' in df_pedidos.columns else 0
+            st.metric("Pedidos Pagados", pedidos_pagados)
+        
         with col3:
-            confirmados = df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí'] if 'Comprobante_Confirmado' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Comprobantes Confirmados", len(confirmados))
-
+            pedidos_confirmados = len(df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí']) if 'Comprobante_Confirmado' in df_pedidos.columns else 0
+            st.metric("Comprobantes Confirmados", pedidos_confirmados)
+        
         with col4:
-            pendientes = len(pedidos_pagados_no_confirmados)
-            st.metric("Pendientes Confirmación", pendientes)
-
-    st.markdown("---")
-    st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
-
-    # Filtrar pedidos confirmados
-    try:
-        df_confirmados_actuales = df_pedidos[
-            (df_pedidos['Estado_Pago'] == '✅ Pagado') & (df_pedidos['Comprobante_Confirmado'] == 'Sí')
-        ].copy()
-    except Exception:
-        df_confirmados_actuales = pd.DataFrame()
-
-    if df_confirmados_actuales.empty:
-        st.info("ℹ️ No hay pedidos con comprobantes confirmados para mostrar.")
-    else:
-        st.success(f"✅ Se encontraron {len(df_confirmados_actuales)} pedidos confirmados.")
-        
-        # Mostrar tabla básica primero
-        columnas_basicas = ['Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 
-                           'Fecha_Entrega', 'Estado_Pago', 'Comprobante_Confirmado', 
-                           'Forma_Pago_Comprobante', 'Monto_Comprobante']
-        
-        columnas_existentes_basicas = [col for col in columnas_basicas if col in df_confirmados_actuales.columns]
-        
-        if columnas_existentes_basicas:
-            st.dataframe(
-                df_confirmados_actuales[columnas_existentes_basicas].sort_values(
-                    by='Fecha_Entrega' if 'Fecha_Entrega' in columnas_existentes_basicas else columnas_existentes_basicas[0]
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
-
-        # Generar enlaces a archivos S3 (proceso más lento)
-        if st.button("🔗 Generar Enlaces de Descarga", help="Esto puede tardar unos segundos"):
-            with st.spinner("🔄 Generando enlaces de archivos..."):
-                import re
-                
-                df_confirmados_actuales = df_confirmados_actuales.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
-
-                link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
-
-                for _, row in df_confirmados_actuales.iterrows():
-                    pedido_id = row.get("ID_Pedido")
-                    tipo_envio = "foráneo" if "foráneo" in row.get("Tipo_Envio", "").lower() else "local"
-                    comprobante_url = factura_url = guia_url = refact_url = ""
-
-                    if pedido_id and s3_client:
-                        prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
-                        files = get_files_in_s3_prefix(s3_client, prefix)
-                        if not files:
-                            prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
-                            files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
-
-                        # Buscar comprobantes
-                        comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
-                        if comprobantes:
-                            comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
-
-                        # Buscar facturas
-                        facturas = [f for f in files if "factura" in f["title"].lower()]
-                        if facturas:
-                            factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
-
-                        # Buscar guías según tipo de envío
-                        if tipo_envio == "foráneo":
-                            guias_filtradas = [
-                                f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())
-                            ]
-                        else:
-                            guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
-
-                        if guias_filtradas:
-                            guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
-                            guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
-                            guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
-
-                        # Buscar refacturaciones
-                        refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
-                        if refacturas:
-                            refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
-
-                    link_comprobantes.append(comprobante_url)
-                    link_facturas.append(factura_url)
-                    link_guias.append(guia_url)
-                    link_refacturaciones.append(refact_url)
-
-                # Agregar columnas de enlaces
-                df_confirmados_actuales["Link_Comprobante"] = link_comprobantes
-                df_confirmados_actuales["Link_Factura"] = link_facturas
-                df_confirmados_actuales["Link_Guia"] = link_guias
-                df_confirmados_actuales["Link_Refacturacion"] = link_refacturaciones
-
-                # Mostrar tabla completa con enlaces
-                columnas_completas = [
-                    'Folio_Factura', 'Folio_Factura_Refacturada',
-                    'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-                    'Estado', 'Estado_Pago',
-                    'Refacturacion_Tipo', 'Refacturacion_Subtipo',
-                    'Forma_Pago_Comprobante', 'Monto_Comprobante',
-                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-                    'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
-                ]
-
-                columnas_existentes_completas = [col for col in columnas_completas if col in df_confirmados_actuales.columns]
-                
-                st.markdown("### 📋 Tabla Completa con Enlaces")
-                st.dataframe(df_confirmados_actuales[columnas_existentes_completas], use_container_width=True, hide_index=True)
-
-                # Generar archivo Excel
-                output_confirmados = BytesIO()
-                with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-                    df_confirmados_actuales[columnas_existentes_completas].to_excel(writer, index=False, sheet_name='Confirmados')
-                data_xlsx = output_confirmados.getvalue()
-
-                st.download_button(
-                    label="📤 Descargar Excel de Confirmados",
-                    data=data_xlsx,
-                    file_name=f"pedidos_confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-        # Descargar datos básicos sin enlaces
-        output_basico = BytesIO()
-        with pd.ExcelWriter(output_basico, engine='xlsxwriter') as writer:
-            df_confirmados_actuales[columnas_existentes_basicas].to_excel(writer, index=False, sheet_name='Confirmados_Basico')
-        data_xlsx_basico = output_basico.getvalue()
-
-        st.download_button(
-            label="📊 Descargar Excel Básico (Sin Enlaces)",
-            data=data_xlsx_basico,
-            file_name=f"pedidos_confirmados_basico_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Descarga rápida sin enlaces de archivos"
-        )
+            pedidos_pendientes_confirmacion = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
+            st.metric("Pendientes Confirmación", pedidos_pendientes_confirmacion)
