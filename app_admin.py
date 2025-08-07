@@ -536,7 +536,31 @@ else:
                     st.info("Selecciona una opción para confirmar el pago.")
 
 st.markdown("---")
-# --- SECCIÓN 2: PEDIDOS CONFIRMADOS ---
+# --- SECCIÓN 2: ESTADÍSTICAS GENERALES ---
+st.header("📊 Estadísticas Generales")
+if not df_pedidos.empty:
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        total_pedidos = len(df_pedidos)
+        st.metric("Total Pedidos", total_pedidos)
+    
+    with col2:
+        pedidos_pagados = len(df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado']) if 'Estado_Pago' in df_pedidos.columns else 0
+        st.metric("Pedidos Pagados", pedidos_pagados)
+    
+    with col3:
+        pedidos_confirmados = len(df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí']) if 'Comprobante_Confirmado' in df_pedidos.columns else 0
+        st.metric("Pedidos Confirmados", pedidos_confirmados)
+
+    with col4:
+        pedidos_pendientes = total_pedidos - pedidos_confirmados
+        st.metric("Pedidos Pendientes", pedidos_pendientes)
+
+else:
+    st.info("ℹ️ No hay datos para mostrar estadísticas.")
+
+st.markdown("---")
+# --- SECCIÓN 3: PEDIDOS CONFIRMADOS ---
 st.header("📥 Base de Datos de Pedidos Confirmados")
 
 if st.button("🔍 Generar Base de Datos de Pedidos Confirmados", type="primary"):
@@ -596,27 +620,3 @@ if st.button("🔍 Generar Base de Datos de Pedidos Confirmados", type="primary"
             )
         else:
             st.info("ℹ️ No se encontraron pedidos que cumplan los criterios de confirmación.")
-st.markdown("---")
-# --- SECCIÓN 3: ESTADÍSTICAS GENERALES ---
-st.header("📊 Estadísticas Generales")
-if not df_pedidos.empty:
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        total_pedidos = len(df_pedidos)
-        st.metric("Total Pedidos", total_pedidos)
-    
-    with col2:
-        pedidos_pagados = len(df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado']) if 'Estado_Pago' in df_pedidos.columns else 0
-        st.metric("Pedidos Pagados", pedidos_pagados)
-    
-    with col3:
-        pedidos_confirmados = len(df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí']) if 'Comprobante_Confirmado' in df_pedidos.columns else 0
-        st.metric("Pedidos Confirmados", pedidos_confirmados)
-
-    with col4:
-        pedidos_pendientes = total_pedidos - pedidos_confirmados
-        st.metric("Pedidos Pendientes", pedidos_pendientes)
-
-else:
-    st.info("ℹ️ No hay datos para mostrar estadísticas.")
-
