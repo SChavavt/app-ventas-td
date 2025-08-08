@@ -325,19 +325,12 @@ with tab1:
     referencia_pago = ""
 
     if estado_pago == "✅ Pagado":
-        # --- Checkboxes exclusivos para doble o triple pago ---
+        # --- Checkboxes para 2 o 3 pagos ---
         col_pago_doble, col_pago_triple = st.columns([1, 1])
         with col_pago_doble:
-            if st.checkbox("✅ Pago en dos partes distintas", key="chk_doble"):
-                st.session_state["chk_triple"] = False
+            pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="chk_doble")
         with col_pago_triple:
-            if st.checkbox("✅ Pago en tres partes distintas", key="chk_triple"):
-                st.session_state["chk_doble"] = False
-
-        # Lectura final de valores
-        pago_doble = st.session_state.get("chk_doble", False)
-        pago_triple = st.session_state.get("chk_triple", False)
-
+            pago_triple = st.checkbox("✅ Pago en tres partes distintas", key="chk_triple")
 
         # --- Un solo comprobante ---
         if not pago_doble and not pago_triple:
