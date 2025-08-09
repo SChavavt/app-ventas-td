@@ -17,7 +17,6 @@ if "active_tab_admin_index" not in st.session_state:
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
-@st.cache_data(ttl=60)
 def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
     @st.cache_data(ttl=60)
     def _load():
@@ -27,13 +26,12 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
         headers = ws.row_values(1)
         df = pd.DataFrame(ws.get_all_records())
 
-        # 🔧 Normalizar encabezados: quitar espacios “raros”, cambiar espacios por _
+        # 🔧 Normalizar encabezados
         def _clean(s):
             return str(s).replace("\u00a0", " ").strip().replace("  ", " ").replace(" ", "_")
-
         df.columns = [_clean(c) for c in df.columns]
 
-        # 🔁 Mapear alias comunes (por si alguien tecleó distinto)
+        # 🔁 Alias por si escribieron distinto
         alias = {
             "Folio de Factura": "Folio_Factura",
             "Folio_Factura_": "Folio_Factura",
@@ -41,19 +39,29 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
         }
         df = df.rename(columns=alias)
 
-        # ✅ Asegurar columnas clave para que dropna no truene
+        # ✅ Asegurar columnas clave
         for col in ["Folio_Factura", "ID_Pedido"]:
             if col not in df.columns:
                 df[col] = ""
 
-        # 🧹 Filtrar filas realmente vacías en esas 2 columnas
-        df = df.dropna(subset=["Folio_Factura", "ID_Pedido"], how="all")
+        # 🧽 Normalizar valores: quita NBSP, trims y convierte vacíos/N/A a NA
+        for col in ["Folio_Factura", "ID_Pedido"]:
+            df[col] = (
+                df[col].astype(str)
+                      .str.replace("\u00a0", " ", regex=False)
+                      .str.strip()
+            )
+        NA_LITERALS = {"", "n/a", "na", "nan", "ninguno", "none"}
+        df[["Folio_Factura","ID_Pedido"]] = df[["Folio_Factura","ID_Pedido"]].apply(
+            lambda s: s.mask(s.str.lower().isin(NA_LITERALS))
+        )
 
-        # (Opcional) Mostrar columnas detectadas para depurar
-        # st.caption(f"Encabezados detectados: {list(df.columns)}")
+        # 🧹 Eliminar filas donde AMBAS columnas clave estén vacías/NA
+        df = df.dropna(subset=["Folio_Factura", "ID_Pedido"], how="all")
 
         return df, headers
     return _load()
+
 
 
 @st.cache_resource
