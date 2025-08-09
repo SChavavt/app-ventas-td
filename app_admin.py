@@ -19,22 +19,42 @@ if "active_tab_admin_index" not in st.session_state:
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 @st.cache_data(ttl=60)
 def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
-    gc = get_google_sheets_client()
-    spreadsheet = gc.open_by_key(sheet_id)
-    worksheet = spreadsheet.worksheet(worksheet_name)
-    headers = worksheet.row_values(1)
+    @st.cache_data(ttl=60)
+    def _load():
+        gc = get_google_sheets_client()
+        ws = gc.open_by_key(sheet_id).worksheet(worksheet_name)
 
-    if headers:
-        df = pd.DataFrame(worksheet.get_all_records())
-        df = df.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
-        df = df[
-            df['ID_Pedido'].astype(str).str.strip().ne('') &
-            df['ID_Pedido'].astype(str).str.lower().ne('n/a') &
-            df['ID_Pedido'].astype(str).str.lower().ne('nan')
-        ]
+        headers = ws.row_values(1)
+        df = pd.DataFrame(ws.get_all_records())
+
+        # 🔧 Normalizar encabezados: quitar espacios “raros”, cambiar espacios por _
+        def _clean(s):
+            return str(s).replace("\u00a0", " ").strip().replace("  ", " ").replace(" ", "_")
+
+        df.columns = [_clean(c) for c in df.columns]
+
+        # 🔁 Mapear alias comunes (por si alguien tecleó distinto)
+        alias = {
+            "Folio de Factura": "Folio_Factura",
+            "Folio_Factura_": "Folio_Factura",
+            "ID_Pedido_": "ID_Pedido",
+        }
+        df = df.rename(columns=alias)
+
+        # ✅ Asegurar columnas clave para que dropna no truene
+        for col in ["Folio_Factura", "ID_Pedido"]:
+            if col not in df.columns:
+                df[col] = ""
+
+        # 🧹 Filtrar filas realmente vacías en esas 2 columnas
+        df = df.dropna(subset=["Folio_Factura", "ID_Pedido"], how="all")
+
+        # (Opcional) Mostrar columnas detectadas para depurar
+        # st.caption(f"Encabezados detectados: {list(df.columns)}")
+
         return df, headers
-    else:
-        return pd.DataFrame(), []
+    return _load()
+
 
 @st.cache_resource
 def get_google_sheets_client():
