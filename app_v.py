@@ -78,6 +78,12 @@ def get_worksheet():
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
     return spreadsheet.worksheet("datos_pedidos")
 
+def get_worksheet_casos_especiales():
+    client = build_gspread_client()
+    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    return spreadsheet.worksheet("casos_especiales")
+
+
 # ✅ Cliente listo para usar en cualquier parte
 g_spread_client = get_google_sheets_client()
 
@@ -300,16 +306,64 @@ with tab1:
         folio_factura = st.text_input("📄 Folio de Factura")
         fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", datetime.now().date())
         comentario = st.text_area("💬 Comentario / Descripción Detallada")
+        # --- Campos adicionales para Devolución ---
+        resultado_esperado = material_devuelto = motivo_detallado = area_responsable = nombre_responsable = ""
+        monto_devuelto = 0.0
+        comprobante_cliente = hoja_ruta = None
 
-        st.markdown("---")
-        st.subheader("📎 Adjuntos del Pedido")
-        uploaded_files = st.file_uploader(
-            "Sube archivos del pedido",
-            type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
-            accept_multiple_files=True
-        )
+        if tipo_envio == "🔁 Devolución":
+            st.markdown("### 🔁 Información de Devolución")
 
-        submit_button = st.form_submit_button("✅ Registrar Pedido")
+            resultado_esperado = st.selectbox(
+                "🎯 Resultado Esperado",
+                ["Cambio de Producto", "Devolución de Dinero", "Saldo a Favor"],
+                key="resultado_esperado"
+            )
+
+            material_devuelto = st.text_area(
+                "📦 Material a Devolver (códigos, descripciones, cantidades y monto individual con IVA)",
+                key="material_devuelto"
+            )
+
+            monto_devuelto = st.number_input(
+                "💲 Total de Materiales a Devolver (con IVA)",
+                min_value=0.0,
+                format="%.2f",
+                key="monto_devuelto"
+            )
+
+            area_responsable = st.selectbox(
+                "🏷 Área Responsable del Error",
+                ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"],
+                key="area_responsable"
+            )
+
+            if area_responsable in ["Vendedor", "Almacén"]:
+                nombre_responsable = st.text_input("👤 Nombre del Empleado Responsable", key="nombre_responsable")
+            else:
+                nombre_responsable = "No aplica"
+
+            motivo_detallado = st.text_area("📝 Explicación Detallada del Caso", key="motivo_detallado")
+
+            # 📎 Comprobante si Cliente + Foráneo
+            if area_responsable == "Cliente" and tipo_envio == "🚚 Pedido Foráneo":
+                comprobante_cliente = st.file_uploader("💳 Comprobante de Pago (si aplica)", type=["pdf", "jpg", "jpeg", "png"], key="comprobante_cliente")
+
+            # 📎 Hoja de Ruta si Local
+            if tipo_envio == "🔁 Devolución" and subtipo_local:
+                hoja_ruta = st.file_uploader("🧾 Hoja de Ruta del Mensajero", type=["pdf", "jpg", "jpeg", "png"], key="hoja_ruta")
+
+
+
+            st.markdown("---")
+            st.subheader("📎 Adjuntos del Pedido")
+            uploaded_files = st.file_uploader(
+                "Sube archivos del pedido",
+                type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
+                accept_multiple_files=True
+            )
+
+            submit_button = st.form_submit_button("✅ Registrar Pedido")
 
     # --- Estado de pago después del formulario ---
     st.markdown("---")
@@ -455,9 +509,25 @@ with tab1:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                 st.stop()
 
+            if tipo_envio == "🔁 Devolución":
+                if not resultado_esperado or not material_devuelto or monto_devuelto == 0 or not motivo_detallado:
+                    st.warning("⚠️ Completa todos los campos obligatorios de devolución.")
+                    st.stop()
+                if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
+                    st.warning("⚠️ Debes especificar el nombre del responsable.")
+                    st.stop()
+                if area_responsable == "Cliente" and tipo_envio == "🚚 Pedido Foráneo" and not comprobante_cliente:
+                    st.warning("⚠️ Debes subir el comprobante de pago del cliente.")
+                    st.stop()
+
+
             headers = []
             try:
-                worksheet = get_worksheet()
+                if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                    worksheet = get_worksheet_casos_especiales()
+                else:
+                    worksheet = get_worksheet()
+
 
                 all_data = worksheet.get_all_values()
                 if not all_data:
@@ -505,6 +575,29 @@ with tab1:
                         st.error(f"❌ Falló la subida de {archivo.name}")
                         st.stop()
 
+            # ✅ Subir archivo de comprobante cliente (si aplica)
+            if comprobante_cliente:
+                ext_cc = os.path.splitext(comprobante_cliente.name)[1]
+                s3_key_cc = f"{id_pedido}/comprobante_cliente_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
+                success_cc, url_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, comprobante_cliente, s3_key_cc)
+                if success_cc:
+                    adjuntos_urls.append(url_cc)
+                else:
+                    st.error("❌ Falló la subida del comprobante del cliente")
+                    st.stop()
+
+            # ✅ Subir hoja de ruta (si aplica)
+            if hoja_ruta:
+                ext_hr = os.path.splitext(hoja_ruta.name)[1]
+                s3_key_hr = f"{id_pedido}/hoja_ruta_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_hr}"
+                success_hr, url_hr = upload_file_to_s3(s3_client, S3_BUCKET_NAME, hoja_ruta, s3_key_hr)
+                if success_hr:
+                    adjuntos_urls.append(url_hr)
+                else:
+                    st.error("❌ Falló la subida de la hoja de ruta")
+                    st.stop()
+
+
 
 
             adjuntos_str = ", ".join(adjuntos_urls)
@@ -551,6 +644,18 @@ with tab1:
                     values.append(referencia_pago)
                 elif header in ["Fecha_Completado", "Hora_Proceso", "Modificacion_Surtido"]:
                     values.append("")
+                elif header == "Resultado_Esperado":
+                    values.append(resultado_esperado if tipo_envio == "🔁 Devolución" else "")
+                elif header == "Material_Devuelto":
+                    values.append(material_devuelto if tipo_envio == "🔁 Devolución" else "")
+                elif header == "Monto_Devuelto":
+                    values.append(f"{monto_devuelto:.2f}" if tipo_envio == "🔁 Devolución" else "")
+                elif header == "Motivo_Detallado":
+                    values.append(motivo_detallado if tipo_envio == "🔁 Devolución" else "")
+                elif header == "Area_Responsable":
+                    values.append(area_responsable if tipo_envio == "🔁 Devolución" else "")
+                elif header == "Nombre_Responsable":
+                    values.append(nombre_responsable if tipo_envio == "🔁 Devolución" else "")
                 else:
                     values.append("")
 
