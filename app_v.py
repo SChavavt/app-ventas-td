@@ -289,6 +289,8 @@ with tab1:
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
 
+    # Replace the form section in Tab 1 with this corrected version:
+
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
@@ -306,6 +308,7 @@ with tab1:
         folio_factura = st.text_input("📄 Folio de Factura")
         fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", datetime.now().date())
         comentario = st.text_area("💬 Comentario / Descripción Detallada")
+        
         # --- Campos adicionales para Devolución ---
         resultado_esperado = material_devuelto = motivo_detallado = area_responsable = nombre_responsable = ""
         monto_devuelto = 0.0
@@ -353,17 +356,16 @@ with tab1:
             if tipo_envio == "🔁 Devolución" and subtipo_local:
                 hoja_ruta = st.file_uploader("🧾 Hoja de Ruta del Mensajero", type=["pdf", "jpg", "jpeg", "png"], key="hoja_ruta")
 
+        st.markdown("---")
+        st.subheader("📎 Adjuntos del Pedido")
+        uploaded_files = st.file_uploader(
+            "Sube archivos del pedido",
+            type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
+            accept_multiple_files=True
+        )
 
-
-            st.markdown("---")
-            st.subheader("📎 Adjuntos del Pedido")
-            uploaded_files = st.file_uploader(
-                "Sube archivos del pedido",
-                type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
-                accept_multiple_files=True
-            )
-
-            submit_button = st.form_submit_button("✅ Registrar Pedido")
+        # IMPORTANT: Move the submit button HERE, inside the form but outside the conditional blocks
+        submit_button = st.form_submit_button("✅ Registrar Pedido")
 
     # --- Estado de pago después del formulario ---
     st.markdown("---")
