@@ -69,6 +69,9 @@ if df_pedidos.empty:
     st.warning("⚠️ No se cargaron pedidos desde la hoja de cálculo. Verifica que la hoja 'datos_pedidos' no esté vacía o dañada.")
     st.stop()
 
+df_casos, headers_casos = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "casos_especiales")
+
+
 worksheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
 
 # --- CONFIGURACIÓN DE AWS S3 ---
@@ -229,9 +232,9 @@ if 'Comprobante_Confirmado' in df_pedidos.columns:
 else:
     pedidos_pagados_no_confirmados = pd.DataFrame()
 
-tab_names = ["💳 Pendientes de Confirmar", "📥 Confirmados"]
+tab_names = ["💳 Pendientes de Confirmar", "📥 Confirmados", "📦 Devoluciones"]
 tab_index = st.session_state.get("active_tab_admin_index", 0)
-tab1, tab2 = st.tabs(tab_names)
+tab1, tab2, tab3 = st.tabs(tab_names)
 
 
 # --- INTERFAZ PRINCIPAL ---
@@ -873,4 +876,79 @@ with tab2:
             hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
             st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
+
+
+# --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
+
+with tab3:
+    st.header("📦 Confirmación de Devoluciones")
+    
+    if df_casos.empty:
+        st.info("ℹ️ No hay devoluciones registradas.")
+        st.stop()
+
+    df_devoluciones = df_casos[df_casos['Tipo_Envio'] == '🔁 Devolución'].copy()
+    if df_devoluciones.empty:
+        st.info("ℹ️ No hay devoluciones pendientes por confirmar.")
+        st.stop()
+
+    # Selección de pedido
+    df_devoluciones["display"] = df_devoluciones.apply(lambda row: f"{row['ID_Pedido']} - {row['Cliente']} - {row['Resultado_Esperado']}", axis=1)
+    selected = st.selectbox("📋 Selecciona una devolución", df_devoluciones["display"].tolist())
+    row = df_devoluciones[df_devoluciones["display"] == selected].iloc[0]
+    gsheet_row_idx = df_casos[df_casos["ID_Pedido"] == row["ID_Pedido"]].index[0] + 2  # índice real en hoja
+
+    st.markdown(f"🧾 **Folio Factura:** {row.get('Folio_Factura', 'N/A')}")
+    st.markdown(f"👤 **Cliente:** {row.get('Cliente')}")
+    st.markdown(f"📝 **Motivo:** {row.get('Motivo_Detallado')}")
+    st.markdown("---")
+
+    # 📅 Confirmar fecha de recepción
+    fecha_recepcion = st.date_input("📅 Fecha en que llegó la devolución", key="fecha_recepcion_devolucion")
+
+    # 📦 Estado de los artículos
+    estado_recepcion = st.selectbox("📦 ¿Todo llegó correctamente?", ["", "Sí, completo", "Faltan artículos"], key="estado_recepcion")
+
+    # 📎 Nota de crédito
+    nota_credito_file = st.file_uploader("🧾 Subir Nota de Crédito", type=["pdf", "jpg", "jpeg", "png"], key="nota_credito")
+
+    # 📎 Otro documento adicional
+    documento_adicional = st.file_uploader("📂 Subir otro documento (ej. Entrada/Comprobante)", type=["pdf", "jpg", "jpeg", "png"], key="documento_adicional")
+
+    # 📝 Comentarios finales
+    comentario_admin = st.text_area("📝 Comentario administrativo final")
+
+    if st.button("💾 Guardar Confirmación"):
+        try:
+            urls = {}
+
+            # Subir ambos archivos
+            for label, file in [("nota", nota_credito_file), ("extra", documento_adicional)]:
+                if file:
+                    ext = os.path.splitext(file.name)[-1]
+                    s3_key = f"{row['ID_Pedido']}/{label}_devolucion_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                    ok, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
+                    if ok:
+                        urls[label] = url
+
+            # Actualizar hoja
+            updates = {
+                "Fecha_Recepcion_Devolucion": fecha_recepcion.strftime("%Y-%m-%d"),
+                "Estado_Recepcion": estado_recepcion,
+                "Nota_Credito_URL": urls.get("nota", ""),
+                "Documento_Adicional_URL": urls.get("extra", ""),
+                "Comentarios_Admin_Devolucion": comentario_admin,
+            }
+
+            for col, val in updates.items():
+                if col in headers_casos:
+                    worksheet_casos = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
+                    worksheet_casos.update_cell(gsheet_row_idx, headers_casos.index(col)+1, val)
+
+            st.success("✅ Confirmación de devolución guardada correctamente.")
+            st.balloons()
+            st.cache_data.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error al guardar la confirmación: {e}")
 
