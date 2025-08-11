@@ -7,7 +7,7 @@ import boto3
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, date
 import os
 import uuid
 
@@ -481,36 +481,63 @@ with tab1:
                     monto_pago = monto1 + monto2
                     referencia = f"{ref1}, {ref2}"
 
+                # ⬇️ Reemplaza desde aquí
                 if st.button("💾 Guardar Comprobante y Datos de Pago"):
                     try:
-                        gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
-                        adjuntos_urls = []
+                        # Índice real en la hoja
+                        gsheet_row_index = (
+                            df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]]
+                            .index[0] + 2
+                        )
 
                         # Subir archivos a S3
+                        adjuntos_urls = []
                         if comprobantes_nuevo:
                             for file in comprobantes_nuevo:
                                 ext = os.path.splitext(file.name)[1]
-                                s3_key = f"{selected_pedido_data['ID_Pedido']}/comprobante_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                s3_key = (
+                                    f"{selected_pedido_data['ID_Pedido']}/"
+                                    f"comprobante_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                )
+                                try:
+                                    file.seek(0)
+                                except Exception:
+                                    pass
                                 success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
                                 if success:
                                     adjuntos_urls.append(url)
 
+                        # ---- Normalizaciones SEGURAS para Google Sheets ----
+                        # Fecha: soporta date, datetime o string (incluye el caso "YYYY-MM-DD y YYYY-MM-DD")
+                        if isinstance(fecha_pago, (datetime, date)):
+                            fecha_pago_str = fecha_pago.strftime("%Y-%m-%d")
+                        else:
+                            fecha_pago_str = str(fecha_pago) if fecha_pago else ""
+
+                        # Monto a float
+                        try:
+                            monto_val = float(monto_pago) if monto_pago is not None else 0.0
+                        except Exception:
+                            monto_val = 0.0
+
+                        # Construir actualizaciones
                         updates = {
-                            'Estado_Pago': '✅ Pagado',
-                            'Comprobante_Confirmado': 'Sí',
-                            'Fecha_Pago_Comprobante': fecha_pago.strftime('%Y-%m-%d') if isinstance(fecha_pago, datetime) else fecha_pago,
-                            'Forma_Pago_Comprobante': forma_pago,
-                            'Monto_Comprobante': monto_pago,
-                            'Referencia_Comprobante': referencia,
-                            'Terminal': terminal,
-                            'Banco_Destino_Pago': banco_destino,
+                            "Estado_Pago": "✅ Pagado",
+                            "Comprobante_Confirmado": "Sí",
+                            "Fecha_Pago_Comprobante": fecha_pago_str,
+                            "Forma_Pago_Comprobante": forma_pago,
+                            "Monto_Comprobante": monto_val,
+                            "Referencia_Comprobante": referencia,
+                            "Terminal": terminal,
+                            "Banco_Destino_Pago": banco_destino,
                         }
 
+                        # Escribir campos
                         for col, val in updates.items():
                             if col in headers:
                                 worksheet.update_cell(gsheet_row_index, headers.index(col) + 1, val)
 
-                        # Concatenar nuevos adjuntos al campo existente de "Adjuntos"
+                        # Concatenar nuevos adjuntos al campo "Adjuntos"
                         if adjuntos_urls and "Adjuntos" in headers:
                             adjuntos_actuales = selected_pedido_data.get("Adjuntos", "")
                             nuevo_valor_adjuntos = ", ".join(filter(None, [adjuntos_actuales] + adjuntos_urls))
@@ -524,6 +551,8 @@ with tab1:
 
                     except Exception as e:
                         st.error(f"❌ Error al guardar el comprobante: {e}")
+                # ⬆️ Hasta aquí
+
 
                 # Resto del código para pedidos normales con comprobantes existentes
                 selected_pedido_id_for_s3_search = selected_pedido_data.get('ID_Pedido', 'N/A')
