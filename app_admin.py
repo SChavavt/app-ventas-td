@@ -905,30 +905,63 @@ with tab2:
 
             st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
 
-
 # --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
-
 with tab3:
-    st.header("📦 Confirmación de Devoluciones")
-    
+    st.header("📦 Confirmación de Devoluciones (casos_especiales)")
+
+    # ✅ Reusar df_casos / headers_casos que ya cargaste arriba
+    # Detectar columna que indica el tipo de caso (por compatibilidad con distintos nombres)
+    tipo_col = "Tipo_Caso" if "Tipo_Caso" in df_casos.columns else ("Tipo_Envio" if "Tipo_Envio" in df_casos.columns else None)
+    if not tipo_col:
+        st.error("❌ En 'casos_especiales' falta la columna 'Tipo_Caso' o 'Tipo_Envio'.")
+        st.stop()
+
     if df_casos.empty:
-        st.info("ℹ️ No hay devoluciones registradas.")
+        st.info("ℹ️ No hay casos registrados en 'casos_especiales'.")
         st.stop()
 
-    df_devoluciones = df_casos[df_casos['Tipo_Envio'] == '🔁 Devolución'].copy()
+    # 🔎 Filtrar SOLO devoluciones desde 'casos_especiales'
+    df_devoluciones = df_casos[df_casos[tipo_col].astype(str).str.contains("Devoluci", case=False, na=False)].copy()
     if df_devoluciones.empty:
-        st.info("ℹ️ No hay devoluciones pendientes por confirmar.")
+        st.info("ℹ️ No hay devoluciones pendientes por confirmar en 'casos_especiales'.")
         st.stop()
 
-    # Selección de pedido
-    df_devoluciones["display"] = df_devoluciones.apply(lambda row: f"{row['ID_Pedido']} - {row['Cliente']} - {row['Resultado_Esperado']}", axis=1)
-    selected = st.selectbox("📋 Selecciona una devolución", df_devoluciones["display"].tolist())
-    row = df_devoluciones[df_devoluciones["display"] == selected].iloc[0]
-    gsheet_row_idx = df_casos[df_casos["ID_Pedido"] == row["ID_Pedido"]].index[0] + 2  # índice real en hoja
+    # 🧹 Asegurar columnas usadas en el display
+    for c in ["ID_Pedido", "Cliente", "Resultado_Esperado", "Folio_Factura"]:
+        if c not in df_devoluciones.columns:
+            df_devoluciones[c] = ""
 
+    # 📋 Lista de selección
+    df_devoluciones = df_devoluciones.sort_values(
+        by=["Fecha_Registro"] if "Fecha_Registro" in df_devoluciones.columns else ["ID_Pedido"],
+        ascending=False if "Fecha_Registro" in df_devoluciones.columns else True
+    )
+
+    df_devoluciones["__display__"] = df_devoluciones.apply(
+        lambda row: f"{str(row['ID_Pedido']).strip()} - {str(row['Cliente']).strip()} - {str(row.get('Resultado_Esperado','')).strip()}",
+        axis=1
+    )
+
+    selected = st.selectbox("📋 Selecciona una devolución", df_devoluciones["__display__"].tolist())
+    row = df_devoluciones[df_devoluciones["__display__"] == selected].iloc[0]
+
+    # Índice real en hoja 'casos_especiales'
+    matches = df_casos.index[df_casos["ID_Pedido"].astype(str).str.strip() == str(row["ID_Pedido"]).strip()]
+    if len(matches) == 0:
+        st.error("❌ No se encontró el caso seleccionado en 'casos_especiales'.")
+        st.stop()
+    gsheet_row_idx = int(matches[0]) + 2  # índice real en hoja
+
+    # 📌 Worksheet 'casos_especiales' (reusar si ya lo tienes)
+    try:
+        worksheet_casos  # noqa: F821
+    except NameError:
+        worksheet_casos = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
+
+    # 🧾 Info del caso
     st.markdown(f"🧾 **Folio Factura:** {row.get('Folio_Factura', 'N/A')}")
-    st.markdown(f"👤 **Cliente:** {row.get('Cliente')}")
-    st.markdown(f"📝 **Motivo:** {row.get('Motivo_Detallado')}")
+    st.markdown(f"👤 **Cliente:** {row.get('Cliente', 'N/A')}")
+    st.markdown(f"📝 **Motivo:** {row.get('Motivo_Detallado', '')}")
     st.markdown("---")
 
     # 📅 Confirmar fecha de recepción
@@ -948,35 +981,60 @@ with tab3:
 
     if st.button("💾 Guardar Confirmación"):
         try:
+            if not estado_recepcion:
+                st.warning("⚠️ Completa el campo de estado de recepción.")
+                st.stop()
+
             urls = {}
 
-            # Subir ambos archivos
+            # Subir archivos (S3) — usa el ID_Pedido como carpeta
+            carpeta = str(row['ID_Pedido']).strip() or "caso_sin_id"
             for label, file in [("nota", nota_credito_file), ("extra", documento_adicional)]:
                 if file:
                     ext = os.path.splitext(file.name)[-1]
-                    s3_key = f"{row['ID_Pedido']}/{label}_devolucion_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                    s3_key = f"{carpeta}/{label}_devolucion_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
                     ok, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
                     if ok:
                         urls[label] = url
 
-            # Actualizar hoja
+            # Mapear "Sí, completo" -> "Todo correcto" si quieres homologar con otra pestaña
+            estado_normalizado = "Todo correcto" if estado_recepcion == "Sí, completo" else estado_recepcion
+
+            # Actualizaciones en 'casos_especiales'
             updates = {
                 "Fecha_Recepcion_Devolucion": fecha_recepcion.strftime("%Y-%m-%d"),
-                "Estado_Recepcion": estado_recepcion,
+                "Estado_Recepcion": estado_normalizado,
                 "Nota_Credito_URL": urls.get("nota", ""),
                 "Documento_Adicional_URL": urls.get("extra", ""),
                 "Comentarios_Admin_Devolucion": comentario_admin,
+                "Estado_Caso": "Aprobado"
             }
 
-            for col, val in updates.items():
-                if col in headers_casos:
-                    worksheet_casos = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
-                    worksheet_casos.update_cell(gsheet_row_idx, headers_casos.index(col)+1, val)
+            # Función para actualizar celda por nombre de columna
+            def update_gsheet_cell(worksheet, headers, row_idx, col_name, value):
+                try:
+                    col_idx = headers.index(col_name) + 1
+                    worksheet.update_cell(row_idx, col_idx, value)
+                    return True
+                except Exception as e:
+                    st.error(f"❌ Error al actualizar la celda '{col_name}': {e}")
+                    return False
 
-            st.success("✅ Confirmación de devolución guardada correctamente.")
-            st.balloons()
-            st.cache_data.clear()
-            st.rerun()
+            ok_all = True
+            for col, val in updates.items():
+                # Si faltara la columna, la creamos virtualmente para no romper
+                if col not in headers_casos:
+                    headers_casos.append(col)
+                    # Opcional: también puedes añadir la columna a df_casos = "" (ya lo haces arriba del todo en tu app)
+                ok_all &= update_gsheet_cell(worksheet_casos, headers_casos, gsheet_row_idx, col, val)
+
+            if ok_all:
+                st.success("✅ Confirmación de devolución guardada correctamente en 'casos_especiales'.")
+                st.balloons()
+                st.cache_data.clear()
+                st.rerun()
+            else:
+                st.error("❌ Ocurrió un problema al guardar alguna de las celdas.")
+
         except Exception as e:
             st.error(f"❌ Error al guardar la confirmación: {e}")
-
