@@ -904,117 +904,111 @@ with tab2:
             hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
             st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
-# --- TAB 3: CONFIRMACIÓN DEVOLUCIONES (dentro de tu with tab3:) ---
-st.header("📦 Confirmación de Devoluciones (casos_especiales)")
+# --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
+with tab3:
+    st.header("📦 Confirmación de Devoluciones (casos_especiales)")
 
-# === Utilidades locales ===
-def get_raw_sheet_data(sheet_id, worksheet_name):
-    gc = get_google_sheets_client()
-    ws = gc.open_by_key(sheet_id).worksheet(worksheet_name)
-    return ws, ws.get_all_values()
+    # 🔔 Placeholder SOLO para mensajes en Tab 3
+    tab3_alert = st.empty()
 
-def process_sheet_data(raw_values):
-    if not raw_values or len(raw_values) < 1:
-        return pd.DataFrame(), []
-    headers = raw_values[0]
-    df = pd.DataFrame(raw_values[1:], columns=headers)
-    return df, headers
+    # 📌 Funciones utilitarias
+    def get_raw_sheet_data(sheet_id, worksheet_name, credentials=None):
+        gc = get_google_sheets_client()
+        ws = gc.open_by_key(sheet_id).worksheet(worksheet_name)
+        return ws.get_all_values()
 
-def ensure_sheet_columns(worksheet, headers_list, required_cols):
-    """
-    Si faltan columnas en la fila 1, las agrega al final y extiende la hoja si es necesario.
-    Devuelve el header actualizado.
-    """
-    sheet_headers = worksheet.row_values(1)
-    current_cols = worksheet.col_count
-    to_create = [c for c in required_cols if c not in sheet_headers]
+    def process_sheet_data(raw_data):
+        if not raw_data or len(raw_data) < 1:
+            return pd.DataFrame(), []
+        headers = raw_data[0]
+        df = pd.DataFrame(raw_data[1:], columns=headers)
+        return df, headers
 
-    if to_create:
-        new_total_cols = len(sheet_headers) + len(to_create)
-        if new_total_cols > current_cols:
-            worksheet.add_cols(new_total_cols - current_cols)
-        for i, col_name in enumerate(to_create, start=1):
-            col_idx = len(sheet_headers) + i  # 1-based
-            worksheet.update_cell(1, col_idx, col_name)
-        sheet_headers = worksheet.row_values(1)
+    # 📌 Cargar SIEMPRE desde 'casos_especiales'
+    raw_casos = get_raw_sheet_data(
+        sheet_id=GOOGLE_SHEET_ID,
+        worksheet_name="casos_especiales",
+        credentials=None
+    )
+    df_casos, headers_casos = process_sheet_data(raw_casos)
 
-    return sheet_headers
-
-def update_gsheet_cell(worksheet, headers, row_idx, col_name, value):
-    try:
-        col_idx = headers.index(col_name) + 1
-        worksheet.update_cell(row_idx, col_idx, value)
-        return True
-    except Exception as e:
-        st.error(f"❌ Error al actualizar la celda '{col_name}': {e}")
-        return False
-
-# === Cargar SIEMPRE la hoja 'casos_especiales' ===
-worksheet_casos, raw = get_raw_sheet_data(GOOGLE_SHEET_ID, "casos_especiales")
-df_casos, headers_casos = process_sheet_data(raw)
-
-if df_casos.empty:
-    st.info("ℹ️ No hay casos registrados en 'casos_especiales'.")
-    st.stop()
-if "Tipo_Envio" not in df_casos.columns:
-    st.error("❌ En 'casos_especiales' falta la columna 'Tipo_Envio'.")
-    st.stop()
-
-# 🔎 Filtrar SOLO devoluciones exactas (con el emoji)
-df_devoluciones = df_casos[df_casos["Tipo_Envio"].astype(str).str.strip() == "🔁 Devolución"].copy()
-if df_devoluciones.empty:
-    st.info("ℹ️ No hay devoluciones pendientes por confirmar en 'casos_especiales'.")
-    st.stop()
-
-# Asegurar columnas que se mostrarán
-for c in ["ID_Pedido", "Cliente", "Resultado_Esperado", "Folio_Factura", "Hora_Registro"]:
-    if c not in df_devoluciones.columns:
-        df_devoluciones[c] = ""
-
-# Orden por Hora_Registro (antiguas → recientes)
-df_devoluciones["Hora_Registro"] = pd.to_datetime(df_devoluciones["Hora_Registro"], errors="coerce")
-df_devoluciones = df_devoluciones.sort_values(by="Hora_Registro", ascending=True)
-
-# Selector con info útil
-df_devoluciones["__display__"] = df_devoluciones.apply(
-    lambda r: f"{(r['Hora_Registro'].strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(r['Hora_Registro']) else '')} · "
-              f"{str(r['ID_Pedido']).strip()} · "
-              f"{str(r['Cliente']).strip()} · "
-              f"{str(r.get('Resultado_Esperado','')).strip()}",
-    axis=1
-)
-selected = st.selectbox("📋 Selecciona una devolución", df_devoluciones["__display__"].tolist(), key="dev_select")
-row = df_devoluciones.loc[df_devoluciones["__display__"] == selected].iloc[0]
-
-# Índice real en hoja
-matches = df_casos.index[df_casos["ID_Pedido"].astype(str).str.strip() == str(row["ID_Pedido"]).strip()]
-if len(matches) == 0:
-    st.error("❌ No se encontró el caso seleccionado en 'casos_especiales'.")
-    st.stop()
-gsheet_row_idx = int(matches[0]) + 2  # +1 header, +1 base 1
-
-# Info del caso
-st.markdown(f"🧾 **Folio Factura:** {row.get('Folio_Factura', 'N/A')}")
-st.markdown(f"👤 **Cliente:** {row.get('Cliente', 'N/A')}")
-st.markdown(f"📝 **Motivo:** {row.get('Motivo_Detallado', '')}")
-st.markdown("---")
-
-# === FORM para evitar reruns en cada interacción ===
-with st.form(key=f"form_dev_{row['ID_Pedido']}"):
-    fecha_recepcion = st.date_input("📅 Fecha en que llegó la devolución")
-    estado_recepcion = st.selectbox("📦 ¿Todo llegó correctamente?", ["", "Sí, completo", "Faltan artículos"])
-    nota_credito_file = st.file_uploader("🧾 Subir Nota de Crédito", type=["pdf", "jpg", "jpeg", "png"])
-    documento_adicional = st.file_uploader("📂 Subir otro documento (ej. Entrada/Comprobante)", type=["pdf", "jpg", "jpeg", "png"])
-    comentario_admin = st.text_area("📝 Comentario administrativo final")
-
-    guardar = st.form_submit_button("💾 Guardar Confirmación")
-
-if guardar:
-    if not estado_recepcion:
-        st.warning("⚠️ Completa el campo de estado de recepción.")
+    # Validaciones
+    if df_casos.empty:
+        tab3_alert.info("ℹ️ No hay casos registrados en 'casos_especiales'.")
+        st.stop()
+    if "Tipo_Envio" not in df_casos.columns:
+        tab3_alert.error("❌ En 'casos_especiales' falta la columna 'Tipo_Envio'.")
         st.stop()
 
-    with st.spinner("Guardando confirmación..."):
+    # 🔎 Filtrar SOLO devoluciones exactas
+    df_devoluciones = df_casos[df_casos["Tipo_Envio"].astype(str).str.strip() == "🔁 Devolución"].copy()
+    if df_devoluciones.empty:
+        tab3_alert.info("ℹ️ No hay devoluciones pendientes por confirmar en 'casos_especiales'.")
+        st.stop()
+
+    # 🧹 Asegurar columnas necesarias
+    for c in ["ID_Pedido", "Cliente", "Resultado_Esperado", "Folio_Factura", "Hora_Registro"]:
+        if c not in df_devoluciones.columns:
+            df_devoluciones[c] = ""
+
+    # ⏱️ Ordenar SOLO por Hora_Registro
+    df_devoluciones["Hora_Registro"] = pd.to_datetime(df_devoluciones["Hora_Registro"], errors="coerce")
+    df_devoluciones = df_devoluciones.sort_values(by="Hora_Registro", ascending=True)
+
+    # 📋 Selector
+    df_devoluciones["__display__"] = df_devoluciones.apply(
+        lambda r: f"{str(r['ID_Pedido']).strip()} - {str(r['Cliente']).strip()} - {str(r.get('Resultado_Esperado','')).strip()}",
+        axis=1
+    )
+    selected = st.selectbox("📋 Selecciona una devolución", df_devoluciones["__display__"].tolist())
+    row = df_devoluciones[df_devoluciones["__display__"] == selected].iloc[0]
+
+    # Índice real en hoja 'casos_especiales'
+    matches = df_casos.index[df_casos["ID_Pedido"].astype(str).str.strip() == str(row["ID_Pedido"]).strip()]
+    if len(matches) == 0:
+        tab3_alert.error("❌ No se encontró el caso seleccionado en 'casos_especiales'.")
+        st.stop()
+    gsheet_row_idx = int(matches[0]) + 2
+
+    # 📌 Worksheet para escritura
+    worksheet_casos = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
+
+    # 🧾 Info del caso
+    st.markdown(f"🧾 **Folio Factura:** {row.get('Folio_Factura', 'N/A')}")
+    st.markdown(f"👤 **Cliente:** {row.get('Cliente', 'N/A')}")
+    st.markdown(f"📝 **Motivo:** {row.get('Motivo_Detallado', '')}")
+    st.markdown("---")
+
+    # 📅 Confirmar fecha
+    fecha_recepcion = st.date_input("📅 Fecha en que llegó la devolución", key="fecha_recepcion_devolucion")
+
+    # 📦 Estado de los artículos
+    estado_recepcion = st.selectbox("📦 ¿Todo llegó correctamente?", ["", "Sí, completo", "Faltan artículos"], key="estado_recepcion")
+
+    # 📎 Nota de crédito
+    nota_credito_file = st.file_uploader("🧾 Subir Nota de Crédito", type=["pdf", "jpg", "jpeg", "png"], key="nota_credito")
+
+    # 📎 Documento adicional
+    documento_adicional = st.file_uploader("📂 Subir otro documento (ej. Entrada/Comprobante)", type=["pdf", "jpg", "jpeg", "png"], key="documento_adicional")
+
+    # 📝 Comentarios finales
+    comentario_admin = st.text_area("📝 Comentario administrativo final")
+
+    # 🔧 Función para actualizar celda
+    def update_gsheet_cell(worksheet, headers, row_idx, col_name, value):
+        try:
+            col_idx = headers.index(col_name) + 1
+            worksheet.update_cell(row_idx, col_idx, value)
+            return True
+        except Exception as e:
+            tab3_alert.error(f"❌ Error al actualizar la celda '{col_name}': {e}")
+            return False
+
+    if st.button("💾 Guardar Confirmación"):
+        if not estado_recepcion:
+            tab3_alert.warning("⚠️ Completa el campo de estado de recepción.")
+            st.stop()
+
         # Subir archivos a S3
         urls = {}
         carpeta = str(row['ID_Pedido']).strip() or "caso_sin_id"
@@ -1028,25 +1022,24 @@ if guardar:
 
         estado_normalizado = "Todo correcto" if estado_recepcion == "Sí, completo" else estado_recepcion
 
-        # Campos que vamos a escribir
         updates = {
             "Fecha_Recepcion_Devolucion": fecha_recepcion.strftime("%Y-%m-%d"),
             "Estado_Recepcion": estado_normalizado,
             "Nota_Credito_URL": urls.get("nota", ""),
             "Documento_Adicional_URL": urls.get("extra", ""),
             "Comentarios_Admin_Devolucion": comentario_admin,
-            "Estado_Caso": "Aprobado",
+            "Estado_Caso": "Aprobado"
         }
-
-        # ✅ Asegurar físicamente las columnas en la hoja (evita 'grid limits')
-        headers_casos = ensure_sheet_columns(worksheet_casos, headers_casos, list(updates.keys()))
 
         ok_all = True
         for col, val in updates.items():
+            if col not in headers_casos:
+                headers_casos.append(col)
             ok_all &= update_gsheet_cell(worksheet_casos, headers_casos, gsheet_row_idx, col, val)
 
-    if ok_all:
-        st.success("✅ Confirmación de devolución guardada.")
-        # Sin st.rerun(): te quedas en el mismo tab. Si quieres refrescar la lista localmente, podrías recargar aquí.
-    else:
-        st.error("❌ Ocurrió un problema al guardar.")
+        if ok_all:
+            tab3_alert.success("✅ Confirmación de devolución guardada.")
+            st.balloons()
+            st.cache_data.clear()
+        else:
+            tab3_alert.error("❌ Ocurrió un problema al guardar.")
