@@ -904,9 +904,43 @@ with tab2:
             hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
             st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
+
 # --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
 with tab3:
     st.header("📦 Confirmación de Devoluciones (casos_especiales)")
+
+    # Utilidad para obtener datos crudos de una hoja de Google Sheets
+    def get_raw_sheet_data(sheet_id, worksheet_name, credentials=None):
+        gc = get_google_sheets_client()
+        ws = gc.open_by_key(sheet_id).worksheet(worksheet_name)
+        return ws.get_all_values()
+
+    # Utilidad para procesar datos crudos en DataFrame y encabezados
+    def process_sheet_data(raw_data):
+        if not raw_data or len(raw_data) < 1:
+            return pd.DataFrame(), []
+        headers = raw_data[0]
+        df = pd.DataFrame(raw_data[1:], columns=headers)
+        return df, headers
+
+    # Normalizador para comparación exacta (quita invisibles que mete Sheets)
+    def _norm_series(s: pd.Series) -> pd.Series:
+        return (
+            s.astype(str)
+             .str.replace("\u00a0", " ", regex=False)  # NBSP → espacio
+             .str.replace("\ufe0f", "", regex=False)   # variation selector (emoji)
+             .str.replace("\u200d", "", regex=False)   # zero-width joiner
+             .str.strip()
+        )
+
+    # 📌 Cargar SIEMPRE desde la hoja 'casos_especiales'
+    raw_casos = get_raw_sheet_data(
+        sheet_id=GOOGLE_SHEET_ID,
+        worksheet_name="casos_especiales",
+        credentials=None
+    )
+    df_casos, headers_casos = process_sheet_data(raw_casos)
+    st.caption(f"Fuente: hoja 'casos_especiales' · filas: {len(df_casos)}")
 
     # Validaciones básicas
     if df_casos.empty:
@@ -916,8 +950,11 @@ with tab3:
         st.error("❌ En 'casos_especiales' falta la columna 'Tipo_Envio'.")
         st.stop()
 
-    # 🔎 Filtrar SOLO devoluciones exactas
-    df_devoluciones = df_casos[df_casos["Tipo_Envio"] == "🔁 Devolución"].copy()
+    # 🔎 Filtrar SOLO devoluciones exactas ('🔁 Devolución') con normalización de invisibles
+    target = _norm_series(pd.Series(["🔁 Devolución"]))[0]
+    tipo_envio_norm = _norm_series(df_casos["Tipo_Envio"])
+    df_devoluciones = df_casos[tipo_envio_norm == target].copy()
+
     if df_devoluciones.empty:
         st.info("ℹ️ No hay devoluciones pendientes por confirmar en 'casos_especiales'.")
         st.stop()
@@ -944,13 +981,10 @@ with tab3:
     if len(matches) == 0:
         st.error("❌ No se encontró el caso seleccionado en 'casos_especiales'.")
         st.stop()
-    gsheet_row_idx = int(matches[0]) + 2
+    gsheet_row_idx = int(matches[0]) + 2  # 1=encabezado, +1 por base 1
 
-    # 📌 Worksheet 'casos_especiales' (reusar si ya existe)
-    try:
-        worksheet_casos  # noqa: F821
-    except NameError:
-        worksheet_casos = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
+    # 📌 Worksheet 'casos_especiales' para escritura
+    worksheet_casos = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
 
     # 🧾 Info del caso
     st.markdown(f"🧾 **Folio Factura:** {row.get('Folio_Factura', 'N/A')}")
