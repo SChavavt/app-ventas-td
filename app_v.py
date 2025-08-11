@@ -289,18 +289,6 @@ with tab1:
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
 
-    # Variables para Devolución - Tipo de Envío Original
-    tipo_envio_original = ""
-    if tipo_envio == "🔁 Devolución":
-        st.markdown("---")
-        st.subheader("📦 Tipo de Envío Original")
-        tipo_envio_original = st.selectbox(
-            "¿El pedido original fue Local o Foráneo?",
-            ["📍 Local", "🚚 Foráneo"],
-            index=0,
-            help="Selecciona el tipo de envío del pedido que se va a devolver."
-        )
-
     # Initialize ALL variables with default values at the beginning
     vendedor = ""
     registro_cliente = ""
@@ -311,6 +299,7 @@ with tab1:
     uploaded_files = []
     
     # Devolución variables
+    tipo_envio_original = ""
     resultado_esperado = ""
     material_devuelto = ""
     motivo_detallado = ""
@@ -339,6 +328,14 @@ with tab1:
         # Para Devoluciones, agregar campo de número de cliente o RFC
         if tipo_envio == "🔁 Devolución":
             numero_cliente_rfc = st.text_input("🆔 Número de Cliente o RFC")
+            
+            # Variables para Devolución - Tipo de Envío Original (DENTRO del recuadro)
+            tipo_envio_original = st.selectbox(
+                "📦 Tipo de Envío Original",
+                ["📍 Local", "🚚 Foráneo"],
+                index=0,
+                help="Selecciona el tipo de envío del pedido que se va a devolver."
+            )
         
         folio_factura = st.text_input("📄 Folio de Factura")
         
@@ -382,16 +379,6 @@ with tab1:
 
             motivo_detallado = st.text_area("📝 Explicación Detallada del Caso", key="motivo_detallado")
 
-            # 📎 Comprobante si Cliente + Foráneo
-            if area_responsable == "Cliente" and tipo_envio_original == "🚚 Foráneo":
-                st.markdown("### 💳 Comprobante de Pago del Cliente")
-                st.info("⚠️ Se requiere comprobante de pago ya que el área responsable es Cliente y el pedido original fue Foráneo.")
-                comprobante_cliente = st.file_uploader(
-                    "💳 Comprobante de Pago del Cliente", 
-                    type=["pdf", "jpg", "jpeg", "png"], 
-                    key="comprobante_cliente"
-                )
-
             # 📎 Hoja de Ruta si Local
             if tipo_envio_original == "📍 Local":
                 hoja_ruta = st.file_uploader("🧾 Hoja de Ruta del Mensajero", type=["pdf", "jpg", "jpeg", "png"], key="hoja_ruta")
@@ -403,6 +390,18 @@ with tab1:
             type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
             accept_multiple_files=True
         )
+
+        # --- COMPROBANTES SIEMPRE DISPONIBLES PARA DEVOLUCIONES ---
+        if tipo_envio == "🔁 Devolución":
+            st.markdown("---")
+            st.subheader("💳 Comprobantes de la Devolución")
+            comprobante_cliente = st.file_uploader(
+                "💳 Comprobante(s) de Pago", 
+                type=["pdf", "jpg", "jpeg", "png"], 
+                accept_multiple_files=True,
+                key="comprobante_cliente",
+                help="Sube los comprobantes relacionados con esta devolución"
+            )
 
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
@@ -564,9 +563,6 @@ with tab1:
                 if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
                     st.warning("⚠️ Debes especificar el nombre del responsable.")
                     st.stop()
-                if area_responsable == "Cliente" and tipo_envio_original == "🚚 Foráneo" and not comprobante_cliente:
-                    st.warning("⚠️ Debes subir el comprobante de pago del cliente cuando el área responsable es Cliente y el pedido original fue Foráneo.")
-                    st.stop()
                     
             # Solo validar comprobante de pago para Foráneo y Local
             if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
@@ -626,16 +622,17 @@ with tab1:
                         st.error(f"❌ Falló la subida de {archivo.name}")
                         st.stop()
 
-            # ✅ Subir archivo de comprobante cliente (si aplica)
+            # ✅ Subir archivos de comprobante cliente (si aplica) - AHORA SIEMPRE DISPONIBLE
             if comprobante_cliente:
-                ext_cc = os.path.splitext(comprobante_cliente.name)[1]
-                s3_key_cc = f"{id_pedido}/comprobante_cliente_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
-                success_cc, url_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, comprobante_cliente, s3_key_cc)
-                if success_cc:
-                    adjuntos_urls.append(url_cc)
-                else:
-                    st.error("❌ Falló la subida del comprobante del cliente")
-                    st.stop()
+                for archivo_cc in comprobante_cliente:
+                    ext_cc = os.path.splitext(archivo_cc.name)[1]
+                    s3_key_cc = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
+                    success_cc, url_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
+                    if success_cc:
+                        adjuntos_urls.append(url_cc)
+                    else:
+                        st.error(f"❌ Falló la subida de {archivo_cc.name}")
+                        st.stop()
 
             # ✅ Subir hoja de ruta (si aplica)
             if hoja_ruta:
