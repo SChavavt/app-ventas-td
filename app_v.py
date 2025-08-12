@@ -307,7 +307,6 @@ with tab1:
     nombre_responsable = ""
     monto_devuelto = 0.0
     comprobante_cliente = None
-    hoja_ruta = None
 
     # --- FORMULARIO PRINCIPAL ---
     with st.form(key="new_pedido_form", clear_on_submit=True):
@@ -379,9 +378,6 @@ with tab1:
 
             motivo_detallado = st.text_area("📝 Explicación Detallada del Caso", key="motivo_detallado")
 
-            # 📎 Hoja de Ruta si Local
-            if tipo_envio_original == "📍 Local":
-                hoja_ruta = st.file_uploader("🧾 Hoja de Ruta del Mensajero", type=["pdf", "jpg", "jpeg", "png"], key="hoja_ruta")
 
         st.markdown("---")
         st.subheader("📎 Adjuntos del Pedido")
@@ -633,17 +629,6 @@ with tab1:
                     else:
                         st.error(f"❌ Falló la subida de {archivo_cc.name}")
                         st.stop()
-
-            # ✅ Subir hoja de ruta (si aplica)
-            if hoja_ruta:
-                ext_hr = os.path.splitext(hoja_ruta.name)[1]
-                s3_key_hr = f"{id_pedido}/hoja_ruta_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_hr}"
-                success_hr, url_hr = upload_file_to_s3(s3_client, S3_BUCKET_NAME, hoja_ruta, s3_key_hr)
-                if success_hr:
-                    adjuntos_urls.append(url_hr)
-                else:
-                    st.error("❌ Falló la subida de la hoja de ruta")
-                    st.stop()
 
             adjuntos_str = ", ".join(adjuntos_urls)
 
