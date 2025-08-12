@@ -11,57 +11,88 @@ from datetime import datetime, date
 import os
 import uuid
 
+# Reintentos robustos para Google Sheets
+RETRIABLE_CODES = {429, 500, 502, 503, 504}
+
+def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3, wait: float = 0.8):
+    """Abre una worksheet con reintentos y recarga del cliente si el error es transitorio."""
+    gc = get_google_sheets_client()
+    last_err = None
+    for i in range(retries + 1):
+        try:
+            ss = gc.open_by_key(sheet_id)
+            return ss.worksheet(worksheet_name)
+        except gspread.exceptions.APIError as e:
+            last_err = e
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            # Errores transitorios: reintenta con backoff y refresca cliente la primera vez
+            if status in RETRIABLE_CODES and i < retries:
+                if i == 0:
+                    st.cache_resource.clear()  # fuerza refresco del cliente una vez
+                time.sleep(wait * (i + 1))
+                continue
+            break
+    # Si no fue transitorio o se agotaron reintentos, propaga
+    raise last_err
+
 st.set_page_config(page_title="App Admin TD", layout="wide")
 if "active_tab_admin_index" not in st.session_state:
     st.session_state["active_tab_admin_index"] = 0
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
+@st.cache_data(ttl=60)
 def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
-    @st.cache_data(ttl=60)
-    def _load():
-        gc = get_google_sheets_client()
-        ws = gc.open_by_key(sheet_id).worksheet(worksheet_name)
-
+    # 1) Intenta leer con reintentos usando el helper
+    try:
+        ws = safe_open_worksheet(sheet_id, worksheet_name)
         headers = ws.row_values(1)
         df = pd.DataFrame(ws.get_all_records())
 
-        # 🔧 Normalizar encabezados
+        # 🔧 Normalización idéntica o equivalente a la tuya actual
         def _clean(s):
             return str(s).replace("\u00a0", " ").strip().replace("  ", " ").replace(" ", "_")
         df.columns = [_clean(c) for c in df.columns]
 
-        # 🔁 Alias por si escribieron distinto
         alias = {
             "Folio de Factura": "Folio_Factura",
             "Folio_Factura_": "Folio_Factura",
-            "ID_Pedido_": "ID_Pedido",
+            "ID_Pedido_": "ID_Pedido"
         }
         df = df.rename(columns=alias)
 
-        # ✅ Asegurar columnas clave
+        # Asegura columnas clave
         for col in ["Folio_Factura", "ID_Pedido"]:
             if col not in df.columns:
                 df[col] = ""
 
-        # 🧽 Normalizar valores: quita NBSP, trims y convierte vacíos/N/A a NA
+        # Limpieza de literales NA
         for col in ["Folio_Factura", "ID_Pedido"]:
             df[col] = (
-                df[col].astype(str)
-                      .str.replace("\u00a0", " ", regex=False)
-                      .str.strip()
+                df[col]
+                .astype(str)
+                .str.replace("\u00a0", " ", regex=False)
+                .str.strip()
             )
         NA_LITERALS = {"", "n/a", "na", "nan", "ninguno", "none"}
-        df[["Folio_Factura","ID_Pedido"]] = df[["Folio_Factura","ID_Pedido"]].apply(
+        df[["Folio_Factura", "ID_Pedido"]] = df[["Folio_Factura", "ID_Pedido"]].apply(
             lambda s: s.mask(s.str.lower().isin(NA_LITERALS))
         )
-
-        # 🧹 Eliminar filas donde AMBAS columnas clave estén vacías/NA
         df = df.dropna(subset=["Folio_Factura", "ID_Pedido"], how="all")
 
+        # 2) Guarda snapshot “último bueno” por si falla luego
+        st.session_state[f"_lastgood_{worksheet_name}"] = (df.copy(), list(headers))
         return df, headers
-    return _load()
 
+    except gspread.exceptions.APIError as e:
+        # 3) Fallback: usa el último snapshot bueno si existe
+        snap = st.session_state.get(f"_lastgood_{worksheet_name}")
+        if snap:
+            st.warning(f"♻️ Google Sheets dio un error temporal al leer '{worksheet_name}'. Mostrando el último dato bueno en caché.")
+            return snap[0], snap[1]
+        # 4) Si no hay snapshot, devuelve vacío pero sin matar la app
+        st.error(f"❌ No se pudo leer '{worksheet_name}' (Google API). Intenta el botón de Recargar. Detalle: {e}")
+        return pd.DataFrame(), []
 
 
 @st.cache_resource
@@ -94,13 +125,13 @@ def get_google_sheets_client():
 
 df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
 if df_pedidos.empty:
-    st.warning("⚠️ No se cargaron pedidos desde la hoja de cálculo. Verifica que la hoja 'datos_pedidos' no esté vacía o dañada.")
-    st.stop()
+    st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
+    # No st.stop(): deja que otras pestañas/partes sigan funcionando
 
 df_casos, headers_casos = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "casos_especiales")
 
 
-worksheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
+worksheet = safe_open_worksheet(GOOGLE_SHEET_ID, "datos_pedidos")
 
 # --- CONFIGURACIÓN DE AWS S3 ---
 try:
@@ -767,21 +798,23 @@ with tab1:
 with tab2:
     st.header("📊 Estadísticas Generales")
 
-    from datetime import datetime
-    import pandas as pd
+    # Imports usados en este bloque (si ya los tienes, puedes dejarlos repetidos sin problema)
     from io import BytesIO
-    import gspread
+    from datetime import datetime
+    import gspread  # para WorksheetNotFound y APIError
 
-    # 🔄 Nonce para cache fino (solo recarga cuando tú lo pides)
+    # Asegura el nonce de recarga para esta pestaña
     if "tab2_reload_nonce" not in st.session_state:
         st.session_state["tab2_reload_nonce"] = 0
 
-    # ✅ Cache de lectura de hoja (rápido y estable)
+    # ✅ Cache de lectura de hoja (rápido y estable, con snapshot)
     @st.cache_data(show_spinner=False, ttl=0)
     def cargar_confirmados_guardados_cached(sheet_id: str, ws_name: str, _nonce: int):
-        gc = get_google_sheets_client()
-        ws = gc.open_by_key(sheet_id).worksheet(ws_name)
-        # Más estable que get_all_records()
+        """
+        Lee la hoja de confirmados de forma robusta con reintentos.
+        _nonce fuerza recarga cuando presionas tu botón de recargar.
+        """
+        ws = safe_open_worksheet(sheet_id, ws_name)  # << usa helper con reintentos
         vals = ws.get_values("A1:ZZ", value_render_option="UNFORMATTED_VALUE")
         if not vals:
             return pd.DataFrame(), []
@@ -798,19 +831,23 @@ with tab2:
             lambda row: any(str(val).strip().lower() not in ["", "nan", "n/a"] for val in row),
             axis=1
         )]
+
+        # Guarda snapshot "último bueno" por si la API falla después
+        st.session_state["_lastgood_confirmados"] = (df.copy(), headers[:])
         return df, headers
 
-    # 🔘 Recargar (no cambia de pestaña, no hace rerun global costoso)
+
+    # 🔘 Recargar (no cambia de pestaña; si quieres ver cambio inmediato, hace rerun)
     col_a, col_b = st.columns([1, 5])
     with col_a:
         if st.button("🔄 Recargar confirmados", type="secondary"):
             st.session_state["tab2_reload_nonce"] += 1
             st.cache_data.clear()   # invalida solo caches de datos
             st.info("♻️ Confirmados recargados.")
+            st.rerun()
 
-    # Cargar pedidos base (asumo que ya tienes df_pedidos cargado fuera de este bloque)
-    # Métricas rápidas (no tocan Google, usan df_pedidos local)
-    if not df_pedidos.empty:
+    # Métricas rápidas (no tocan Google; usan df_pedidos local si existe)
+    if ('df_pedidos' in locals() or 'df_pedidos' in globals()) and not df_pedidos.empty:
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Total Pedidos", len(df_pedidos))
@@ -827,7 +864,7 @@ with tab2:
     st.markdown("---")
     st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
 
-    # 📄 Cargar hoja 'pedidos_confirmados' con cache
+    # 📄 Cargar hoja 'pedidos_confirmados' con cache + fallback a snapshot si la API falla
     try:
         df_confirmados_guardados, headers_confirmados = cargar_confirmados_guardados_cached(
             GOOGLE_SHEET_ID, "pedidos_confirmados", st.session_state["tab2_reload_nonce"]
@@ -837,6 +874,15 @@ with tab2:
         spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
         spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
         df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
+    except gspread.exceptions.APIError as e:
+        # Fallback a último snapshot bueno si la API falla
+        snap = st.session_state.get("_lastgood_confirmados")
+        if snap:
+            st.warning("♻️ Error temporal al leer 'pedidos_confirmados'. Mostrando último snapshot bueno.")
+            df_confirmados_guardados, headers_confirmados = snap
+        else:
+            st.error(f"❌ No se pudo leer 'pedidos_confirmados'. Detalle: {e}")
+            df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
 
     if df_confirmados_guardados.empty:
         st.info("ℹ️ No hay registros en la hoja 'pedidos_confirmados'.")
@@ -855,7 +901,7 @@ with tab2:
             use_container_width=True, hide_index=True
         )
 
-        # Descargar Excel
+        # Descargar Excel (desde el DF ya cargado en memoria)
         output_confirmados = BytesIO()
         with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
             df_confirmados_guardados.to_excel(writer, index=False, sheet_name='Confirmados')
