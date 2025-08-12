@@ -987,8 +987,8 @@ with tab3:
 
     # 🔎 Filtrar SOLO devoluciones por confirmar:
     #  - Tipo_Envio == '🔁 Devolución'
-    #  - Estado_Caso == 'Aprobado'
     #  - Estado_Recepcion vacío / no válido
+    #  - Estado_Caso == 'Aprobado' o vacío
     for col in ["Estado_Caso", "Estado_Recepcion", "Folio_Factura", "Cliente", "ID_Pedido", "Hora_Registro",
                 "Resultado_Esperado", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable",
                 "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado", "Tipo_Envio_Original",
@@ -1000,11 +1000,16 @@ with tab3:
         s = str(v).strip().lower()
         return (s == "") or (s in ["nan", "n/a", "none"])
 
-    df_devoluciones = df_casos[
-        (df_casos["Tipo_Envio"].astype(str).str.strip() == "🔁 Devolución") &
-        (df_casos["Estado_Caso"].astype(str).str.strip().str.lower() == "aprobado") &
-        (df_casos["Estado_Recepcion"].apply(_is_blank))
-    ].copy()
+    def _norm(v: str) -> str:
+        return str(v).strip()
+
+    mask_devolucion = df_casos["Tipo_Envio"].astype(str).str.strip() == "🔁 Devolución"
+    mask_recepcion_vacia = df_casos["Estado_Recepcion"].apply(_is_blank)
+    estado_caso_norm = df_casos["Estado_Caso"].astype(str).apply(_norm).str.lower()
+    mask_estado_caso_ok = (estado_caso_norm == "aprobado") | (estado_caso_norm == "")
+
+    df_devoluciones = df_casos[mask_devolucion & mask_recepcion_vacia & mask_estado_caso_ok].copy()
+
 
     if df_devoluciones.empty:
         tab3_alert.info("ℹ️ No hay devoluciones por confirmar (Aprobadas sin Estado_Recepcion).")
