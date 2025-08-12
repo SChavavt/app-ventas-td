@@ -1291,34 +1291,115 @@ with tab3:
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
 
-
 # --- TAB 4: GUIAS CARGADAS ---
 def fijar_tab4_activa():
     st.query_params.update({"tab": "3"})
 
 @st.cache_data(ttl=60)
-def cargar_datos_guias():
-    worksheet = get_worksheet()
-    headers = worksheet.row_values(1)
-    if headers:
-        df = pd.DataFrame(worksheet.get_all_records())
-        if "Adjuntos_Guia" not in df.columns:
-            df["Adjuntos_Guia"] = ""
-        df = df[df["Adjuntos_Guia"].astype(str).str.strip() != ""]
-        return df
-    return pd.DataFrame()
+def cargar_datos_guias_unificadas():
+    # ---------- A) datos_pedidos ----------
+    ws_ped = get_worksheet()
+    df_ped = pd.DataFrame(ws_ped.get_all_records())
+
+    if df_ped.empty:
+        df_ped = pd.DataFrame()
+
+    for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
+                "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia"]:
+        if col not in df_ped.columns:
+            df_ped[col] = ""
+
+    df_a = df_ped[df_ped["Adjuntos_Guia"].astype(str).str.strip() != ""].copy()
+    if not df_a.empty:
+        df_a["Fuente"] = "datos_pedidos"
+        df_a["URLs_Guia"] = df_a["Adjuntos_Guia"].astype(str)
+        df_a["Ultima_Guia"] = df_a["URLs_Guia"].apply(
+            lambda s: s.split(",")[-1].strip() if isinstance(s, str) and s.strip() else ""
+        )
+
+    # ---------- B) casos_especiales ----------
+    try:
+        ws_casos = get_worksheet_casos_especiales()
+        df_casos = pd.DataFrame(ws_casos.get_all_records())
+    except Exception:
+        df_casos = pd.DataFrame()
+
+    if df_casos.empty:
+        df_b = pd.DataFrame(columns=[
+            "ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
+            "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia",
+            "URLs_Guia","Ultima_Guia","Fuente"
+        ])
+    else:
+        for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
+                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Hoja_Ruta_Mensajero","Tipo_Caso"]:
+            if col not in df_casos.columns:
+                df_casos[col] = ""
+
+        df_b = df_casos[df_casos["Hoja_Ruta_Mensajero"].astype(str).str.strip() != ""].copy()
+        if df_b.empty:
+            df_b = pd.DataFrame(columns=[
+                "ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
+                "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia",
+                "URLs_Guia","Ultima_Guia","Fuente"
+            ])
+        else:
+            df_b["Adjuntos_Guia"] = df_b["Hoja_Ruta_Mensajero"].astype(str)
+            df_b["URLs_Guia"] = df_b["Adjuntos_Guia"]
+            df_b["Ultima_Guia"] = df_b["URLs_Guia"].apply(
+                lambda s: s.split(",")[-1].strip() if isinstance(s, str) and s.strip() else ""
+            )
+
+            def _infer_tipo_envio(row):
+                t_env = str(row.get("Tipo_Envio","")).strip()
+                if t_env:
+                    return t_env
+                t_caso = str(row.get("Tipo_Caso","")).lower()
+                if t_caso.startswith("devol"):
+                    return "🔁 Devolución"
+                if t_caso.startswith("garan"):
+                    return "🛠 Garantía"
+                return "Caso especial"
+            df_b["Tipo_Envio"] = df_b.apply(_infer_tipo_envio, axis=1)
+            df_b["Fuente"] = "casos_especiales"
+
+        for col in ["Adjuntos_Guia","URLs_Guia","Ultima_Guia","Fuente"]:
+            if col not in df_b.columns:
+                df_b[col] = ""
+
+    columnas_finales = ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
+                        "Fecha_Entrega","Hora_Registro","Folio_Factura",
+                        "Adjuntos_Guia","URLs_Guia","Ultima_Guia","Fuente"]
+    df_a = df_a[columnas_finales] if not df_a.empty else pd.DataFrame(columns=columnas_finales)
+    df_b = df_b[columnas_finales] if not df_b.empty else pd.DataFrame(columns=columnas_finales)
+
+    df = pd.concat([df_a, df_b], ignore_index=True)
+
+    if not df.empty:
+        for col_fecha in ["Fecha_Entrega","Hora_Registro"]:
+            df[col_fecha] = pd.to_datetime(df[col_fecha], errors="coerce")
+
+        df["Folio_O_ID"] = df["Folio_Factura"].astype(str).str.strip()
+        df.loc[df["Folio_O_ID"] == "", "Folio_O_ID"] = df["ID_Pedido"].astype(str).str.strip()
+
+        if df["Fecha_Entrega"].notna().any():
+            df = df.sort_values(by="Fecha_Entrega", ascending=False)
+        elif df["Hora_Registro"].notna().any():
+            df = df.sort_values(by="Hora_Registro", ascending=False)
+
+    return df
 
 with tab4:
-    st.header("📦 Pedidos con Guías Subidas desde Almacén")
+    st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
     try:
-        df_guias = cargar_datos_guias()
+        df_guias = cargar_datos_guias_unificadas()
     except Exception as e:
         st.error(f"❌ Error al cargar datos de guías: {e}")
         df_guias = pd.DataFrame()
 
     if df_guias.empty:
-        st.info("No hay pedidos con guías subidas.")
+        st.info("No hay pedidos o casos especiales con guías subidas.")
     else:
         st.markdown("### 🔍 Filtros")
         col1_tab4, col2_tab4 = st.columns(2)
@@ -1339,44 +1420,39 @@ with tab4:
                 key="filtro_fecha_guias"
             )
 
-        # Filtro por fecha
-        if 'Hora_Registro' in df_guias.columns:
-            df_guias['Hora_Registro'] = pd.to_datetime(df_guias['Hora_Registro'], errors='coerce')
-            df_guias = df_guias[df_guias['Hora_Registro'].dt.date == fecha_filtro_tab4]
+        fecha_col_para_filtrar = None
+        if "Hora_Registro" in df_guias.columns and df_guias["Hora_Registro"].notna().any():
+            fecha_col_para_filtrar = "Hora_Registro"
+        elif "Fecha_Entrega" in df_guias.columns and df_guias["Fecha_Entrega"].notna().any():
+            fecha_col_para_filtrar = "Fecha_Entrega"
 
-        # Filtro por vendedor
+        if fecha_col_para_filtrar:
+            df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date == fecha_filtro_tab4]
+
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
 
-        # Mostrar tabla básica
-        columnas_mostrar = ["ID_Pedido", "Cliente", "Vendedor_Registro", "Tipo_Envio", "Estado", "Fecha_Entrega"]
+        columnas_mostrar = ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado","Fecha_Entrega","Fuente"]
         tabla_guias = df_guias[columnas_mostrar].copy()
         tabla_guias["Fecha_Entrega"] = pd.to_datetime(tabla_guias["Fecha_Entrega"], errors="coerce").dt.strftime("%d/%m/%y")
         st.dataframe(tabla_guias, use_container_width=True, hide_index=True)
 
-        # 🔍 Selección para mostrar solo una guía a la vez
         st.markdown("### 📥 Selecciona un Pedido para Ver la Última Guía Subida")
 
-        df_guias['Folio_O_ID'] = df_guias['Folio_Factura'].astype(str).str.strip()
-        df_guias.loc[df_guias['Folio_O_ID'] == '', 'Folio_O_ID'] = df_guias['ID_Pedido']
-
-        # Ordenar por fecha de entrega descendente
-        if 'Fecha_Entrega' in df_guias.columns:
-            df_guias['Fecha_Entrega'] = pd.to_datetime(df_guias['Fecha_Entrega'], errors='coerce')
-            df_guias = df_guias.sort_values(by='Fecha_Entrega', ascending=False)
-
-        df_guias['display_label'] = df_guias.apply(lambda row:
-            f"📄 {row['Folio_O_ID']} – {row['Cliente']} – {row['Vendedor_Registro']} ({row['Tipo_Envio']})", axis=1)
+        df_guias["display_label"] = df_guias.apply(
+            lambda row: f"📄 {row['Folio_O_ID']} – {row['Cliente']} – {row['Vendedor_Registro']} ({row['Tipo_Envio']}) · {row['Fuente']}",
+            axis=1
+        )
 
         pedido_seleccionado = st.selectbox(
-            "📦 Pedido con Guía",
-            options=df_guias['display_label'].tolist(),
+            "📦 Pedido/Caso con Guía",
+            options=df_guias["display_label"].tolist(),
             key="select_pedido_con_guia"
         )
 
         if pedido_seleccionado:
-            pedido_row = df_guias[df_guias['display_label'] == pedido_seleccionado].iloc[0]
-            ultima_guia = str(pedido_row["Adjuntos_Guia"]).split(",")[-1].strip()
+            pedido_row = df_guias[df_guias["display_label"] == pedido_seleccionado].iloc[0]
+            ultima_guia = str(pedido_row["Ultima_Guia"]).strip()
 
             st.markdown("### 📎 Última Guía Subida")
             if ultima_guia:
