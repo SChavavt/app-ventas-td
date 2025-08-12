@@ -933,10 +933,13 @@ with tab2:
             hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
             st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
-
 # --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
 with tab3:
-    st.header("📦 Confirmación de Devoluciones (casos_especiales)")
+    st.header("📦 Confirmación de Devoluciones")
+
+    from datetime import datetime
+    import uuid, os, json, math, re
+    import pandas as pd
 
     # 🔔 Placeholder SOLO para mensajes en Tab 3
     tab3_alert = st.empty()
@@ -947,16 +950,9 @@ with tab3:
     if "tab3_selected_idx" not in st.session_state:
         st.session_state["tab3_selected_idx"] = 0
 
-    col_recargar, _ = st.columns([1, 5])
-    with col_recargar:
-        if st.button("🔄 Recargar devoluciones", type="secondary"):
-            # Sólo cambiamos un nonce para romper cualquier cache interno y volver a leer
-            st.session_state["tab3_reload_nonce"] = st.session_state["tab3_reload_nonce"] + 1
-            tab3_alert.info("♻️ Devoluciones recargadas.")
-
-    # 📌 Funciones utilitarias
-    def get_raw_sheet_data(sheet_id, worksheet_name, credentials=None, nonce: int = 0):
-        # El nonce se ignora por la API, pero lo pasamos para evitar cierres sobre valores previos y forzar relectura en cada invocación
+    # ✅ Cache fino: se invalida solo al cambiar el nonce (no “gris” al escribir/seleccionar)
+    @st.cache_data(show_spinner=False, ttl=0)
+    def get_raw_sheet_data_cached(sheet_id, worksheet_name, _nonce: int):
         gc = get_google_sheets_client()
         ws = gc.open_by_key(sheet_id).worksheet(worksheet_name)
         return ws.get_all_values()
@@ -968,12 +964,19 @@ with tab3:
         df = pd.DataFrame(raw_data[1:], columns=headers)
         return df, headers
 
-    # 📌 Cargar SIEMPRE desde 'casos_especiales' (sin cache y usando nonce para forzar relectura)
-    raw_casos = get_raw_sheet_data(
+    # 🔄 Recargar (sin st.rerun)
+    col_recargar, _ = st.columns([1, 5])
+    with col_recargar:
+        if st.button("🔄 Recargar devoluciones", type="secondary"):
+            st.session_state["tab3_reload_nonce"] += 1
+            st.cache_data.clear()  # limpia solo cache de datos
+            tab3_alert.info("♻️ Devoluciones recargadas.")
+
+    # 📌 Cargar SIEMPRE desde 'casos_especiales' (cacheado por nonce)
+    raw_casos = get_raw_sheet_data_cached(
         sheet_id=GOOGLE_SHEET_ID,
         worksheet_name="casos_especiales",
-        credentials=None,
-        nonce=st.session_state["tab3_reload_nonce"],
+        _nonce=st.session_state["tab3_reload_nonce"],
     )
     df_casos, headers_casos = process_sheet_data(raw_casos)
 
@@ -985,16 +988,16 @@ with tab3:
         tab3_alert.error("❌ En 'casos_especiales' falta la columna 'Tipo_Envio'.")
         st.stop()
 
-    # 🔎 Filtrar SOLO devoluciones por confirmar:
-    #  - Tipo_Envio == '🔁 Devolución'
-    #  - Estado_Recepcion vacío / no válido
-    #  - Estado_Caso == 'Aprobado' o vacío
-    for col in ["Estado_Caso", "Estado_Recepcion", "Folio_Factura", "Cliente", "ID_Pedido", "Hora_Registro",
-                "Resultado_Esperado", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable",
-                "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado", "Tipo_Envio_Original",
-                "Adjuntos", "Hoja_Ruta_Mensajero"]:
-        if col not in df_casos.columns:
-            df_casos[col] = ""
+    # 🔎 Columnas necesarias y utilidades
+    needed_cols = [
+        "Estado_Caso", "Estado_Recepcion", "Folio_Factura", "Cliente", "ID_Pedido", "Hora_Registro",
+        "Resultado_Esperado", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable",
+        "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado", "Tipo_Envio_Original",
+        "Adjuntos", "Hoja_Ruta_Mensajero", "Tipo_Envio"
+    ]
+    for c in needed_cols:
+        if c not in df_casos.columns:
+            df_casos[c] = ""
 
     def _is_blank(v: str) -> bool:
         s = str(v).strip().lower()
@@ -1003,6 +1006,10 @@ with tab3:
     def _norm(v: str) -> str:
         return str(v).strip()
 
+    # 🔎 Pendientes por confirmar:
+    #   - Tipo_Envio == '🔁 Devolución'
+    #   - Estado_Recepcion vacío
+    #   - Estado_Caso == 'Aprobado' o vacío
     mask_devolucion = df_casos["Tipo_Envio"].astype(str).str.strip() == "🔁 Devolución"
     mask_recepcion_vacia = df_casos["Estado_Recepcion"].apply(_is_blank)
     estado_caso_norm = df_casos["Estado_Caso"].astype(str).apply(_norm).str.lower()
@@ -1010,21 +1017,45 @@ with tab3:
 
     df_devoluciones = df_casos[mask_devolucion & mask_recepcion_vacia & mask_estado_caso_ok].copy()
 
-
-    if df_devoluciones.empty:
-        tab3_alert.info("ℹ️ No hay devoluciones por confirmar (Aprobadas sin Estado_Recepcion).")
+    # ====== RESUMEN ESTILO + TABLA DE PENDIENTES ======
+    if df_casos.empty:
+        st.info("ℹ️ No hay casos cargados en este momento.")
         st.stop()
+    else:
+        if df_devoluciones.empty:
+            st.success("🎉 ¡No hay devoluciones pendientes de confirmación!")
+            st.info("Todas las devoluciones aprobadas ya tienen Estado_Recepcion.")
+            st.stop()
+        else:
+            st.warning(f"📋 Hay {len(df_devoluciones)} devoluciones pendientes por confirmar.")
 
-    # ⏱️ Ordenar por Hora_Registro si existe
+            columns_to_show = [
+                "Folio_Factura", "Cliente", "Vendedor_Registro", "Tipo_Envio",
+                "Hora_Registro", "Resultado_Esperado", "Numero_Cliente_RFC",
+                "Area_Responsable", "Nombre_Responsable",
+                "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado",
+                "Tipo_Envio_Original", "Estado_Caso", "Estado_Recepcion"
+            ]
+            existing_columns = [c for c in columns_to_show if c in df_devoluciones.columns]
+
+            if existing_columns:
+                df_vista = df_devoluciones[existing_columns].copy()
+                if "Hora_Registro" in df_vista.columns:
+                    _hora = pd.to_datetime(df_vista["Hora_Registro"], errors="coerce")
+                    df_vista["Hora_Registro"] = _hora.dt.strftime("%d/%m/%Y %H:%M").fillna(df_vista["Hora_Registro"])
+
+                st.dataframe(
+                    df_vista.sort_values(
+                        by="Hora_Registro" if "Hora_Registro" in df_vista.columns else existing_columns[0],
+                        ascending=True
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+    # ⏱️ Orden para selector
     df_devoluciones["__Hora"] = pd.to_datetime(df_devoluciones["Hora_Registro"], errors="coerce")
     df_devoluciones = df_devoluciones.sort_values(by="__Hora", ascending=True)
-
-    # 📋 Lista de pendientes arriba
-    st.markdown("#### 📜 Devoluciones por confirmar")
-    for _, r in df_devoluciones.iterrows():
-        folio = str(r.get("Folio_Factura", "")).strip() or "s/folio"
-        cliente = str(r.get("Cliente", "")).strip() or "s/cliente"
-        st.markdown(f"- **{folio} – {cliente}**")
 
     # 📋 Selector (solo de las pendientes)
     df_devoluciones["__display__"] = df_devoluciones.apply(
@@ -1056,7 +1087,7 @@ with tab3:
     # 📌 Worksheet para escritura
     worksheet_casos = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
 
-    # 🧾 Info del caso (QUITAMOS la línea "Estado: ...")
+    # 🧾 Info del caso (sin “Estado: …”)
     st.markdown(f"🧾 **Folio Factura:** {row.get('Folio_Factura', 'N/A')}")
     st.markdown(f"**Tipo de Envío (original):** {row.get('Tipo_Envio_Original', '')}")
     st.markdown(f"📝 **Motivo:** {row.get('Motivo_Detallado', '')}")
@@ -1067,7 +1098,6 @@ with tab3:
     st.markdown("---")
 
     # 📎 Archivos del Caso (Adjuntos + Guía) EN EXPANDER (excluimos Nota/Documento porque aquí se suben)
-    import os, json, math, re
     def _normalize_urls(value):
         if value is None:
             return []
@@ -1152,6 +1182,7 @@ with tab3:
             tab3_alert.error(f"❌ Error al actualizar la celda '{col_name}': {e}")
             return False
 
+    # 💾 Guardar (sin cambiar de pestaña; recarga data con nonce al final)
     if st.button("💾 Guardar Confirmación"):
         if not estado_recepcion:
             tab3_alert.warning("⚠️ Completa el campo de estado de recepción.")
@@ -1168,33 +1199,31 @@ with tab3:
                 if ok:
                     urls[label] = url
 
-        # ✅ Reglas solicitadas
-        if estado_recepcion == "Sí, completo":
-            estado_recepcion_final = "Todo correcto"
-        else:
-            estado_recepcion_final = "Faltan artículos"
-
+        # ✅ Reglas de guardado
+        estado_recepcion_final = "Todo correcto" if estado_recepcion == "Sí, completo" else "Faltan artículos"
         updates = {
             "Fecha_Recepcion_Devolucion": fecha_recepcion.strftime("%Y-%m-%d"),
             "Estado_Recepcion": estado_recepcion_final,
             "Nota_Credito_URL": urls.get("nota", ""),
             "Documento_Adicional_URL": urls.get("extra", ""),
             "Comentarios_Admin_Devolucion": comentario_admin,
-            # Siempre mantener Aprobado (por diseño de esta pestaña)
-            "Estado_Caso": "Aprobado",
+            "Estado_Caso": "Aprobado",  # mantener/forzar Aprobado
         }
 
-        ok_all = True
         # Asegurar columnas
         for col in updates.keys():
             if col not in headers_casos:
                 headers_casos.append(col)
 
-        for col, val in updates.items():
-            ok_all &= update_gsheet_cell(worksheet_casos, headers_casos, gsheet_row_idx, col, val)
+        ok_all = True
+        with st.spinner("Guardando confirmación..."):
+            for col, val in updates.items():
+                ok_all &= update_gsheet_cell(worksheet_casos, headers_casos, gsheet_row_idx, col, val)
 
         if ok_all:
             tab3_alert.success("✅ Confirmación de devolución guardada.")
-            # No usamos st.rerun(): mantenemos la pestaña y el scroll
+            # Invalida cache y recarga data en siguiente run (sin cambiar de pestaña)
+            st.session_state["tab3_reload_nonce"] += 1
+            st.cache_data.clear()
         else:
             tab3_alert.error("❌ Ocurrió un problema al guardar.")
