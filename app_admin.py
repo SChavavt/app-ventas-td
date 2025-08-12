@@ -960,7 +960,6 @@ with tab2:
                 st.session_state["tab2_reload_nonce"] += 1
                 st.cache_data.clear()
 
-
 # --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
 with tab3:
     st.header("📦 Confirmación de Devoluciones")
@@ -978,15 +977,15 @@ with tab3:
     if "tab3_selected_idx" not in st.session_state:
         st.session_state["tab3_selected_idx"] = 0
 
-    # 🧰 Cliente de Sheets cacheado (evita reconexiones en cada rerun)
+    # 🧰 Cliente de Sheets cacheado (evita reconexiones)
     @st.cache_resource
     def get_sheets_client_cached():
         return get_google_sheets_client()
 
-    # ✅ Cache fino: se invalida solo al cambiar el nonce (no “gris” al escribir/seleccionar)
+    # ✅ Cache fino de lectura (se invalida solo con nonce)
     @st.cache_data(show_spinner=False, ttl=0)
     def get_raw_sheet_data_cached(sheet_id, worksheet_name, _nonce: int):
-        gc = get_sheets_client_cached()  # 👈 cliente cacheado
+        gc = get_sheets_client_cached()
         ws = gc.open_by_key(sheet_id).worksheet(worksheet_name)
         return ws.get_all_values()
 
@@ -1190,20 +1189,45 @@ with tab3:
 
     st.markdown("---")
 
-    # 📅 Confirmar fecha
-    fecha_recepcion = st.date_input("📅 Fecha en que llegó la devolución", key="fecha_recepcion_devolucion")
+    # ⬇️ FORM: no hay rerun al interactuar, solo al enviar
+    with st.form(key="tab3_confirm_form", clear_on_submit=False):
+        # 📅 Confirmar fecha
+        fecha_recepcion = st.date_input(
+            "📅 Fecha en que llegó la devolución",
+            key="fecha_recepcion_devolucion"
+        )
 
-    # 📦 Estado de los artículos
-    estado_recepcion = st.selectbox("📦 ¿Todo llegó correctamente?", ["", "Sí, completo", "Faltan artículos"], key="estado_recepcion")
+        # 📦 Estado de los artículos (sin opción vacía; usa placeholder)
+        estado_recepcion = st.selectbox(
+            "📦 ¿Todo llegó correctamente?",
+            options=["Sí, completo", "Faltan artículos"],
+            index=None,
+            placeholder="Selecciona el estado de recepción",
+            key="estado_recepcion"
+        )
 
-    # 📎 Nota de crédito
-    nota_credito_file = st.file_uploader("🧾 Subir Nota de Crédito", type=["pdf", "jpg", "jpeg", "png"], key="nota_credito")
+        # 📎 Nota de crédito
+        nota_credito_file = st.file_uploader(
+            "🧾 Subir Nota de Crédito",
+            type=["pdf", "jpg", "jpeg", "png"],
+            key="nota_credito"
+        )
 
-    # 📎 Documento adicional
-    documento_adicional = st.file_uploader("📂 Subir otro documento (ej. Entrada/Comprobante)", type=["pdf", "jpg", "jpeg", "png"], key="documento_adicional")
+        # 📎 Documento adicional
+        documento_adicional = st.file_uploader(
+            "📂 Subir otro documento (ej. Entrada/Comprobante)",
+            type=["pdf", "jpg", "jpeg", "png"],
+            key="documento_adicional"
+        )
 
-    # 📝 Comentarios finales
-    comentario_admin = st.text_area("📝 Comentario administrativo final")
+        # 📝 Comentarios finales
+        comentario_admin = st.text_area(
+            "📝 Comentario administrativo final",
+            key="comentario_admin_tab3"
+        )
+
+        # 💾 Guardar (solo aquí hay rerun)
+        submitted = st.form_submit_button("💾 Guardar Confirmación", use_container_width=True)
 
     # 🔧 Actualización con retry/backoff (más robusto)
     def update_gsheet_cell(worksheet, headers, row_idx, col_name, value, retries: int = 2):
@@ -1221,8 +1245,8 @@ with tab3:
                     return False
                 time.sleep(0.6 * (i + 1))  # backoff
 
-    # 💾 Guardar (sin cambiar de pestaña; recarga data con nonce al final)
-    if st.button("💾 Guardar Confirmación", key="tab3_save_btn"):
+    # 👉 Guardar solo si se envió el form
+    if submitted:
         if not estado_recepcion:
             tab3_alert.warning("⚠️ Completa el campo de estado de recepción.")
             st.stop()
@@ -1245,8 +1269,8 @@ with tab3:
             "Estado_Recepcion": estado_recepcion_final,
             "Nota_Credito_URL": urls.get("nota", ""),
             "Documento_Adicional_URL": urls.get("extra", ""),
-            "Comentarios_Admin_Devolucion": comentario_admin,
-            "Estado_Caso": "Aprobado",  # mantener/forzar Aprobado
+            "Comentarios_Admin_Devolucion": st.session_state.get("comentario_admin_tab3", ""),
+            "Estado_Caso": "Aprobado",
         }
 
         # Asegurar columnas
@@ -1261,7 +1285,7 @@ with tab3:
 
         if ok_all:
             tab3_alert.success("✅ Confirmación de devolución guardada.")
-            # Invalida cache y recarga data en siguiente run (sin cambiar de pestaña)
+            # Invalida solo cache de datos; NO cambia de pestaña
             st.session_state["tab3_reload_nonce"] += 1
             st.cache_data.clear()
         else:
