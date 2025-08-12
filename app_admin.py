@@ -975,24 +975,34 @@ with tab3:
         tab3_alert.info("ℹ️ No hay devoluciones pendientes por confirmar en 'casos_especiales'.")
         st.stop()
 
-    # 🧹 Asegurar columnas necesarias
-    for c in ["ID_Pedido", "Cliente", "Resultado_Esperado", "Folio_Factura", "Hora_Registro"]:
+    # 🧹 Asegurar columnas necesarias para mostrar y fallback de 'Estado'
+    needed_cols = [
+        "ID_Pedido", "Cliente", "Resultado_Esperado", "Folio_Factura", "Hora_Registro",
+        "Estado", "Estado_Caso", "Material_Devuelto", "Monto_Devuelto",
+        "Area_Responsable", "Nombre_Responsable", "Numero_Cliente_RFC", "Tipo_Envio_Original"
+    ]
+    for c in needed_cols:
         if c not in df_devoluciones.columns:
             df_devoluciones[c] = ""
+
+    # Si 'Estado' está vacío, usar 'Estado_Caso' como respaldo
+    df_devoluciones["Estado"] = df_devoluciones.apply(
+        lambda r: (str(r.get("Estado", "")).strip() or str(r.get("Estado_Caso", "")).strip()), axis=1
+    )
 
     # ⏱️ Ordenar SOLO por Hora_Registro
     df_devoluciones["Hora_Registro"] = pd.to_datetime(df_devoluciones["Hora_Registro"], errors="coerce")
     df_devoluciones = df_devoluciones.sort_values(by="Hora_Registro", ascending=True)
 
-    # 📋 Selector
+    # 📋 Selector (mostrar: Estado - Tipo_Envio - Resultado_Esperado)
     df_devoluciones["__display__"] = df_devoluciones.apply(
-        lambda r: f"{str(r['ID_Pedido']).strip()} - {str(r['Cliente']).strip()} - {str(r.get('Resultado_Esperado','')).strip()}",
+        lambda r: f"{str(r['Estado']).strip()} - {str(r['Tipo_Envio']).strip()} - {str(r.get('Resultado_Esperado','')).strip()}",
         axis=1
     )
     selected = st.selectbox("📋 Selecciona una devolución", df_devoluciones["__display__"].tolist())
     row = df_devoluciones[df_devoluciones["__display__"] == selected].iloc[0]
 
-    # Índice real en hoja 'casos_especiales'
+    # Índice real en hoja 'casos_especiales' (por ID_Pedido)
     matches = df_casos.index[df_casos["ID_Pedido"].astype(str).str.strip() == str(row["ID_Pedido"]).strip()]
     if len(matches) == 0:
         tab3_alert.error("❌ No se encontró el caso seleccionado en 'casos_especiales'.")
@@ -1002,10 +1012,16 @@ with tab3:
     # 📌 Worksheet para escritura
     worksheet_casos = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
 
-    # 🧾 Info del caso
+    # 🧾 Info del caso (incluye campos adicionales solicitados)
     st.markdown(f"🧾 **Folio Factura:** {row.get('Folio_Factura', 'N/A')}")
-    st.markdown(f"👤 **Cliente:** {row.get('Cliente', 'N/A')}")
+    st.markdown(f"🧿 **Estado:** {row.get('Estado', '')}")
+    st.markdown(f"🚚 **Tipo de Envío (actual):** {row.get('Tipo_Envio', '')}")
+    st.markdown(f"📦 **Tipo de Envío (original):** {row.get('Tipo_Envio_Original', '')}")
     st.markdown(f"📝 **Motivo:** {row.get('Motivo_Detallado', '')}")
+    st.markdown(f"📦 **Material Devuelto:** {row.get('Material_Devuelto', '')}")
+    st.markdown(f"💵 **Monto Devuelto:** {row.get('Monto_Devuelto', '')}")
+    st.markdown(f"🏷️ **Número Cliente / RFC:** {row.get('Numero_Cliente_RFC', '')}")
+    st.markdown(f"👤 **Responsable:** {row.get('Nombre_Responsable', '')}  •  🗂️ **Área:** {row.get('Area_Responsable', '')}")
     st.markdown("---")
 
     # 📅 Confirmar fecha
@@ -1061,9 +1077,12 @@ with tab3:
         }
 
         ok_all = True
-        for col, val in updates.items():
+        # Asegurar que todas las columnas de updates existan en headers_casos
+        for col in updates.keys():
             if col not in headers_casos:
                 headers_casos.append(col)
+
+        for col, val in updates.items():
             ok_all &= update_gsheet_cell(worksheet_casos, headers_casos, gsheet_row_idx, col, val)
 
         if ok_all:
