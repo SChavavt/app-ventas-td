@@ -15,7 +15,10 @@ import uuid
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
 
 def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3, wait: float = 0.8):
-    """Abre una worksheet con reintentos y recarga del cliente si el error es transitorio."""
+    """
+    Abre una worksheet con reintentos automáticos en caso de errores temporales
+    (429 cuota excedida, 5xx de servidor). Devuelve el objeto Worksheet.
+    """
     gc = get_google_sheets_client()
     last_err = None
     for i in range(retries + 1):
@@ -25,14 +28,13 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3, wa
         except gspread.exceptions.APIError as e:
             last_err = e
             status = getattr(getattr(e, "response", None), "status_code", None)
-            # Errores transitorios: reintenta con backoff y refresca cliente la primera vez
             if status in RETRIABLE_CODES and i < retries:
                 if i == 0:
-                    st.cache_resource.clear()  # fuerza refresco del cliente una vez
-                time.sleep(wait * (i + 1))
+                    st.cache_resource.clear()  # fuerza refresco del cliente la primera vez
+                time.sleep(wait * (i + 1))  # backoff progresivo
                 continue
             break
-    # Si no fue transitorio o se agotaron reintentos, propaga
+    # Si no fue transitorio o agotamos reintentos, propaga el último error
     raise last_err
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
@@ -796,32 +798,33 @@ with tab1:
                             st.warning("Funcionalidad pendiente.")
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
-    st.header("📊 Estadísticas Generales")
+    st.header("📥 Pedidos Confirmados")
 
-    # Imports usados en este bloque (si ya los tienes, puedes dejarlos repetidos sin problema)
+    # Imports usados en este bloque
     from io import BytesIO
     from datetime import datetime
-    import gspread  # para WorksheetNotFound y APIError
+    import gspread
+    import re
 
-    # Asegura el nonce de recarga para esta pestaña
+    # Asegura nonce para esta pestaña
     if "tab2_reload_nonce" not in st.session_state:
         st.session_state["tab2_reload_nonce"] = 0
 
-    # ✅ Cache de lectura de hoja (rápido y estable, con snapshot)
+    # ✅ Cache de lectura (robusta, con snapshot)
     @st.cache_data(show_spinner=False, ttl=0)
     def cargar_confirmados_guardados_cached(sheet_id: str, ws_name: str, _nonce: int):
         """
-        Lee la hoja de confirmados de forma robusta con reintentos.
-        _nonce fuerza recarga cuando presionas tu botón de recargar.
+        Lee la hoja de confirmados con reintentos (safe_open_worksheet) y guarda snapshot.
+        _nonce fuerza recarga manual.
         """
-        ws = safe_open_worksheet(sheet_id, ws_name)  # << usa helper con reintentos
+        ws = safe_open_worksheet(sheet_id, ws_name)
         vals = ws.get_values("A1:ZZ", value_render_option="UNFORMATTED_VALUE")
         if not vals:
             return pd.DataFrame(), []
         headers = vals[0]
         df = pd.DataFrame(vals[1:], columns=headers)
 
-        # Filtrar filas totalmente vacías y mantener solo registros con campos clave no vacíos
+        # Normalización mínima / columnas clave
         campos_clave = ['ID_Pedido', 'Cliente', 'Folio_Factura']
         for c in campos_clave:
             if c not in df.columns:
@@ -832,21 +835,11 @@ with tab2:
             axis=1
         )]
 
-        # Guarda snapshot "último bueno" por si la API falla después
+        # Snapshot "último bueno"
         st.session_state["_lastgood_confirmados"] = (df.copy(), headers[:])
         return df, headers
 
-
-    # 🔘 Recargar (no cambia de pestaña; si quieres ver cambio inmediato, hace rerun)
-    col_a, col_b = st.columns([1, 5])
-    with col_a:
-        if st.button("🔄 Recargar confirmados", type="secondary"):
-            st.session_state["tab2_reload_nonce"] += 1
-            st.cache_data.clear()   # invalida solo caches de datos
-            st.info("♻️ Confirmados recargados.")
-            st.rerun()
-
-    # Métricas rápidas (no tocan Google; usan df_pedidos local si existe)
+    # Métricas rápidas (usa df_pedidos en memoria si existe)
     if ('df_pedidos' in locals() or 'df_pedidos' in globals()) and not df_pedidos.empty:
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -862,20 +855,17 @@ with tab2:
             st.metric("Pendientes Confirmación", pendientes)
 
     st.markdown("---")
-    st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
 
-    # 📄 Cargar hoja 'pedidos_confirmados' con cache + fallback a snapshot si la API falla
+    # 📄 Cargar hoja 'pedidos_confirmados' con fallback a snapshot si la API falla
     try:
         df_confirmados_guardados, headers_confirmados = cargar_confirmados_guardados_cached(
             GOOGLE_SHEET_ID, "pedidos_confirmados", st.session_state["tab2_reload_nonce"]
         )
     except gspread.exceptions.WorksheetNotFound:
-        # Crear si no existe y mostrar vacío
         spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
         spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
         df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
     except gspread.exceptions.APIError as e:
-        # Fallback a último snapshot bueno si la API falla
         snap = st.session_state.get("_lastgood_confirmados")
         if snap:
             st.warning("♻️ Error temporal al leer 'pedidos_confirmados'. Mostrando último snapshot bueno.")
@@ -884,51 +874,12 @@ with tab2:
             st.error(f"❌ No se pudo leer 'pedidos_confirmados'. Detalle: {e}")
             df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
 
-    if df_confirmados_guardados.empty:
-        st.info("ℹ️ No hay registros en la hoja 'pedidos_confirmados'.")
-    else:
-        st.success(f"✅ Se encontraron {len(df_confirmados_guardados)} pedidos confirmados en hoja.")
-
-        columnas_para_tabla = [col for col in df_confirmados_guardados.columns if col.startswith("Link_") or col in [
-            'Folio_Factura', 'Folio_Factura_Refacturada', 'Cliente', 'Vendedor_Registro',
-            'Tipo_Envio', 'Fecha_Entrega', 'Estado', 'Estado_Pago', 'Refacturacion_Tipo',
-            'Refacturacion_Subtipo', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
-            'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante'
-        ]]
-
-        st.dataframe(
-            df_confirmados_guardados[columnas_para_tabla] if columnas_para_tabla else df_confirmados_guardados,
-            use_container_width=True, hide_index=True
-        )
-
-        # Descargar Excel (desde el DF ya cargado en memoria)
-        output_confirmados = BytesIO()
-        with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-            df_confirmados_guardados.to_excel(writer, index=False, sheet_name='Confirmados')
-        data_xlsx = output_confirmados.getvalue()
-
-        st.download_button(
-            label="📥 Descargar Excel Confirmados (desde hoja)",
-            data=data_xlsx,
-            file_name=f"confirmados_guardados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    # ⤵️ Actualizar enlaces (con hoja única local, sin disparar lecturas fuera de aquí)
-    if st.button("🔄 Actualizar Enlaces de Nuevos Pedidos", help="Solo se agregarán los que no estén ya guardados"):
-        with st.spinner("🔄 Generando enlaces de archivos nuevos..."):
-            import re
-
-            columnas_guardar = [
-                'ID_Pedido', 'Folio_Factura', 'Folio_Factura_Refacturada',
-                'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-                'Estado', 'Estado_Pago', 'Comprobante_Confirmado',
-                'Refacturacion_Tipo', 'Refacturacion_Subtipo',
-                'Forma_Pago_Comprobante', 'Monto_Comprobante',
-                'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-                'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
-            ]
-
+    # 🔁 Botón único: Actualizar Enlaces (agregar nuevos) + Recargar tabla
+    tab2_alert = st.empty()
+    if st.button("🔁 Actualizar Enlaces y Recargar Confirmados", type="primary",
+                 help="Agrega confirmados nuevos con enlaces y refresca la tabla"):
+        try:
+            # Detectar nuevos confirmados no guardados aún en la hoja
             ids_existentes = set(df_confirmados_guardados["ID_Pedido"].astype(str)) if not df_confirmados_guardados.empty else set()
             df_nuevos = df_pedidos[
                 (df_pedidos.get('Comprobante_Confirmado') == 'Sí') &
@@ -936,9 +887,19 @@ with tab2:
             ].copy()
 
             if df_nuevos.empty:
-                st.info("✅ Todos los pedidos confirmados ya están registrados.")
+                tab2_alert.info("✅ No hay pedidos confirmados nuevos por registrar. Se recargará la tabla igualmente…")
             else:
-                df_nuevos = df_nuevos.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
+                df_nuevos = df_nuevos.sort_values(by='Fecha_Pago_Comprobante', ascending=False, na_position='last')
+
+                columnas_guardar = [
+                    'ID_Pedido', 'Folio_Factura', 'Folio_Factura_Refacturada',
+                    'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+                    'Estado', 'Estado_Pago', 'Comprobante_Confirmado',
+                    'Refacturacion_Tipo', 'Refacturacion_Subtipo',
+                    'Forma_Pago_Comprobante', 'Monto_Comprobante',
+                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
+                    'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
+                ]
 
                 link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
 
@@ -954,24 +915,27 @@ with tab2:
                             prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
                             files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
 
+                        # Comprobante
                         comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
                         if comprobantes:
                             comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
 
+                        # Factura
                         facturas = [f for f in files if "factura" in f["title"].lower()]
                         if facturas:
                             factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
 
+                        # Guía
                         if tipo_envio == "foráneo":
                             guias_filtradas = [f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())]
                         else:
                             guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
-
                         if guias_filtradas:
                             guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
                             guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
                             guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
 
+                        # Refacturación
                         refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
                         if refacturas:
                             refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
@@ -988,6 +952,7 @@ with tab2:
 
                 df_nuevos = df_nuevos[[col for col in columnas_guardar if col in df_nuevos.columns]].fillna("").astype(str)
 
+                # Escribir en la hoja
                 spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
                 try:
                     hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
@@ -1001,10 +966,69 @@ with tab2:
                 filas_nuevas = df_nuevos[columnas_guardar].values.tolist()
                 hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
-                st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
-                # Sugerencia: actualizar cache para reflejar los nuevos
-                st.session_state["tab2_reload_nonce"] += 1
-                st.cache_data.clear()
+                tab2_alert.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados agregados a la hoja.")
+
+            # Recargar
+            st.session_state["tab2_reload_nonce"] += 1
+            st.cache_data.clear()
+            st.rerun()
+
+        except gspread.exceptions.APIError as e:
+            tab2_alert.error(f"❌ Error de Google API al actualizar/recargar: {e}")
+        except Exception as e:
+            tab2_alert.error(f"❌ Ocurrió un error al actualizar/recargar: {e}")
+
+    # ---------- Vista de confirmados ----------
+    if df_confirmados_guardados.empty:
+        st.info("ℹ️ No hay registros en la hoja 'pedidos_confirmados'.")
+    else:
+        # 🔽 Ordenar para mostrar lo más reciente primero
+        df_view = df_confirmados_guardados.copy()
+
+        def _to_dt(s):
+            return pd.to_datetime(s, errors='coerce', dayfirst=True, infer_datetime_format=True)
+
+        if "Fecha_Pago_Comprobante" in df_view.columns:
+            dt = _to_dt(df_view["Fecha_Pago_Comprobante"])
+            if dt.notna().any():
+                df_view = df_view.assign(_dt=dt).sort_values("_dt", ascending=False, na_position='last').drop(columns="_dt")
+            elif "Fecha_Entrega" in df_view.columns:
+                dt2 = _to_dt(df_view["Fecha_Entrega"])
+                df_view = df_view.assign(_dt=dt2).sort_values("_dt", ascending=False, na_position='last').drop(columns="_dt")
+            else:
+                df_view = df_view.iloc[::-1].reset_index(drop=True)
+        elif "Fecha_Entrega" in df_view.columns:
+            dt2 = _to_dt(df_view["Fecha_Entrega"])
+            df_view = df_view.assign(_dt=dt2).sort_values("_dt", ascending=False, na_position='last').drop(columns="_dt")
+        else:
+            df_view = df_view.iloc[::-1].reset_index(drop=True)
+
+        st.success(f"✅ {len(df_view)} pedidos confirmados (últimos primero).")
+
+        columnas_para_tabla = [col for col in df_view.columns if col.startswith("Link_") or col in [
+            'Folio_Factura', 'Folio_Factura_Refacturada', 'Cliente', 'Vendedor_Registro',
+            'Tipo_Envio', 'Fecha_Entrega', 'Estado', 'Estado_Pago', 'Refacturacion_Tipo',
+            'Refacturacion_Subtipo', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
+            'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante'
+        ]]
+
+        st.dataframe(
+            df_view[columnas_para_tabla] if columnas_para_tabla else df_view,
+            use_container_width=True, hide_index=True
+        )
+
+        # Descargar Excel (desde el DF ya ordenado)
+        output_confirmados = BytesIO()
+        with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
+            df_view.to_excel(writer, index=False, sheet_name='Confirmados')
+        data_xlsx = output_confirmados.getvalue()
+
+        st.download_button(
+            label="📥 Descargar Excel Confirmados (últimos primero)",
+            data=data_xlsx,
+            file_name=f"confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 # --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
 with tab3:
