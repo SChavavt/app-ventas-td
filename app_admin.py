@@ -933,9 +933,10 @@ with tab2:
             hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
             st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
+            
 # --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
 with tab3:
-    st.header("📦 Confirmación de Devoluciones (casos_especiales)")
+    st.header("📦 Confirmación de Devoluciones")
 
     # 🔔 Placeholder SOLO para mensajes en Tab 3
     tab3_alert = st.empty()
@@ -1025,7 +1026,10 @@ with tab3:
     st.markdown("---")
 
     # 📎 Archivos del Caso (Adjuntos + Guía de retorno) EN EXPANDER
-    import os, json, math, re
+    import os
+    import json
+    import math
+    import re
     def _normalize_urls(value):
         """Convierte la celda 'Adjuntos' (lista JSON, dicts, o texto separado por comas/; o saltos de línea) a lista de URLs."""
         if value is None:
