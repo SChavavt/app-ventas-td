@@ -1014,9 +1014,8 @@ with tab3:
 
     # 🧾 Info del caso (incluye campos adicionales solicitados)
     st.markdown(f"🧾 **Folio Factura:** {row.get('Folio_Factura', 'N/A')}")
-    st.markdown(f"🧿 **Estado:** {row.get('Estado', '')}")
-    st.markdown(f"🚚 **Tipo de Envío (actual):** {row.get('Tipo_Envio', '')}")
-    st.markdown(f"📦 **Tipo de Envío (original):** {row.get('Tipo_Envio_Original', '')}")
+    st.markdown(f"**Estado:** {row.get('Estado', '')}")
+    st.markdown(f"**Tipo de Envío (original):** {row.get('Tipo_Envio_Original', '')}")
     st.markdown(f"📝 **Motivo:** {row.get('Motivo_Detallado', '')}")
     st.markdown(f"📦 **Material Devuelto:** {row.get('Material_Devuelto', '')}")
     st.markdown(f"💵 **Monto Devuelto:** {row.get('Monto_Devuelto', '')}")
