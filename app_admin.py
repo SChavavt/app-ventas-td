@@ -763,87 +763,112 @@ with tab1:
                     with col3:
                         if st.button("❌ Rechazar Comprobante", use_container_width=True):
                             st.warning("Funcionalidad pendiente.")
-
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
     st.header("📊 Estadísticas Generales")
 
-    # Define spreadsheet for tab2
-    spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
+    from datetime import datetime
+    import pandas as pd
+    from io import BytesIO
+    import gspread
 
+    # 🔄 Nonce para cache fino (solo recarga cuando tú lo pides)
+    if "tab2_reload_nonce" not in st.session_state:
+        st.session_state["tab2_reload_nonce"] = 0
+
+    # ✅ Cache de lectura de hoja (rápido y estable)
+    @st.cache_data(show_spinner=False, ttl=0)
+    def cargar_confirmados_guardados_cached(sheet_id: str, ws_name: str, _nonce: int):
+        gc = get_google_sheets_client()
+        ws = gc.open_by_key(sheet_id).worksheet(ws_name)
+        # Más estable que get_all_records()
+        vals = ws.get_values("A1:ZZ", value_render_option="UNFORMATTED_VALUE")
+        if not vals:
+            return pd.DataFrame(), []
+        headers = vals[0]
+        df = pd.DataFrame(vals[1:], columns=headers)
+
+        # Filtrar filas totalmente vacías y mantener solo registros con campos clave no vacíos
+        campos_clave = ['ID_Pedido', 'Cliente', 'Folio_Factura']
+        for c in campos_clave:
+            if c not in df.columns:
+                df[c] = ""
+        df = df.dropna(how='all')
+        df = df[df[campos_clave].apply(
+            lambda row: any(str(val).strip().lower() not in ["", "nan", "n/a"] for val in row),
+            axis=1
+        )]
+        return df, headers
+
+    # 🔘 Recargar (no cambia de pestaña, no hace rerun global costoso)
+    col_a, col_b = st.columns([1, 5])
+    with col_a:
+        if st.button("🔄 Recargar confirmados", type="secondary"):
+            st.session_state["tab2_reload_nonce"] += 1
+            st.cache_data.clear()   # invalida solo caches de datos
+            st.info("♻️ Confirmados recargados.")
+
+    # Cargar pedidos base (asumo que ya tienes df_pedidos cargado fuera de este bloque)
+    # Métricas rápidas (no tocan Google, usan df_pedidos local)
     if not df_pedidos.empty:
         col1, col2, col3, col4 = st.columns(4)
-
         with col1:
             st.metric("Total Pedidos", len(df_pedidos))
-
         with col2:
             pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
             st.metric("Pedidos Pagados", len(pagados))
-
         with col3:
             confirmados = df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí'] if 'Comprobante_Confirmado' in df_pedidos.columns else pd.DataFrame()
             st.metric("Comprobantes Confirmados", len(confirmados))
-
         with col4:
-            pendientes = len(pedidos_pagados_no_confirmados)
+            pendientes = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
             st.metric("Pendientes Confirmación", pendientes)
 
     st.markdown("---")
     st.markdown("### 📥 Pedidos Confirmados - Comprobantes de Pago")
 
-    def cargar_confirmados_guardados():
-        try:
-            hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
-            data = hoja_confirmados.get_all_records()
-            df = pd.DataFrame(data)
-
-            # ✅ Filtrar filas realmente vacías
-            campos_clave = ['ID_Pedido', 'Cliente', 'Folio_Factura']
-            if all(col in df.columns for col in campos_clave):
-                df = df.dropna(how='all')  # quitar filas totalmente vacías
-                df = df[df[campos_clave].apply(
-                    lambda row: any(str(val).strip().lower() not in ["", "nan", "n/a"] for val in row),
-                    axis=1
-                )]
-
-            return df
-
-        except gspread.exceptions.WorksheetNotFound:
-            spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
-            return pd.DataFrame()
-
-    df_confirmados_guardados = cargar_confirmados_guardados()
+    # 📄 Cargar hoja 'pedidos_confirmados' con cache
+    try:
+        df_confirmados_guardados, headers_confirmados = cargar_confirmados_guardados_cached(
+            GOOGLE_SHEET_ID, "pedidos_confirmados", st.session_state["tab2_reload_nonce"]
+        )
+    except gspread.exceptions.WorksheetNotFound:
+        # Crear si no existe y mostrar vacío
+        spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
+        spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
+        df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
 
     if df_confirmados_guardados.empty:
         st.info("ℹ️ No hay registros en la hoja 'pedidos_confirmados'.")
     else:
         st.success(f"✅ Se encontraron {len(df_confirmados_guardados)} pedidos confirmados en hoja.")
+
         columnas_para_tabla = [col for col in df_confirmados_guardados.columns if col.startswith("Link_") or col in [
             'Folio_Factura', 'Folio_Factura_Refacturada', 'Cliente', 'Vendedor_Registro',
             'Tipo_Envio', 'Fecha_Entrega', 'Estado', 'Estado_Pago', 'Refacturacion_Tipo',
             'Refacturacion_Subtipo', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
             'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante'
         ]]
-        st.dataframe(df_confirmados_guardados[columnas_para_tabla], use_container_width=True, hide_index=True)
 
+        st.dataframe(
+            df_confirmados_guardados[columnas_para_tabla] if columnas_para_tabla else df_confirmados_guardados,
+            use_container_width=True, hide_index=True
+        )
+
+        # Descargar Excel
         output_confirmados = BytesIO()
         with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
             df_confirmados_guardados.to_excel(writer, index=False, sheet_name='Confirmados')
         data_xlsx = output_confirmados.getvalue()
 
-        st.session_state["active_tab_admin_index"] = 1
         st.download_button(
             label="📥 Descargar Excel Confirmados (desde hoja)",
             data=data_xlsx,
             file_name=f"confirmados_guardados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-o" \
-            "fficedocument.spreadsheetml.sheet"
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-
-    st.session_state["active_tab_admin_index"] = 1
-
+    # ⤵️ Actualizar enlaces (con hoja única local, sin disparar lecturas fuera de aquí)
     if st.button("🔄 Actualizar Enlaces de Nuevos Pedidos", help="Solo se agregarán los que no estén ya guardados"):
         with st.spinner("🔄 Generando enlaces de archivos nuevos..."):
             import re
@@ -860,90 +885,88 @@ with tab2:
 
             ids_existentes = set(df_confirmados_guardados["ID_Pedido"].astype(str)) if not df_confirmados_guardados.empty else set()
             df_nuevos = df_pedidos[
-                (df_pedidos['Comprobante_Confirmado'] == 'Sí') &
+                (df_pedidos.get('Comprobante_Confirmado') == 'Sí') &
                 (~df_pedidos['ID_Pedido'].astype(str).isin(ids_existentes))
             ].copy()
 
-
             if df_nuevos.empty:
                 st.info("✅ Todos los pedidos confirmados ya están registrados.")
-                st.stop()
+            else:
+                df_nuevos = df_nuevos.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
 
-            df_nuevos = df_nuevos.sort_values(by='Fecha_Pago_Comprobante', ascending=False)
+                link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
 
-            link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
+                for _, row in df_nuevos.iterrows():
+                    pedido_id = row.get("ID_Pedido")
+                    tipo_envio = "foráneo" if "foráneo" in str(row.get("Tipo_Envio", "")).lower() else "local"
+                    comprobante_url = factura_url = guia_url = refact_url = ""
 
-            for _, row in df_nuevos.iterrows():
-                pedido_id = row.get("ID_Pedido")
-                tipo_envio = "foráneo" if "foráneo" in row.get("Tipo_Envio", "").lower() else "local"
-                comprobante_url = factura_url = guia_url = refact_url = ""
+                    if pedido_id and s3_client:
+                        prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
+                        files = get_files_in_s3_prefix(s3_client, prefix)
+                        if not files:
+                            prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
+                            files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
 
-                if pedido_id and s3_client:
-                    prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
-                    files = get_files_in_s3_prefix(s3_client, prefix)
-                    if not files:
-                        prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
-                        files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
+                        comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
+                        if comprobantes:
+                            comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
 
-                    comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
-                    if comprobantes:
-                        comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
+                        facturas = [f for f in files if "factura" in f["title"].lower()]
+                        if facturas:
+                            factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
 
-                    facturas = [f for f in files if "factura" in f["title"].lower()]
-                    if facturas:
-                        factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
+                        if tipo_envio == "foráneo":
+                            guias_filtradas = [f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())]
+                        else:
+                            guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
 
-                    if tipo_envio == "foráneo":
-                        guias_filtradas = [f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())]
-                    else:
-                        guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
+                        if guias_filtradas:
+                            guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
+                            guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
+                            guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
 
-                    if guias_filtradas:
-                        guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
-                        guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
-                        guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
+                        refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
+                        if refacturas:
+                            refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
 
-                    refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
-                    if refacturas:
-                        refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
+                    link_comprobantes.append(comprobante_url)
+                    link_facturas.append(factura_url)
+                    link_guias.append(guia_url)
+                    link_refacturaciones.append(refact_url)
 
-                link_comprobantes.append(comprobante_url)
-                link_facturas.append(factura_url)
-                link_guias.append(guia_url)
-                link_refacturaciones.append(refact_url)
+                df_nuevos["Link_Comprobante"] = link_comprobantes
+                df_nuevos["Link_Factura"] = link_facturas
+                df_nuevos["Link_Guia"] = link_guias
+                df_nuevos["Link_Refacturacion"] = link_refacturaciones
 
-            df_nuevos["Link_Comprobante"] = link_comprobantes
-            df_nuevos["Link_Factura"] = link_facturas
-            df_nuevos["Link_Guia"] = link_guias
-            df_nuevos["Link_Refacturacion"] = link_refacturaciones
+                df_nuevos = df_nuevos[[col for col in columnas_guardar if col in df_nuevos.columns]].fillna("").astype(str)
 
-            df_nuevos = df_nuevos[[col for col in columnas_guardar if col in df_nuevos.columns]].fillna("").astype(str)
+                spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
+                try:
+                    hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
+                except gspread.exceptions.WorksheetNotFound:
+                    hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
 
-            try:
-                hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
-            except gspread.exceptions.WorksheetNotFound:
-                hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
+                datos_existentes = hoja_confirmados.get_all_values()
+                if not datos_existentes:
+                    hoja_confirmados.append_row(columnas_guardar, value_input_option="USER_ENTERED")
 
-            datos_existentes = hoja_confirmados.get_all_values()
+                filas_nuevas = df_nuevos[columnas_guardar].values.tolist()
+                hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
-            if not datos_existentes:
-                hoja_confirmados.append_row(columnas_guardar, value_input_option="USER_ENTERED")
+                st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
+                # Sugerencia: actualizar cache para reflejar los nuevos
+                st.session_state["tab2_reload_nonce"] += 1
+                st.cache_data.clear()
 
-            filas_nuevas = df_nuevos[columnas_guardar].values.tolist()
-            hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
-
-            st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
 
 # --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
 with tab3:
     st.header("📦 Confirmación de Devoluciones")
 
     from datetime import datetime
-    import uuid
-    import os
-    import json
-    import math
-    import re
+    import uuid, os, json, math, re, time
     import pandas as pd
 
     # 🔔 Placeholder SOLO para mensajes en Tab 3
@@ -955,10 +978,15 @@ with tab3:
     if "tab3_selected_idx" not in st.session_state:
         st.session_state["tab3_selected_idx"] = 0
 
+    # 🧰 Cliente de Sheets cacheado (evita reconexiones en cada rerun)
+    @st.cache_resource
+    def get_sheets_client_cached():
+        return get_google_sheets_client()
+
     # ✅ Cache fino: se invalida solo al cambiar el nonce (no “gris” al escribir/seleccionar)
     @st.cache_data(show_spinner=False, ttl=0)
     def get_raw_sheet_data_cached(sheet_id, worksheet_name, _nonce: int):
-        gc = get_google_sheets_client()
+        gc = get_sheets_client_cached()  # 👈 cliente cacheado
         ws = gc.open_by_key(sheet_id).worksheet(worksheet_name)
         return ws.get_all_values()
 
@@ -972,7 +1000,7 @@ with tab3:
     # 🔄 Recargar (sin st.rerun)
     col_recargar, _ = st.columns([1, 5])
     with col_recargar:
-        if st.button("🔄 Recargar devoluciones", type="secondary"):
+        if st.button("🔄 Recargar devoluciones", type="secondary", key="tab3_reload_btn"):
             st.session_state["tab3_reload_nonce"] += 1
             st.cache_data.clear()  # limpia solo cache de datos
             tab3_alert.info("♻️ Devoluciones recargadas.")
@@ -1089,8 +1117,8 @@ with tab3:
         st.stop()
     gsheet_row_idx = int(matches[0]) + 2
 
-    # 📌 Worksheet para escritura
-    worksheet_casos = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
+    # 📌 Worksheet para escritura (usando cliente cacheado)
+    worksheet_casos = get_sheets_client_cached().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
 
     # 🧾 Info del caso (sin “Estado: …”)
     st.markdown(f"🧾 **Folio Factura:** {row.get('Folio_Factura', 'N/A')}")
@@ -1177,18 +1205,24 @@ with tab3:
     # 📝 Comentarios finales
     comentario_admin = st.text_area("📝 Comentario administrativo final")
 
-    # 🔧 Función para actualizar celda
-    def update_gsheet_cell(worksheet, headers, row_idx, col_name, value):
+    # 🔧 Actualización con retry/backoff (más robusto)
+    def update_gsheet_cell(worksheet, headers, row_idx, col_name, value, retries: int = 2):
         try:
             col_idx = headers.index(col_name) + 1
-            worksheet.update_cell(row_idx, col_idx, value)
-            return True
-        except Exception as e:
-            tab3_alert.error(f"❌ Error al actualizar la celda '{col_name}': {e}")
+        except ValueError:
             return False
+        for i in range(retries + 1):
+            try:
+                worksheet.update_cell(row_idx, col_idx, value)
+                return True
+            except Exception as e:
+                if i == retries:
+                    tab3_alert.error(f"❌ Error al actualizar '{col_name}': {e}")
+                    return False
+                time.sleep(0.6 * (i + 1))  # backoff
 
     # 💾 Guardar (sin cambiar de pestaña; recarga data con nonce al final)
-    if st.button("💾 Guardar Confirmación"):
+    if st.button("💾 Guardar Confirmación", key="tab3_save_btn"):
         if not estado_recepcion:
             tab3_alert.warning("⚠️ Completa el campo de estado de recepción.")
             st.stop()
