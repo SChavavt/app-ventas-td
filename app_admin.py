@@ -933,12 +933,17 @@ with tab2:
             hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
             st.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados fueron agregados a la hoja.")
+
 # --- TAB 3: CONFIRMACIÓN DEVOLUCIONES ---
 with tab3:
     st.header("📦 Confirmación de Devoluciones")
 
     from datetime import datetime
-    import uuid, os, json, math, re
+    import uuid
+    import os
+    import json
+    import math
+    import re
     import pandas as pd
 
     # 🔔 Placeholder SOLO para mensajes en Tab 3
