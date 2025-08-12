@@ -979,7 +979,8 @@ with tab3:
     needed_cols = [
         "ID_Pedido", "Cliente", "Resultado_Esperado", "Folio_Factura", "Hora_Registro",
         "Estado", "Estado_Caso", "Material_Devuelto", "Monto_Devuelto",
-        "Area_Responsable", "Nombre_Responsable", "Numero_Cliente_RFC", "Tipo_Envio_Original"
+        "Area_Responsable", "Nombre_Responsable", "Numero_Cliente_RFC", "Tipo_Envio_Original",
+        "Adjuntos", "Hoja_Ruta_Mensajero"  # 👈 añadimos por si faltan
     ]
     for c in needed_cols:
         if c not in df_devoluciones.columns:
@@ -1021,6 +1022,73 @@ with tab3:
     st.markdown(f"💵 **Monto Devuelto:** {row.get('Monto_Devuelto', '')}")
     st.markdown(f"🏷️ **Número Cliente / RFC:** {row.get('Numero_Cliente_RFC', '')}")
     st.markdown(f"👤 **Responsable:** {row.get('Nombre_Responsable', '')}  •  🗂️ **Área:** {row.get('Area_Responsable', '')}")
+    st.markdown("---")
+
+    # 📎 Archivos del Caso (Adjuntos + Guía de retorno) EN EXPANDER
+    import os, json, math, re
+    def _normalize_urls(value):
+        """Convierte la celda 'Adjuntos' (lista JSON, dicts, o texto separado por comas/; o saltos de línea) a lista de URLs."""
+        if value is None:
+            return []
+        if isinstance(value, float) and math.isnan(value):
+            return []
+        s = str(value).strip()
+        if not s or s.lower() in ("nan", "none", "n/a"):
+            return []
+        urls = []
+        # Intentar JSON
+        try:
+            obj = json.loads(s)
+            if isinstance(obj, list):
+                for it in obj:
+                    if isinstance(it, str) and it.strip():
+                        urls.append(it.strip())
+                    elif isinstance(it, dict):
+                        u = it.get("url") or it.get("URL")
+                        if u and str(u).strip():
+                            urls.append(str(u).strip())
+            elif isinstance(obj, dict):
+                for k in ("url", "URL", "link", "href"):
+                    if obj.get(k):
+                        urls.append(str(obj[k]).strip())
+        except Exception:
+            # No era JSON -> split básico
+            parts = re.split(r"[,\n;]+", s)
+            for p in parts:
+                p = p.strip()
+                if p:
+                    urls.append(p)
+        # Dedup manteniendo orden
+        seen, out = set(), []
+        for u in urls:
+            if u not in seen:
+                seen.add(u)
+                out.append(u)
+        return out
+
+    with st.expander("📎 Archivos del Caso (Adjuntos + Guía de Retorno)", expanded=False):
+        adjuntos_urls = _normalize_urls(row.get("Adjuntos", ""))
+        guia_url = str(row.get("Hoja_Ruta_Mensajero", "")).strip()
+
+        items = []
+        # Adjuntos: mostrar nombre real del archivo
+        for u in adjuntos_urls:
+            if not u:
+                continue
+            file_name = os.path.basename(u)
+            items.append((file_name or "Adjunto", u))
+
+        # Guía de retorno (si existe)
+        if guia_url and guia_url.lower() not in ("nan", "none", "n/a"):
+            guia_name = os.path.basename(guia_url) or "Guía de Retorno"
+            items.append((f"Guía: {guia_name}", guia_url))
+
+        if items:
+            for label, url in items:
+                st.markdown(f"- [{label}]({url})")
+        else:
+            st.info("No hay archivos registrados (Adjuntos / Guía) para esta devolución.")
+
     st.markdown("---")
 
     # 📅 Confirmar fecha
