@@ -26,7 +26,6 @@ if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo n
     st.cache_resource.clear()
     st.rerun()
 
-
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
@@ -254,10 +253,10 @@ VENDEDORES_LIST = sorted([
     "PAULINA TREJO"
 ])
 
-
 # Initialize session state for vendor
 if 'last_selected_vendedor' not in st.session_state:
     st.session_state.last_selected_vendedor = VENDEDORES_LIST[0] if VENDEDORES_LIST else ""
+
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
     st.header("📝 Nuevo Pedido")
@@ -273,7 +272,7 @@ with tab1:
 
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
-        ["🚚 Pedido Foráneo", "📍 Pedido Local", "🔁 Devolución", "🛠 Garantía"],
+        ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local", "🔁 Devolución", "🛠 Garantía"],
         index=0,
         key="tipo_envio_selector_global"
     )
@@ -378,7 +377,6 @@ with tab1:
 
             motivo_detallado = st.text_area("📝 Explicación Detallada del Caso", key="motivo_detallado")
 
-
         st.markdown("---")
         st.subheader("📎 Adjuntos del Pedido")
         uploaded_files = st.file_uploader(
@@ -402,7 +400,7 @@ with tab1:
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
 
-    # --- SECCIÓN DE ESTADO DE PAGO - SOLO PARA FORÁNEO Y LOCAL (FUERA DEL FORM) ---
+    # --- SECCIÓN DE ESTADO DE PAGO - PARA FORÁNEO, CDMX, SOLICITUDES DE GUÍA Y LOCAL (FUERA DEL FORM) ---
     # Payment-related variables - inicializar aquí
     comprobante_pago_files = []
     fecha_pago = None
@@ -415,8 +413,8 @@ with tab1:
     pago_triple = False
     estado_pago = "🔴 No Pagado"  # Valor por defecto
 
-    # Solo mostrar sección de pago para Foráneo y Local
-    if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"]:
+    # Mostrar sección de pago para Foráneo, CDMX, Solicitudes de Guía y Local
+    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
         st.markdown("---")
         st.subheader("💰 Estado de Pago")
         estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
@@ -560,8 +558,8 @@ with tab1:
                     st.warning("⚠️ Debes especificar el nombre del responsable.")
                     st.stop()
                     
-            # Solo validar comprobante de pago para Foráneo y Local
-            if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
+            # Validar comprobante de pago para Foráneo, CDMX, Solicitudes de Guía y Local
+            if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                 st.stop()
 
@@ -669,38 +667,38 @@ with tab1:
                 elif header == "Estado":
                     values.append("🟡 Pendiente")
                 elif header == "Estado_Pago":
-                    # Solo agregar estado de pago para Foráneo y Local
-                    if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"]:
+                    # Agregar estado de pago para Foráneo, CDMX, Solicitudes de Guía y Local
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
                         values.append(estado_pago)
                     else:
                         values.append("")  # Vacío para Devolución y Garantía
                 elif header == "Fecha_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
                         values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
                     else:
                         values.append("")
                 elif header == "Forma_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
                         values.append(forma_pago)
                     else:
                         values.append("")
                 elif header == "Terminal":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
                         values.append(terminal)
                     else:
                         values.append("")
                 elif header == "Banco_Destino_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
                         values.append(banco_destino)
                     else:
                         values.append("")
                 elif header == "Monto_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
                         values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
                     else:
                         values.append("")
                 elif header == "Referencia_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
                         values.append(referencia_pago)
                     else:
                         values.append("")
@@ -734,6 +732,7 @@ with tab1:
 
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
+            
 # --- TAB 2: MODIFY EXISTING ORDER ---
 if "reset_inputs_tab2" in st.session_state:
     del st.session_state["reset_inputs_tab2"]
