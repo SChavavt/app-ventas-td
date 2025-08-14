@@ -732,41 +732,116 @@ with tab1:
 
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
+@st.cache_data(ttl=30)
+def cargar_pedidos_combinados():
+    """
+    Carga y unifica pedidos de 'datos_pedidos' y 'casos_especiales'.
+    Devuelve un DataFrame con columna 'Fuente' indicando el origen.
+    """
+    client = build_gspread_client()
+    sh = client.open_by_key(GOOGLE_SHEET_ID)
+
+    # --- datos_pedidos ---
+    try:
+        ws_datos = sh.worksheet("datos_pedidos")
+        headers_datos = ws_datos.row_values(1)
+        df_datos = pd.DataFrame(ws_datos.get_all_records()) if headers_datos else pd.DataFrame()
+    except Exception:
+        headers_datos = []
+        df_datos = pd.DataFrame()
+
+    if not df_datos.empty:
+        claves = ['ID_Pedido', 'Cliente', 'Folio_Factura']
+        # borra filas totalmente vacías en claves
+        df_datos = df_datos.dropna(subset=claves, how='all')
+        if 'ID_Pedido' in df_datos.columns:
+            df_datos = df_datos[df_datos['ID_Pedido'].astype(str).str.strip().ne("")]
+        # Garantizar columnas que Tab2 usa (si faltan, créalas vacías)
+        for c in ['Adjuntos_Guia','Adjuntos','Adjuntos_Surtido','Modificacion_Surtido','Comentario',
+                  'Vendedor_Registro','Estado','Tipo_Envio','Turno','Fecha_Entrega','Hora_Registro',
+                  'Folio_Factura','Estado_Pago']:
+            if c not in df_datos.columns:
+                df_datos[c] = ""
+        df_datos["Fuente"] = "datos_pedidos"
+
+    # --- casos_especiales ---
+    try:
+        ws_casos = sh.worksheet("casos_especiales")
+        headers_casos = ws_casos.row_values(1)
+        df_casos = pd.DataFrame(ws_casos.get_all_records()) if headers_casos else pd.DataFrame()
+    except Exception:
+        headers_casos = []
+        df_casos = pd.DataFrame()
+
+    if not df_casos.empty:
+        if 'ID_Pedido' in df_casos.columns:
+            df_casos = df_casos[df_casos['ID_Pedido'].astype(str).str.strip().ne("")]
+        else:
+            df_casos["ID_Pedido"] = ""
+
+        # Homologar columnas mínimas para Tab2
+        base_cols = ['Cliente','Folio_Factura','Estado','Tipo_Envio','Turno','Fecha_Entrega','Hora_Registro',
+                     'Vendedor_Registro','Adjuntos','Adjuntos_Surtido','Adjuntos_Guia','Modificacion_Surtido',
+                     'Comentario','Estado_Pago']
+        for c in base_cols:
+            if c not in df_casos.columns:
+                df_casos[c] = ""
+
+        # Si no hay Tipo_Envio, intenta inferirlo de Tipo_Caso (opcional)
+        if 'Tipo_Envio' in df_casos.columns:
+            df_casos['Tipo_Envio'] = df_casos['Tipo_Envio'].astype(str)
+        if 'Tipo_Envio' in df_casos.columns and df_casos['Tipo_Envio'].eq("").any():
+            if 'Tipo_Caso' in df_casos.columns:
+                def _infer_tipo_envio(row):
+                    t_env = str(row.get("Tipo_Envio","")).strip()
+                    if t_env:
+                        return t_env
+                    t_caso = str(row.get("Tipo_Caso","")).lower()
+                    if t_caso.startswith("devol"):
+                        return "🔁 Devolución"
+                    if t_caso.startswith("garan"):
+                        return "🛠 Garantía"
+                    return "Caso especial"
+                df_casos['Tipo_Envio'] = df_casos.apply(_infer_tipo_envio, axis=1)
+
+        df_casos["Fuente"] = "casos_especiales"
+
+    # --- Unir respetando columnas ---
+    if df_datos.empty and df_casos.empty:
+        return pd.DataFrame()
+
+    if df_datos.empty:
+        return df_casos.copy()
+    if df_casos.empty:
+        return df_datos.copy()
+
+    all_cols = list(set(df_datos.columns).union(set(df_casos.columns)))
+    df_datos = df_datos.reindex(columns=all_cols, fill_value="")
+    df_casos = df_casos.reindex(columns=all_cols, fill_value="")
+    df_all = pd.concat([df_datos, df_casos], ignore_index=True)
+    return df_all
+
             
 # --- TAB 2: MODIFY EXISTING ORDER ---
 if "reset_inputs_tab2" in st.session_state:
     del st.session_state["reset_inputs_tab2"]
+
 with tab2:
     st.header("✏️ Modificar Pedido Existente")
 
     message_placeholder_tab2 = st.empty()
 
-    @st.cache_data(ttl=30)
-    def cargar_datos_pedidos():
-        client = build_gspread_client()
-        worksheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")  # ✅ conexión segura y moderna
-
-        headers = worksheet.row_values(1)
-        df = pd.DataFrame(worksheet.get_all_records()) if headers else pd.DataFrame()
-
-        # 🔧 Limpiar filas completamente vacías o sin campos clave
-        campos_clave = ['ID_Pedido', 'Cliente', 'Folio_Factura']
-        df = df.dropna(subset=campos_clave, how='all')  # elimina si todas las claves están vacías
-        df = df[df['ID_Pedido'].astype(str).str.strip().ne("")]  # adicional para asegurar que ID_Pedido no esté vacío
-        if "Adjuntos_Guia" not in df.columns:
-            df["Adjuntos_Guia"] = ""
-
-        return df, headers, worksheet
-
+    # 🔄 Cargar pedidos combinados (datos_pedidos + casos_especiales)
     try:
-        df_pedidos, headers, worksheet = cargar_datos_pedidos()
+        df_pedidos = cargar_pedidos_combinados()
     except Exception as e:
         message_placeholder_tab2.error(f"❌ Error al cargar pedidos para modificación: {e}")
-        message_placeholder_tab2.info("ℹ️ Asegúrate de que la primera fila de tu Google Sheet contiene los encabezados esperados.")
         st.stop()
 
+    # ----------------- Estado local -----------------
     selected_order_id = None
     selected_row_data = None
+    selected_source = "datos_pedidos"  # por defecto
     current_modificacion_surtido_value = ""
     current_estado_pago_value = "🔴 No Pagado"
     current_adjuntos_list = []
@@ -775,28 +850,29 @@ with tab2:
     if df_pedidos.empty:
         message_placeholder_tab2.warning("No hay pedidos registrados para modificar.")
     else:
+        # 🔧 Normaliza 'Vendedor_Registro' usando 'Vendedor' como respaldo
+        if 'Vendedor_Registro' not in df_pedidos.columns:
+            df_pedidos['Vendedor_Registro'] = ""
+        if 'Vendedor' in df_pedidos.columns:
+            df_pedidos['Vendedor_Registro'] = df_pedidos['Vendedor_Registro'].astype(str).str.strip()
+            fallback_v = df_pedidos['Vendedor'].astype(str).str.strip()
+            df_pedidos.loc[df_pedidos['Vendedor_Registro'] == "", 'Vendedor_Registro'] = fallback_v
+
+        # 🔽 Filtro combinado por envío (usa Turno si es Local)
         df_pedidos['Filtro_Envio_Combinado'] = df_pedidos.apply(
-            lambda row: row['Turno'] if row['Tipo_Envio'] == "📍 Pedido Local" and pd.notna(row['Turno']) and row['Turno'] else row['Tipo_Envio'],
+            lambda row: row['Turno'] if (str(row.get('Tipo_Envio',"")) == "📍 Pedido Local" and pd.notna(row.get('Turno')) and str(row.get('Turno')).strip()) else row.get('Tipo_Envio', ''),
             axis=1
         )
 
-        all_filter_options = ["Todos"] + df_pedidos['Filtro_Envio_Combinado'].unique().tolist()
-
-        unique_filter_options = []
-        for option in all_filter_options:
-            if option not in unique_filter_options:
-                unique_filter_options.append(option)
-
-        col1, col2 = st.columns(2)
-
-        
-        # Mostrar siempre los selectbox de filtro
+        # ----------------- Controles de filtro -----------------
         col1, col2 = st.columns(2)
 
         with col1:
             if 'Vendedor_Registro' in df_pedidos.columns:
-                unique_vendedores_mod = sorted(df_pedidos['Vendedor_Registro'].dropna().astype(str).str.strip().unique().tolist())
-                unique_vendedores_mod = [v for v in unique_vendedores_mod if v != "" and v.lower() not in ["none", "nan"]]
+                unique_vendedores_mod = sorted(
+                    [v for v in df_pedidos['Vendedor_Registro'].dropna().astype(str).str.strip().unique().tolist()
+                     if v and v.lower() not in ["none", "nan"]]
+                )
                 unique_vendedores_mod = ["Todos"] + unique_vendedores_mod
                 selected_vendedor_mod = st.selectbox(
                     "Filtrar por Vendedor:",
@@ -813,21 +889,21 @@ with tab2:
                 key="filtro_fecha_registro"
             )
 
-
-        # Aplicar los filtros seleccionados
+        # ----------------- Aplicar filtros -----------------
         filtered_orders = df_pedidos.copy()
+
         if selected_vendedor_mod != "Todos":
             filtered_orders = filtered_orders[filtered_orders['Vendedor_Registro'] == selected_vendedor_mod]
-        # Filtrar por fecha si existe columna 'Hora_Registro'
+
+        # Filtrar por fecha usando 'Hora_Registro' si existe
         if 'Hora_Registro' in filtered_orders.columns:
             filtered_orders['Hora_Registro'] = pd.to_datetime(filtered_orders['Hora_Registro'], errors='coerce')
-            filtered_orders = filtered_orders[
-                filtered_orders['Hora_Registro'].dt.date == fecha_filtro
-            ]
+            filtered_orders = filtered_orders[filtered_orders['Hora_Registro'].dt.date == fecha_filtro]
+
         if filtered_orders.empty:
             st.warning("No hay pedidos que coincidan con los filtros seleccionados.")
         else:
-            # 🔧 Limpieza previa de columnas clave para evitar valores vacíos en el selectbox
+            # 🔧 Limpieza para evitar 'nan' en el select
             for col in ['Folio_Factura', 'ID_Pedido', 'Cliente', 'Estado', 'Tipo_Envio']:
                 if col in filtered_orders.columns:
                     filtered_orders[col] = (
@@ -838,31 +914,42 @@ with tab2:
                         .str.strip()
                     )
 
-            # 🧠 Fallback: usar ID_Pedido si falta Folio_Factura
-            filtered_orders['display_label'] = filtered_orders.apply(lambda row:
-                f"📄 {(row['Folio_Factura'] if row['Folio_Factura'] else row['ID_Pedido'])} - {row['Cliente']} - {row['Estado']} - {row['Tipo_Envio']}",
-                axis=1
-            )
-            # 🆕 Ordenar por fecha de entrega descendente (más reciente primero)
+            # 🧹 Orden por Fecha_Entrega (más reciente primero) si existe
             if 'Fecha_Entrega' in filtered_orders.columns:
                 filtered_orders['Fecha_Entrega'] = pd.to_datetime(filtered_orders['Fecha_Entrega'], errors='coerce')
                 filtered_orders = filtered_orders.sort_values(by='Fecha_Entrega', ascending=False).reset_index(drop=True)
 
+            # 🏷️ Etiqueta de display (marca [CE] si es de casos_especiales)
+            def _s(x):
+                return "" if pd.isna(x) else str(x)
 
+            filtered_orders['display_label'] = filtered_orders.apply(
+                lambda row: (
+                    f"📄 {(_s(row['Folio_Factura']) or _s(row['ID_Pedido']))}"
+                    f" - {_s(row['Cliente'])}"
+                    f" - {_s(row['Estado'])}"
+                    f" - {_s(row['Tipo_Envio'])}"
+                    f" {'[CE]' if row.get('Fuente','')=='casos_especiales' else ''}"
+                ),
+                axis=1
+            )
 
-            # Mostrar selectbox limpio
+            # ----------------- Selector de pedido -----------------
             selected_order_display = st.selectbox(
                 "📝 Seleccionar Pedido para Modificar",
                 filtered_orders['display_label'].tolist(),
                 key="select_order_to_modify"
             )
 
-
             if selected_order_display:
-                selected_order_id = filtered_orders[filtered_orders['display_label'] == selected_order_display]['ID_Pedido'].iloc[0]
-                selected_row_data = filtered_orders[filtered_orders['ID_Pedido'] == selected_order_id].iloc[0]
+                matched = filtered_orders[filtered_orders['display_label'] == selected_order_display].iloc[0]
+                selected_order_id = matched['ID_Pedido']
+                selected_row_data = matched
+                selected_source = matched.get('Fuente', 'datos_pedidos')  # 'datos_pedidos' o 'casos_especiales'
 
+                # ----------------- Detalles del pedido -----------------
                 st.subheader(f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')} (ID {selected_order_id})")
+                st.write(f"**Fuente:** {'📄 datos_pedidos' if selected_source=='datos_pedidos' else '🔁 casos_especiales'}")
                 st.write(f"**Vendedor:** {selected_row_data.get('Vendedor', selected_row_data.get('Vendedor_Registro', 'No especificado'))}")
                 st.write(f"**Cliente:** {selected_row_data.get('Cliente', 'N/A')}")
                 st.write(f"**Folio de Factura:** {selected_row_data.get('Folio_Factura', 'N/A')}")
@@ -874,19 +961,19 @@ with tab2:
                 st.write(f"**Comentario Original:** {selected_row_data.get('Comentario', 'N/A')}")
                 st.write(f"**Estado de Pago:** {selected_row_data.get('Estado_Pago', '🔴 No Pagado')}")
 
+                # ----------------- Valores actuales -----------------
                 current_modificacion_surtido_value = selected_row_data.get('Modificacion_Surtido', '')
                 current_estado_pago_value = selected_row_data.get('Estado_Pago', '🔴 No Pagado')
 
                 current_adjuntos_str = selected_row_data.get('Adjuntos', '')
-                current_adjuntos_list = [f.strip() for f in current_adjuntos_str.split(',') if f.strip()]
+                current_adjuntos_list = [f.strip() for f in str(current_adjuntos_str).split(',') if f.strip()]
 
                 current_adjuntos_surtido_str = selected_row_data.get('Adjuntos_Surtido', '')
-                current_adjuntos_surtido_list = [f.strip() for f in current_adjuntos_surtido_str.split(',') if f.strip()]
+                current_adjuntos_surtido_list = [f.strip() for f in str(current_adjuntos_surtido_str).split(',') if f.strip()]
 
                 if current_adjuntos_list:
                     st.write("**Adjuntos Originales:**")
                     for adj in current_adjuntos_list:
-                        # Displaying URLs for existing attachments
                         st.markdown(f"- [{os.path.basename(adj)}]({adj})")
                 else:
                     st.write("**Adjuntos Originales:** Ninguno")
@@ -894,16 +981,15 @@ with tab2:
                 if current_adjuntos_surtido_list:
                     st.write("**Adjuntos de Modificación/Surtido:**")
                     for adj_surtido in current_adjuntos_surtido_list:
-                        # Displaying URLs for existing attachments
                         st.markdown(f"- [{os.path.basename(adj_surtido)}]({adj_surtido})")
                 else:
                     st.write("**Adjuntos de Modificación/Surtido:** Ninguno")
-
 
                 st.markdown("---")
                 st.subheader("Modificar Campos y Adjuntos (Surtido)")
                 st.markdown("### 🛠 Tipo de modificación")
 
+                # ----------------- Tipo de modificación -----------------
                 tipo_modificacion_seleccionada = st.selectbox(
                     "📌 ¿Qué tipo de modificación estás registrando?",
                     ["Refacturación", "Nueva Ruta", "Otro"],
@@ -931,7 +1017,7 @@ with tab2:
                             key="subtipo_datos_outside",
                             placeholder="Selecciona una opción..."
                         )
-                    else:  # Material
+                    else:
                         refact_subtipo_val = st.selectbox(
                             "📌 Subtipo",
                             ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"],
@@ -941,7 +1027,7 @@ with tab2:
 
                     refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="folio_refact_outside")
 
-
+                # ----------------- Formulario de modificación -----------------
                 with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
                     default_modificacion_text = "" if st.session_state.get("reset_inputs_tab2") else current_modificacion_surtido_value
 
@@ -952,14 +1038,12 @@ with tab2:
                         key="new_modificacion_surtido_input"
                     )
 
-
                     uploaded_files_surtido = st.file_uploader(
                         "📎 Subir Archivos para Modificación/Surtido",
                         type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
                         accept_multiple_files=True,
                         key="uploaded_files_surtido"
                     )
-
 
                     uploaded_comprobantes_extra = st.file_uploader(
                         "🧾 Subir Comprobante(s) Adicional(es)",
@@ -968,53 +1052,52 @@ with tab2:
                         key="uploaded_comprobantes_extra"
                     )
 
-
                     modify_button = st.form_submit_button("💾 Guardar Cambios")
 
                     if modify_button:
                         message_placeholder_tab2.empty()
                         try:
-                            # ✅ Reconexión directa y segura igual que en Tab 3
+                            # 1) Enrutar a la hoja correcta según la fuente
                             client = build_gspread_client()
-                            worksheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("datos_pedidos")
+                            sh = client.open_by_key(GOOGLE_SHEET_ID)
+                            hoja_objetivo = "datos_pedidos" if selected_source == "datos_pedidos" else "casos_especiales"
+                            worksheet = sh.worksheet(hoja_objetivo)
 
                             headers = worksheet.row_values(1)
                             all_data_actual = worksheet.get_all_records()
                             df_actual = pd.DataFrame(all_data_actual)
-                            selected_row_data = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
 
+                            if df_actual.empty or 'ID_Pedido' not in df_actual.columns:
+                                message_placeholder_tab2.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
+                                st.stop()
 
                             if selected_order_id not in df_actual['ID_Pedido'].values:
-                                message_placeholder_tab2.error("❌ No se encontró el ID del pedido en la hoja.")
+                                message_placeholder_tab2.error(f"❌ El ID {selected_order_id} no existe en {hoja_objetivo}.")
                                 st.stop()
 
                             gsheet_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0] + 2
                             changes_made = False
 
-                            # ✍️ Modificación_Surtido
-                            if new_modificacion_surtido_input.strip() != current_modificacion_surtido_value.strip():
-                                col_mod = headers.index("Modificacion_Surtido") + 1
-                                worksheet.update_cell(gsheet_row_index, col_mod, new_modificacion_surtido_input.strip())
-                                changes_made = True
+                            def col_exists(col):
+                                return col in headers
+                            def col_idx(col):
+                                return headers.index(col) + 1
 
-                                # 🔁 Cambiar estado si NO es refacturación por Datos Fiscales
-                                aplicar_estado_modificacion = True
-                                if tipo_modificacion_seleccionada == "Refacturación" and refact_tipo == "Datos Fiscales":
-                                    aplicar_estado_modificacion = False
+                            # 2) Guardar Modificacion_Surtido (si cambió)
+                            if col_exists("Modificacion_Surtido"):
+                                if new_modificacion_surtido_input.strip() != current_modificacion_surtido_value.strip():
+                                    worksheet.update_cell(gsheet_row_index, col_idx("Modificacion_Surtido"), new_modificacion_surtido_input.strip())
+                                    changes_made = True
 
-                                if aplicar_estado_modificacion:
-                                    col_estado = headers.index("Estado") + 1
-                                    worksheet.update_cell(gsheet_row_index, col_estado, "🛠 Modificación")
+                                    # Solo forzar '🛠 Modificación' en datos_pedidos (tu flujo actual)
+                                    if selected_source == "datos_pedidos":
+                                        if col_exists("Estado"):
+                                            worksheet.update_cell(gsheet_row_index, col_idx("Estado"), "🛠 Modificación")
+                                        if col_exists("Fecha_Completado"):
+                                            worksheet.update_cell(gsheet_row_index, col_idx("Fecha_Completado"), "")
+                                        message_placeholder_tab2.warning("🛠 El estado se cambió a 'Modificación' por los cambios realizados.")
 
-                                    if "Fecha_Completado" in headers:
-                                        col_fecha = headers.index("Fecha_Completado") + 1
-                                        worksheet.update_cell(gsheet_row_index, col_fecha, "")
-
-                                    message_placeholder_tab2.warning("🛠 El estado del pedido se cambió a 'Modificación' por los cambios realizados.")
-
-
-
-                            # 📎 Adjuntos Surtido
+                            # 3) Subida de archivos de Surtido -> Adjuntos_Surtido
                             new_adjuntos_surtido_urls = []
                             if uploaded_files_surtido:
                                 for f in uploaded_files_surtido:
@@ -1026,8 +1109,14 @@ with tab2:
                                         changes_made = True
                                     else:
                                         message_placeholder_tab2.warning(f"⚠️ Falló la subida de {f.name}")
-                                        
-                            # 🧾 Adjuntar Comprobantes Extra
+
+                            if new_adjuntos_surtido_urls and col_exists("Adjuntos_Surtido"):
+                                actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
+                                current_urls = [x.strip() for x in str(actual_row.get("Adjuntos_Surtido","")).split(",") if x.strip()]
+                                updated_str = ", ".join(current_urls + new_adjuntos_surtido_urls)
+                                worksheet.update_cell(gsheet_row_index, col_idx("Adjuntos_Surtido"), updated_str)
+
+                            # 4) Comprobantes extra -> concatenar en 'Adjuntos'
                             comprobante_urls = []
                             if uploaded_comprobantes_extra:
                                 for archivo in uploaded_comprobantes_extra:
@@ -1040,20 +1129,13 @@ with tab2:
                                     else:
                                         message_placeholder_tab2.warning(f"⚠️ Falló la subida del comprobante {archivo.name}")
 
-                                if comprobante_urls:
-                                    current_adjuntos = [x.strip() for x in selected_row_data.get("Adjuntos", "").split(",") if x.strip()]
+                                if comprobante_urls and col_exists("Adjuntos"):
+                                    actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
+                                    current_adjuntos = [x.strip() for x in str(actual_row.get("Adjuntos","")).split(",") if x.strip()]
                                     updated_adjuntos = ", ".join(current_adjuntos + comprobante_urls)
-                                    col_idx_adj = headers.index("Adjuntos") + 1
-                                    worksheet.update_cell(gsheet_row_index, col_idx_adj, updated_adjuntos)
+                                    worksheet.update_cell(gsheet_row_index, col_idx("Adjuntos"), updated_adjuntos)
 
-
-                            if new_adjuntos_surtido_urls:
-                                current_urls = [x.strip() for x in selected_row_data.get("Adjuntos_Surtido", "").split(",") if x.strip()]
-                                updated_str = ", ".join(current_urls + new_adjuntos_surtido_urls)
-                                col_adj = headers.index("Adjuntos_Surtido") + 1
-                                worksheet.update_cell(gsheet_row_index, col_adj, updated_str)
-
-                            # 🧾 Guardar campos de refacturación si aplica
+                            # 5) Refacturación (si las columnas existen en ESA hoja)
                             if tipo_modificacion_seleccionada == "Refacturación":
                                 campos_refact = {
                                     "Refacturacion_Tipo": refact_tipo,
@@ -1061,39 +1143,30 @@ with tab2:
                                     "Folio_Factura_Refacturada": refact_folio_nuevo
                                 }
                                 for campo, valor in campos_refact.items():
-                                    if campo in headers:
-                                        col_idx = headers.index(campo) + 1
-                                        worksheet.update_cell(gsheet_row_index, col_idx, valor)
-                                st.toast("🧾 Refacturación registrada con los detalles capturados.")
+                                    if col_exists(campo):
+                                        worksheet.update_cell(gsheet_row_index, col_idx(campo), valor)
+                                st.toast("🧾 Refacturación registrada.")
                             else:
-                                # 🧹 Limpiar campos si se cambió a Otro o Nueva Ruta
-                                campos_refact = [
-                                    "Refacturacion_Tipo",
-                                    "Refacturacion_Subtipo",
-                                    "Folio_Factura_Refacturada"
-                                ]
-                                for campo in campos_refact:
-                                    if campo in headers:
-                                        col_idx = headers.index(campo) + 1
-                                        worksheet.update_cell(gsheet_row_index, col_idx, "")
+                                for campo in ["Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada"]:
+                                    if col_exists(campo):
+                                        worksheet.update_cell(gsheet_row_index, col_idx(campo), "")
 
-
+                            # 6) Mensajes y limpieza de inputs
                             if changes_made:
                                 st.session_state["reset_inputs_tab2"] = True
                                 st.session_state["show_success_message"] = True
                                 st.session_state["last_updated_order_id"] = selected_order_id
-                                st.session_state["new_modificacion_surtido_input"] = ""  # 🔁 limpiar textarea
-                                st.session_state["uploaded_files_surtido"] = []          # 🔁 limpiar uploader
-                                st.query_params.update({"tab": "1"})
+                                st.session_state["new_modificacion_surtido_input"] = ""   # limpiar textarea
+                                st.session_state["uploaded_files_surtido"] = []           # limpiar uploader
+                                st.query_params.update({"tab": "1"})  # mantener UX actual
                                 st.rerun()
-
                             else:
                                 message_placeholder_tab2.info("ℹ️ No se detectaron cambios nuevos para guardar.")
 
                         except Exception as e:
                             message_placeholder_tab2.error(f"❌ Error inesperado al guardar: {e}")
 
-
+    # ----------------- Mensaje de éxito persistente -----------------
     if (
         'show_success_message' in st.session_state and
         st.session_state.show_success_message and
@@ -1101,11 +1174,10 @@ with tab2:
     ):
         pedido_id = st.session_state.last_updated_order_id
         message_placeholder_tab2.success(f"🎉 ¡Cambios guardados con éxito para el pedido **{pedido_id}**!")
-        st.balloons()  # 🎈 Globos para destacar visualmente
+        st.balloons()
         st.toast(f"✅ Pedido {pedido_id} actualizado", icon="📦")
         del st.session_state.show_success_message
         del st.session_state.last_updated_order_id
-
 
 
 # --- TAB 3: PENDING PROOF OF PAYMENT ---
