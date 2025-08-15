@@ -5,7 +5,7 @@ import time
 import pandas as pd
 import boto3
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials as GoogleCredentials
 from io import BytesIO
 from datetime import datetime, date
 import os
@@ -14,32 +14,56 @@ import uuid
 # Reintentos robustos para Google Sheets
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
 
-def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3, wait: float = 0.8):
+def _err_signature(e) -> tuple[int|None, str]:
+    """Extrae status y texto para decidir si reintentar."""
+    status = getattr(getattr(e, "response", None), "status_code", None)
+    try:
+        text = e.response.text  # puede incluir 'rateLimitExceeded', 'USER_RATE_LIMIT_EXCEEDED', etc.
+    except Exception:
+        text = str(e)
+    return status, text.lower()
+
+def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 5, wait: float = 0.9):
     """
     Abre una worksheet con reintentos automáticos en caso de errores temporales
-    (429 cuota excedida, 5xx de servidor). Devuelve el objeto Worksheet.
+    (429 cuota excedida, 5xx de servidor o mensajes de rate limit).
     """
-    gc = get_google_sheets_client()
     last_err = None
     for i in range(retries + 1):
         try:
+            gc = get_google_sheets_client()  # refresca el cliente en cada intento
             ss = gc.open_by_key(sheet_id)
             return ss.worksheet(worksheet_name)
         except gspread.exceptions.APIError as e:
             last_err = e
-            status = getattr(getattr(e, "response", None), "status_code", None)
-            if status in RETRIABLE_CODES and i < retries:
+            status, text = _err_signature(e)
+            is_rate = (
+                (status in RETRIABLE_CODES) or
+                ("ratelimit" in text) or
+                ("user_rate_limit_exceeded" in text) or
+                ("resource_exhausted" in text) or
+                ("backenderror" in text)
+            )
+            if is_rate and i < retries:
                 if i == 0:
-                    st.cache_resource.clear()  # fuerza refresco del cliente la primera vez
-                time.sleep(wait * (i + 1))  # backoff progresivo
+                    # primer fallo: fuerza refresco de recursos
+                    st.cache_resource.clear()
+                # backoff incremental con jitter ligero
+                time.sleep(wait * (i + 1) + 0.15 * i)
                 continue
             break
-    # Si no fue transitorio o agotamos reintentos, propaga el último error
+    # agotado o no transitorio
     raise last_err
+
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
 if "active_tab_admin_index" not in st.session_state:
     st.session_state["active_tab_admin_index"] = 0
+
+def _get_ws_datos():
+    """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
+    return safe_open_worksheet(GOOGLE_SHEET_ID, "datos_pedidos")
+
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
@@ -99,31 +123,29 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
 
 @st.cache_resource
 def get_google_sheets_client():
+    """
+    Crea el cliente de Google Sheets con google.oauth2 (no oauth2client).
+    No hace llamadas a la API aquí para evitar errores 429 al crear el cliente.
+    """
     try:
         credentials_json_str = st.secrets["google_credentials"]
         creds_dict = json.loads(credentials_json_str)
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        # Normaliza el private_key con saltos de línea reales
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
+
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",  # necesario si agregas hojas, etc.
+        ]
+        creds = GoogleCredentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-
-        # Verificación temprana del token
-        _ = client.open_by_key(GOOGLE_SHEET_ID)
-        return client
-
-    except gspread.exceptions.APIError:
-        # Si el token expiró o hubo error, reintentamos
-        st.cache_resource.clear()
-        st.warning("🔁 Token expirado o inválido. Reintentando autenticación...")
-
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        _ = client.open_by_key(GOOGLE_SHEET_ID)
         return client
 
     except Exception as e:
         st.error(f"❌ Error crítico al autenticar con Google Sheets: {e}")
         st.stop()
+
 
 df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
 if df_pedidos.empty:
@@ -133,7 +155,6 @@ if df_pedidos.empty:
 df_casos, headers_casos = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "casos_especiales")
 
 
-worksheet = safe_open_worksheet(GOOGLE_SHEET_ID, "datos_pedidos")
 
 # --- CONFIGURACIÓN DE AWS S3 ---
 try:
@@ -421,8 +442,13 @@ with tab1:
                     if confirmacion_credito:
                         if st.button("💾 Guardar Confirmación de Crédito"):
                             try:
+                                # Índice real (fila en Google Sheets)
                                 gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
 
+                                # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
+                                worksheet = _get_ws_datos()
+
+                                # Actualizaciones
                                 if "Comprobante_Confirmado" in headers:
                                     worksheet.update_cell(gsheet_row_index, headers.index("Comprobante_Confirmado") + 1, confirmacion_credito)
 
@@ -442,6 +468,7 @@ with tab1:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
+
 
                     # 🚫 IMPORTANTE: Detener todo el flujo restante para crédito
                     # Eliminado 'return' porque no puede usarse fuera de una función
@@ -541,19 +568,16 @@ with tab1:
                                     adjuntos_urls.append(url)
 
                         # ---- Normalizaciones SEGURAS para Google Sheets ----
-                        # Fecha: soporta date, datetime o string (incluye el caso "YYYY-MM-DD y YYYY-MM-DD")
                         if isinstance(fecha_pago, (datetime, date)):
                             fecha_pago_str = fecha_pago.strftime("%Y-%m-%d")
                         else:
                             fecha_pago_str = str(fecha_pago) if fecha_pago else ""
 
-                        # Monto a float
                         try:
                             monto_val = float(monto_pago) if monto_pago is not None else 0.0
                         except Exception:
                             monto_val = 0.0
 
-                        # Construir actualizaciones
                         updates = {
                             "Estado_Pago": "✅ Pagado",
                             "Comprobante_Confirmado": "Sí",
@@ -565,7 +589,10 @@ with tab1:
                             "Banco_Destino_Pago": banco_destino,
                         }
 
-                        # Escribir campos
+                        # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
+                        worksheet = _get_ws_datos()
+
+                        # Escribir columnas principales
                         for col, val in updates.items():
                             if col in headers:
                                 worksheet.update_cell(gsheet_row_index, headers.index(col) + 1, val)
@@ -584,6 +611,7 @@ with tab1:
 
                     except Exception as e:
                         st.error(f"❌ Error al guardar el comprobante: {e}")
+
                 # ⬆️ Hasta aquí
 
 
@@ -780,6 +808,9 @@ with tab1:
                                     'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
                                 }
 
+                                # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
+                                worksheet = _get_ws_datos()
+
                                 for col, val in updates.items():
                                     if col in headers:
                                         worksheet.update_cell(gsheet_row_index, headers.index(col)+1, val)
@@ -792,6 +823,7 @@ with tab1:
 
                             except Exception as e:
                                 st.error(f"❌ Error al confirmar comprobante: {e}")
+
 
                     with col3:
                         if st.button("❌ Rechazar Comprobante", use_container_width=True):
