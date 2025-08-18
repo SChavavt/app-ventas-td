@@ -288,7 +288,9 @@ with tab1:
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
 
-    # Initialize ALL variables with default values at the beginning
+    # -------------------------------
+    # Inicialización de variables
+    # -------------------------------
     vendedor = ""
     registro_cliente = ""
     numero_cliente_rfc = ""
@@ -296,8 +298,8 @@ with tab1:
     fecha_entrega = datetime.now().date()
     comentario = ""
     uploaded_files = []
-    
-    # Devolución variables
+
+    # Variables Devolución
     tipo_envio_original = ""
     resultado_esperado = ""
     material_devuelto = ""
@@ -307,41 +309,54 @@ with tab1:
     monto_devuelto = 0.0
     comprobante_cliente = None
 
+    # Variables Garantía
+    g_resultado_esperado = ""
+    g_descripcion_falla = ""
+    g_piezas_afectadas = ""
+    g_monto_estimado = 0.0
+    g_area_responsable = ""
+    g_nombre_responsable = ""
+    g_numero_serie = ""
+    g_fecha_compra = None
+
+    # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
+    # -------------------------------
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
         try:
             initial_vendedor_index = VENDEDORES_LIST.index(st.session_state.last_selected_vendedor)
-        except ValueError:
+        except Exception:
             initial_vendedor_index = 0
 
         vendedor = st.selectbox("👤 Vendedor", VENDEDORES_LIST, index=initial_vendedor_index)
-        if vendedor != st.session_state.last_selected_vendedor:
+        if vendedor != st.session_state.get("last_selected_vendedor", None):
             st.session_state.last_selected_vendedor = vendedor
 
         registro_cliente = st.text_input("🤝 Cliente")
-        
-        # Para Devoluciones, agregar campo de número de cliente o RFC
+
+        # Número de cliente / RFC para Casos Especiales (Devolución y Garantía)
+        if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+            numero_cliente_rfc = st.text_input("🆔 Número de Cliente o RFC (opcional)")
+
+        # Tipo de Envío Original (solo Devolución)
         if tipo_envio == "🔁 Devolución":
-            numero_cliente_rfc = st.text_input("🆔 Número de Cliente o RFC")
-            
-            # Variables para Devolución - Tipo de Envío Original (DENTRO del recuadro)
             tipo_envio_original = st.selectbox(
                 "📦 Tipo de Envío Original",
                 ["📍 Local", "🚚 Foráneo"],
                 index=0,
                 help="Selecciona el tipo de envío del pedido que se va a devolver."
             )
-        
+
         folio_factura = st.text_input("📄 Folio de Factura")
-        
-        # Solo mostrar estos campos para pedidos normales (no devoluciones)
-        if tipo_envio != "🔁 Devolución":
+
+        # Campos de pedido normal (no Casos Especiales)
+        if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
             fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", datetime.now().date())
             comentario = st.text_area("💬 Comentario / Descripción Detallada")
-        
+
         # --- Campos adicionales para Devolución ---
         if tipo_envio == "🔁 Devolución":
             st.markdown("### 🔁 Información de Devolución")
@@ -377,6 +392,51 @@ with tab1:
 
             motivo_detallado = st.text_area("📝 Explicación Detallada del Caso", key="motivo_detallado")
 
+        # --- Campos adicionales para Garantía ---
+        if tipo_envio == "🛠 Garantía":
+            st.markdown("### 🛠 Información de Garantía")
+
+            g_resultado_esperado = st.selectbox(
+                "🎯 Resultado Esperado",
+                ["Reparación", "Cambio por Garantía", "Nota de Crédito"],
+                key="g_resultado_esperado"
+            )
+
+            g_descripcion_falla = st.text_area(
+                "🧩 Descripción de la Falla (detallada)",
+                key="g_descripcion_falla"
+            )
+
+            g_piezas_afectadas = st.text_area(
+                "🧰 Piezas/Material afectado (códigos, descripciones, cantidades y monto individual con IVA si aplica)",
+                key="g_piezas_afectadas"
+            )
+
+            g_monto_estimado = st.number_input(
+                "💲 Monto estimado de atención (con IVA, opcional)",
+                min_value=0.0,
+                format="%.2f",
+                key="g_monto_estimado"
+            )
+
+            g_area_responsable = st.selectbox(
+                "🏷 Área posiblemente responsable",
+                ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"],
+                key="g_area_responsable"
+            )
+
+            if g_area_responsable in ["Vendedor", "Almacén"]:
+                g_nombre_responsable = st.text_input("👤 Nombre del Empleado Responsable", key="g_nombre_responsable")
+            else:
+                g_nombre_responsable = "No aplica"
+
+            col_g1, col_g2 = st.columns(2)
+            with col_g1:
+                g_numero_serie = st.text_input("🔢 Número de serie / lote (opcional)", key="g_numero_serie")
+            with col_g2:
+                # None por defecto; si tu versión de Streamlit no admite None, puedes iniciar con datetime.today().date()
+                g_fecha_compra = st.date_input("🗓 Fecha de compra (opcional)", value=None, key="g_fecha_compra")
+
         st.markdown("---")
         st.subheader("📎 Adjuntos del Pedido")
         uploaded_files = st.file_uploader(
@@ -385,23 +445,24 @@ with tab1:
             accept_multiple_files=True
         )
 
-        # --- COMPROBANTES SIEMPRE DISPONIBLES PARA DEVOLUCIONES ---
-        if tipo_envio == "🔁 Devolución":
+        # --- Evidencias/Comprobantes PARA DEVOLUCIONES y GARANTÍAS ---
+        if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
             st.markdown("---")
-            st.subheader("💳 Comprobantes de la Devolución")
+            st.subheader("📎 Evidencias / Comprobantes del Caso")
             comprobante_cliente = st.file_uploader(
-                "💳 Comprobante(s) de Pago", 
-                type=["pdf", "jpg", "jpeg", "png"], 
+                "Sube evidencia(s) del caso (comprobantes, fotos, PDF, etc.)",
+                type=["pdf", "jpg", "jpeg", "png"],
                 accept_multiple_files=True,
                 key="comprobante_cliente",
-                help="Sube los comprobantes relacionados con esta devolución"
+                help="Sube archivos relacionados con esta devolución o garantía"
             )
 
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
 
-    # --- SECCIÓN DE ESTADO DE PAGO - PARA FORÁNEO, CDMX, SOLICITUDES DE GUÍA Y LOCAL (FUERA DEL FORM) ---
-    # Payment-related variables - inicializar aquí
+    # -------------------------------
+    # SECCIÓN DE ESTADO DE PAGO (FUERA DEL FORM) - sin cambios
+    # -------------------------------
     comprobante_pago_files = []
     fecha_pago = None
     forma_pago = ""
@@ -413,14 +474,12 @@ with tab1:
     pago_triple = False
     estado_pago = "🔴 No Pagado"  # Valor por defecto
 
-    # Mostrar sección de pago para Foráneo, CDMX, Solicitudes de Guía y Local
     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
         st.markdown("---")
         st.subheader("💰 Estado de Pago")
         estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
 
         if estado_pago == "✅ Pagado":
-            # --- Checkboxes para 2 o 3 pagos ---
             col_pago_doble, col_pago_triple = st.columns([1, 1])
             with col_pago_doble:
                 pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="chk_doble")
@@ -539,30 +598,39 @@ with tab1:
                 monto_pago = monto1 + monto2 + monto3
                 referencia_pago = f"{ref1}, {ref2}, {ref3}"
 
-    # --- Registro del Pedido si se presionó el botón ---
+    # -------------------------------
+    # Registro del Pedido
+    # -------------------------------
     if submit_button:
         try:
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
-                
-            # Validación específica para devoluciones
+
+            # Validación Devolución
             if tipo_envio == "🔁 Devolución":
-                if not numero_cliente_rfc:
-                    st.warning("⚠️ El número de cliente o RFC es obligatorio para devoluciones.")
-                    st.stop()
                 if not resultado_esperado or not material_devuelto or monto_devuelto == 0 or not motivo_detallado:
                     st.warning("⚠️ Completa todos los campos obligatorios de devolución.")
                     st.stop()
                 if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
                     st.warning("⚠️ Debes especificar el nombre del responsable.")
                     st.stop()
-                    
-            # Validar comprobante de pago para Foráneo, CDMX, Solicitudes de Guía y Local
+
+            # Validación Garantía
+            if tipo_envio == "🛠 Garantía":
+                if not g_descripcion_falla or not g_resultado_esperado:
+                    st.warning("⚠️ Completa 'Descripción de la Falla' y 'Resultado Esperado' en garantía.")
+                    st.stop()
+                if g_area_responsable in ["Vendedor", "Almacén"] and not g_nombre_responsable:
+                    st.warning("⚠️ Debes especificar el nombre del responsable en garantía.")
+                    st.stop()
+
+            # Validar comprobante de pago para tipos normales
             if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                 st.stop()
 
+            # Acceso a la hoja
             headers = []
             try:
                 if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
@@ -575,7 +643,8 @@ with tab1:
                     st.error("❌ La hoja de cálculo está vacía.")
                     st.stop()
                 headers = all_data[0]
-                # ✅ Obtener hora local de CDMX para Hora_Registro e ID
+
+                # Hora local de CDMX para ID y Hora_Registro
                 zona_mexico = timezone("America/Mexico_City")
                 now = datetime.now(zona_mexico)
                 id_pedido = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
@@ -590,8 +659,8 @@ with tab1:
                 else:
                     st.error(f"❌ Error al acceder a Google Sheets: {e}")
                     st.stop()
-                    
-            # Inicializar la lista de URLs de adjuntos antes de usarla
+
+            # Subida de adjuntos (pedido + pagos + evidencias)
             adjuntos_urls = []
 
             if uploaded_files:
@@ -616,11 +685,11 @@ with tab1:
                         st.error(f"❌ Falló la subida de {archivo.name}")
                         st.stop()
 
-            # ✅ Subir archivos de comprobante cliente (si aplica) - AHORA SIEMPRE DISPONIBLE
+            # Evidencias de Casos Especiales (Devolución/Garantía)
             if comprobante_cliente:
                 for archivo_cc in comprobante_cliente:
                     ext_cc = os.path.splitext(archivo_cc.name)[1]
-                    s3_key_cc = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
+                    s3_key_cc = f"{id_pedido}/evidencia_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
                     success_cc, url_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
                     if success_cc:
                         adjuntos_urls.append(url_cc)
@@ -630,6 +699,7 @@ with tab1:
 
             adjuntos_str = ", ".join(adjuntos_urls)
 
+            # Mapeo de columnas a valores
             values = []
             for header in headers:
                 if header == "ID_Pedido":
@@ -641,7 +711,10 @@ with tab1:
                 elif header in ["Cliente", "RegistroCliente"]:
                     values.append(registro_cliente)
                 elif header == "Numero_Cliente_RFC":
-                    values.append(numero_cliente_rfc if tipo_envio == "🔁 Devolución" else "")
+                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                        values.append(numero_cliente_rfc)
+                    else:
+                        values.append("")
                 elif header == "Folio_Factura":
                     values.append(folio_factura)
                 elif header == "Tipo_Envio":
@@ -651,15 +724,15 @@ with tab1:
                 elif header == "Turno":
                     values.append(subtipo_local)
                 elif header == "Fecha_Entrega":
-                    if tipo_envio != "🔁 Devolución":
+                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                        values.append("")
+                    else:
                         values.append(fecha_entrega.strftime('%Y-%m-%d'))
-                    else:
-                        values.append("")
                 elif header == "Comentario":
-                    if tipo_envio != "🔁 Devolución":
-                        values.append(comentario)
-                    else:
+                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
                         values.append("")
+                    else:
+                        values.append(comentario)
                 elif header == "Adjuntos":
                     values.append(adjuntos_str)
                 elif header == "Adjuntos_Surtido":
@@ -667,11 +740,10 @@ with tab1:
                 elif header == "Estado":
                     values.append("🟡 Pendiente")
                 elif header == "Estado_Pago":
-                    # Agregar estado de pago para Foráneo, CDMX, Solicitudes de Guía y Local
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
                         values.append(estado_pago)
                     else:
-                        values.append("")  # Vacío para Devolución y Garantía
+                        values.append("")
                 elif header == "Fecha_Pago_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
                         values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
@@ -704,34 +776,73 @@ with tab1:
                         values.append("")
                 elif header in ["Fecha_Completado", "Hora_Proceso", "Modificacion_Surtido"]:
                     values.append("")
+
+                # -------- Campos Casos Especiales (reutilizados) --------
                 elif header == "Resultado_Esperado":
-                    values.append(resultado_esperado if tipo_envio == "🔁 Devolución" else "")
+                    if tipo_envio == "🔁 Devolución":
+                        values.append(resultado_esperado)
+                    elif tipo_envio == "🛠 Garantía":
+                        values.append(g_resultado_esperado)
+                    else:
+                        values.append("")
                 elif header == "Material_Devuelto":
-                    values.append(material_devuelto if tipo_envio == "🔁 Devolución" else "")
+                    if tipo_envio == "🔁 Devolución":
+                        values.append(material_devuelto)
+                    elif tipo_envio == "🛠 Garantía":
+                        values.append(g_piezas_afectadas)  # Reuso columna para piezas afectadas
+                    else:
+                        values.append("")
                 elif header == "Monto_Devuelto":
-                    values.append(f"{monto_devuelto:.2f}" if tipo_envio == "🔁 Devolución" else "")
+                    if tipo_envio == "🔁 Devolución":
+                        values.append(f"{monto_devuelto:.2f}")
+                    elif tipo_envio == "🛠 Garantía":
+                        values.append(f"{g_monto_estimado:.2f}" if g_monto_estimado > 0 else "")
+                    else:
+                        values.append("")
                 elif header == "Motivo_Detallado":
-                    values.append(motivo_detallado if tipo_envio == "🔁 Devolución" else "")
+                    if tipo_envio == "🔁 Devolución":
+                        values.append(motivo_detallado)
+                    elif tipo_envio == "🛠 Garantía":
+                        values.append(g_descripcion_falla)
+                    else:
+                        values.append("")
                 elif header == "Area_Responsable":
-                    values.append(area_responsable if tipo_envio == "🔁 Devolución" else "")
+                    if tipo_envio == "🔁 Devolución":
+                        values.append(area_responsable)
+                    elif tipo_envio == "🛠 Garantía":
+                        values.append(g_area_responsable)
+                    else:
+                        values.append("")
                 elif header == "Nombre_Responsable":
-                    values.append(nombre_responsable if tipo_envio == "🔁 Devolución" else "")
+                    if tipo_envio == "🔁 Devolución":
+                        values.append(nombre_responsable)
+                    elif tipo_envio == "🛠 Garantía":
+                        values.append(g_nombre_responsable)
+                    else:
+                        values.append("")
+                # -------- Opcionales si existen en la hoja --------
+                elif header == "Numero_Serie":
+                    values.append(g_numero_serie if tipo_envio == "🛠 Garantía" else "")
+                elif header in ["Fecha_Compra", "FechaCompra"]:
+                    if tipo_envio == "🛠 Garantía":
+                        values.append(g_fecha_compra.strftime('%Y-%m-%d') if g_fecha_compra else "")
+                    else:
+                        values.append("")
                 else:
                     values.append("")
 
             worksheet.append_row(values)
-            # ✅ Marcar registro exitoso antes de redirigir
+
+            # ✅ Mensajes de éxito y limpieza
             st.session_state["success_pedido_registrado"] = id_pedido
             st.session_state["success_adjuntos"] = adjuntos_urls
-
-            # 🔁 Redirigir sin st.rerun inmediato
             st.query_params.clear()
             st.query_params.update({"tab": "0"})
-
             st.rerun()
 
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
+
 @st.cache_data(ttl=30)
 def cargar_pedidos_combinados():
     """
