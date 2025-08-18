@@ -315,7 +315,7 @@ else:
     pedidos_pagados_no_confirmados = pd.DataFrame()
 
 # ---- TABS ADMIN ----
-tab_names = ["💳 Pendientes de Confirmar", "📥 Confirmados", "📦 Devoluciones", "🗂️ Casos Especiales"]
+tab_names = ["💳 Pendientes de Confirmar", "📥 Confirmados", "📦 Casos Especiales", "🗂️ Data Especiales"]
 tab_index = st.session_state.get("active_tab_admin_index", 0)
 # Nota: streamlit.tabs() no acepta índice activo programático, pero conservamos tab_index por si lo usas con query params.
 tab1, tab2, tab3, tab4 = st.tabs(tab_names)
@@ -1562,7 +1562,7 @@ with tab4:
             index=0
         )
     with colf2:
-        term = st.text_input("Buscar (Cliente / Folio / ID)", "")
+        term = st.text_input("Buscar (Cliente / Folio )", "")
 
     df_view = df_ce.copy()
 
