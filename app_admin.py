@@ -10,6 +10,8 @@ from io import BytesIO
 from datetime import datetime, date
 import os
 import uuid
+from contextlib import suppress
+from streamlit.runtime.scriptrunner import StopException
 
 # Reintentos robustos para Google Sheets
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
@@ -1062,7 +1064,7 @@ with tab2:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
-with tab3:
+with tab3, suppress(StopException):
     st.header("📦 Confirmación de Casos (Devoluciones + Garantías)")
 
     from datetime import datetime
