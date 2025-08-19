@@ -57,8 +57,6 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 5, wa
 
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
-if "active_tab_admin_index" not in st.session_state:
-    st.session_state["active_tab_admin_index"] = 0
 
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
@@ -317,14 +315,8 @@ else:
 
 # ---- TABS ADMIN ----
 tab_names = ["💳 Pendientes de Confirmar", "📥 Confirmados", "📦 Casos Especiales", "🗂️ Data Especiales"]
-# Añadimos un key para que Streamlit recuerde la pestaña activa tras cada interacción
-tabs = st.tabs(tab_names, key="admin_tabs")
+tabs = st.tabs(tab_names)
 tab1, tab2, tab3, tab4 = tabs
-
-# Guardamos el índice de la pestaña activa en session_state para usos futuros
-st.session_state["active_tab_admin_index"] = tab_names.index(
-    st.session_state.get("admin_tabs", tab_names[0])
-)
 
 
 # --- INTERFAZ PRINCIPAL ---
