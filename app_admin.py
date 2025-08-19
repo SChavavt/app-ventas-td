@@ -10,6 +10,7 @@ from io import BytesIO
 from datetime import datetime, date
 import os
 import uuid
+import inspect
 
 # Reintentos robustos para Google Sheets
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
@@ -317,9 +318,21 @@ else:
 
 # ---- TABS ADMIN ----
 tab_names = ["💳 Pendientes de Confirmar", "📥 Confirmados", "📦 Casos Especiales", "🗂️ Data Especiales"]
-tab_index = st.session_state.get("active_tab_admin_index", 0)
-# Nota: streamlit.tabs() no acepta índice activo programático, pero conservamos tab_index por si lo usas con query params.
-tab1, tab2, tab3, tab4 = st.tabs(tab_names)
+# Añadimos un key solo si la versión de Streamlit lo soporta para recordar la pestaña activa
+tab_kwargs = {}
+if "key" in inspect.signature(st.tabs).parameters:
+    tab_kwargs["key"] = "admin_tabs"
+
+tabs = st.tabs(tab_names, **tab_kwargs)
+tab1, tab2, tab3, tab4 = tabs
+
+# Guardamos el índice de la pestaña activa en session_state para usos futuros
+if tab_kwargs.get("key"):
+    st.session_state["active_tab_admin_index"] = tab_names.index(
+        st.session_state.get("admin_tabs", tab_names[0])
+    )
+else:
+    st.session_state["active_tab_admin_index"] = 0
 
 
 # --- INTERFAZ PRINCIPAL ---
