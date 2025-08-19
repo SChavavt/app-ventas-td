@@ -317,9 +317,14 @@ else:
 
 # ---- TABS ADMIN ----
 tab_names = ["💳 Pendientes de Confirmar", "📥 Confirmados", "📦 Casos Especiales", "🗂️ Data Especiales"]
-tab_index = st.session_state.get("active_tab_admin_index", 0)
-# Nota: streamlit.tabs() no acepta índice activo programático, pero conservamos tab_index por si lo usas con query params.
-tab1, tab2, tab3, tab4 = st.tabs(tab_names)
+# Añadimos un key para que Streamlit recuerde la pestaña activa tras cada interacción
+tabs = st.tabs(tab_names, key="admin_tabs")
+tab1, tab2, tab3, tab4 = tabs
+
+# Guardamos el índice de la pestaña activa en session_state para usos futuros
+st.session_state["active_tab_admin_index"] = tab_names.index(
+    st.session_state.get("admin_tabs", tab_names[0])
+)
 
 
 # --- INTERFAZ PRINCIPAL ---
