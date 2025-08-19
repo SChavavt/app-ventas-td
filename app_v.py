@@ -108,7 +108,7 @@ st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
 # Removed the old load_credentials_from_file and get_gspread_client functions
 # as they are replaced by get_google_sheets_client()
 
-# NEW: Function to upload files to AWS S3
+# NEW: Build S3 client
 @st.cache_resource
 def get_s3_client():
     """Initializes and returns an S3 client."""
