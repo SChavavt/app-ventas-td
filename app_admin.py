@@ -1415,7 +1415,6 @@ with tab3:
         if ok_all:
             tab3_alert.success("✅ Confirmación guardada.")
             st.session_state["tab3_reload_nonce"] += 1
-            st.cache_data.clear()
         else:
             tab3_alert.error("❌ Ocurrió un problema al guardar.")
 
