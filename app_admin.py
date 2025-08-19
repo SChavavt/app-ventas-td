@@ -282,6 +282,7 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     Returns (success: bool, url: str)
     """
     try:
+        file_obj.seek(0)  # Rebobina el archivo para iniciar la carga desde el inicio
         s3_client.upload_fileobj(file_obj, bucket_name, s3_key)
         url = f"https://{bucket_name}.s3.amazonaws.com/{s3_key}"
         return True, url
