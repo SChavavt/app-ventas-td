@@ -2016,6 +2016,83 @@ with tab5:
             )
         else:
             st.info("No hay datos que coincidan con los filtros seleccionados para descargar.")
+# ----------------- HELPERS FALTANTES -----------------
+
+def partir_urls(value):
+    """
+    Normaliza un campo de adjuntos que puede venir como JSON (lista o dict),
+    o como texto separado por comas/; / saltos de línea. Devuelve lista de URLs únicas.
+    """
+    if value is None:
+        return []
+    s = str(value).strip()
+    if not s or s.lower() in ("nan", "none", "n/a"):
+        return []
+    urls = []
+    # Intento como JSON
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, list):
+            for it in obj:
+                if isinstance(it, str) and it.strip():
+                    urls.append(it.strip())
+                elif isinstance(it, dict):
+                    for k in ("url", "URL", "href", "link"):
+                        if k in it and str(it[k]).strip():
+                            urls.append(str(it[k]).strip())
+        elif isinstance(obj, dict):
+            for k in ("url", "URL", "href", "link"):
+                if k in obj and str(obj[k]).strip():
+                    urls.append(str(obj[k]).strip())
+    except Exception:
+        # Separadores comunes
+        for p in re.split(r"[,\n;]+", s):
+            p = p.strip()
+            if p:
+                urls.append(p)
+    # De-duplicar preservando orden
+    out, seen = [], set()
+    for u in urls:
+        if u not in seen:
+            seen.add(u); out.append(u)
+    return out
+
+
+@st.cache_data(ttl=300)
+def cargar_casos_especiales():
+    """
+    Lee la hoja 'casos_especiales' usando tu helper get_worksheet_casos_especiales()
+    y garantiza todas las columnas que la UI usa.
+    """
+    ws = get_worksheet_casos_especiales()
+    data = ws.get_all_records()
+    df = pd.DataFrame(data)
+
+    columnas_necesarias = [
+        # Identificación y encabezado
+        "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
+        "Hora_Registro","Tipo_Envio","Estado","Estado_Caso","Turno",
+        # Refacturación
+        "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
+        # Detalle del caso
+        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
+        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
+        # Fechas/recepción
+        "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
+        # Documentos de cierre
+        "Nota_Credito_URL","Documento_Adicional_URL","Comentarios_Admin_Devolucion",
+        # Modificación de surtido
+        "Modificacion_Surtido","Adjuntos_Surtido",
+        # Adjuntos/guía
+        "Adjuntos","Hoja_Ruta_Mensajero",
+        # Otros
+        "Hora_Proceso"
+    ]
+    for c in columnas_necesarias:
+        if c not in df.columns:
+            df[c] = ""
+    return df
+
 
 # --- TAB 6: SEARCH ORDER ---
 with tab6:
