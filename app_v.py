@@ -256,6 +256,7 @@ VENDEDORES_LIST = sorted([
 # Initialize session state for vendor
 if 'last_selected_vendedor' not in st.session_state:
     st.session_state.last_selected_vendedor = VENDEDORES_LIST[0] if VENDEDORES_LIST else ""
+
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
     st.header("📝 Nuevo Pedido")
@@ -294,7 +295,6 @@ with tab1:
     registro_cliente = ""
     numero_cliente_rfc = ""
     folio_factura = ""
-    folio_factura_error = ""  # 🆕 NUEVO para devoluciones
     fecha_entrega = datetime.now().date()
     comentario = ""
     uploaded_files = []
@@ -350,15 +350,7 @@ with tab1:
                 help="Selecciona el tipo de envío del pedido que se va a devolver."
             )
 
-            # 🆕 NUEVO: Folio Error arriba del folio normal
-            folio_factura_error = st.text_input(
-                "📄 Folio Error (factura equivocada, si aplica)",
-                key="folio_factura_error_input"
-            )
-
-        # Folio normal (renombrado a 'Folio Nuevo' en devoluciones)
-        folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
-        folio_factura = st.text_input(folio_label, key="folio_factura_input")
+        folio_factura = st.text_input("📄 Folio de Factura")
 
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
@@ -442,6 +434,7 @@ with tab1:
             with col_g1:
                 g_numero_serie = st.text_input("🔢 Número de serie / lote (opcional)", key="g_numero_serie")
             with col_g2:
+                # None por defecto; si tu versión de Streamlit no admite None, puedes iniciar con datetime.today().date()
                 g_fecha_compra = st.date_input("🗓 Fecha de compra (opcional)", value=None, key="g_fecha_compra")
 
         st.markdown("---")
@@ -484,28 +477,126 @@ with tab1:
     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
         st.markdown("---")
         st.subheader("💰 Estado de Pago")
-        estado_pago = st.selectbox(
-            "Estado de Pago",
-            ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"],
-            index=0,
-            key="estado_pago",
-        )
+        estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
 
         if estado_pago == "✅ Pagado":
-            comprobante_pago_files = st.file_uploader(
-                "Comprobante de Pago (PDF o imagen)",
-                type=["pdf", "jpg", "jpeg", "png"],
-                accept_multiple_files=True,
-                key="comprobante_pago",
-            )
-            fecha_pago = st.date_input("Fecha de Pago")
-            forma_pago = st.text_input("Forma de Pago")
-            terminal = st.text_input("Terminal")
-            banco_destino = st.text_input("Banco Destino")
-            monto_pago = st.number_input(
-                "Monto del Pago", min_value=0.0, step=0.01, format="%.2f"
-            )
-            referencia_pago = st.text_input("Referencia del Pago")
+            col_pago_doble, col_pago_triple = st.columns([1, 1])
+            with col_pago_doble:
+                pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="chk_doble")
+            with col_pago_triple:
+                pago_triple = st.checkbox("✅ Pago en tres partes distintas", key="chk_triple")
+
+            # --- Un solo comprobante ---
+            if not pago_doble and not pago_triple:
+                comprobante_pago_files = st.file_uploader(
+                    "💲 Comprobante(s) de Pago",
+                    type=["pdf", "jpg", "jpeg", "png"],
+                    accept_multiple_files=True,
+                    key="comprobante_uploader_final"
+                )
+                st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
+
+                with st.expander("🧾 Detalles del Pago (opcional)"):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
+                    with col2:
+                        forma_pago = st.selectbox("💳 Forma de Pago", [
+                            "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
+                        ], key="forma_pago_input")
+                    with col3:
+                        monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_input")
+
+                    col4, col5 = st.columns(2)
+                    with col4:
+                        if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                            terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal_input")
+                            banco_destino = ""
+                        else:
+                            banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_input")
+                            terminal = ""
+                    with col5:
+                        referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+
+            # --- Dos comprobantes ---
+            elif pago_doble:
+                st.markdown("### 1️⃣ Primer Pago")
+                comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
+                forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
+                monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
+                terminal1 = banco1 = ""
+                if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                    terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1")
+                else:
+                    banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1")
+                ref1 = st.text_input("🔢 Referencia 1", key="ref1")
+
+                st.markdown("### 2️⃣ Segundo Pago")
+                comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
+                forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
+                monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
+                terminal2 = banco2 = ""
+                if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                    terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2")
+                else:
+                    banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2")
+                ref2 = st.text_input("🔢 Referencia 2", key="ref2")
+
+                comprobante_pago_files = (comp1 or []) + (comp2 or [])
+                fecha_pago = f"{fecha1.strftime('%Y-%m-%d')} y {fecha2.strftime('%Y-%m-%d')}"
+                forma_pago = f"{forma1}, {forma2}"
+                terminal = f"{terminal1}, {terminal2}" if forma1.startswith("Tarjeta") or forma2.startswith("Tarjeta") else ""
+                banco_destino = f"{banco1}, {banco2}" if forma1 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] or forma2 not in ["Tarjeta de Débito", "Tarjeta de Crédito"] else ""
+                monto_pago = monto1 + monto2
+                referencia_pago = f"{ref1}, {ref2}"
+
+            # --- Tres comprobantes ---
+            elif pago_triple:
+                st.markdown("### 1️⃣ Primer Pago")
+                comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
+                forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
+                monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
+                terminal1 = banco1 = ""
+                if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                    terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1")
+                else:
+                    banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1")
+                ref1 = st.text_input("🔢 Referencia 1", key="ref1")
+
+                st.markdown("### 2️⃣ Segundo Pago")
+                comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
+                forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
+                monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
+                terminal2 = banco2 = ""
+                if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                    terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2")
+                else:
+                    banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2")
+                ref2 = st.text_input("🔢 Referencia 2", key="ref2")
+
+                st.markdown("### 3️⃣ Tercer Pago")
+                comp3 = st.file_uploader("💳 Comprobante 3", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago3")
+                fecha3 = st.date_input("📅 Fecha 3", value=datetime.today().date(), key="fecha_pago3")
+                forma3 = st.selectbox("💳 Forma 3", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago3")
+                monto3 = st.number_input("💲 Monto 3", min_value=0.0, format="%.2f", key="monto_pago3")
+                terminal3 = banco3 = ""
+                if forma3 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                    terminal3 = st.selectbox("🏧 Terminal 3", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal3")
+                else:
+                    banco3 = st.selectbox("🏦 Banco 3", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco3")
+                ref3 = st.text_input("🔢 Referencia 3", key="ref3")
+
+                comprobante_pago_files = (comp1 or []) + (comp2 or []) + (comp3 or [])
+                fecha_pago = f"{fecha1.strftime('%Y-%m-%d')}, {fecha2.strftime('%Y-%m-%d')} y {fecha3.strftime('%Y-%m-%d')}"
+                forma_pago = f"{forma1}, {forma2}, {forma3}"
+                terminal = ", ".join(filter(None, [terminal1, terminal2, terminal3]))
+                banco_destino = ", ".join(filter(None, [banco1, banco2, banco3]))
+                monto_pago = monto1 + monto2 + monto3
+                referencia_pago = f"{ref1}, {ref2}, {ref3}"
 
     # -------------------------------
     # Registro del Pedido
@@ -625,9 +716,7 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Folio_Factura":
-                    values.append(folio_factura)  # en devoluciones es "Folio Nuevo"
-                elif header == "Folio_Factura_Error":  # 🆕 mapeo adicional
-                    values.append(folio_factura_error if tipo_envio == "🔁 Devolución" else "")
+                    values.append(folio_factura)
                 elif header == "Tipo_Envio":
                     values.append(tipo_envio)
                 elif header == "Tipo_Envio_Original":
@@ -754,14 +843,11 @@ with tab1:
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
 
-
 @st.cache_data(ttl=30)
 def cargar_pedidos_combinados():
     """
     Carga y unifica pedidos de 'datos_pedidos' y 'casos_especiales'.
     Devuelve un DataFrame con columna 'Fuente' indicando el origen.
-    Garantiza columnas usadas por la UI (modificación de surtido, refacturación, folio error, documentos, etc.)
-    y mapea Hoja_Ruta_Mensajero -> Adjuntos_Guia para homogeneizar.
     """
     client = build_gspread_client()
     sh = client.open_by_key(GOOGLE_SHEET_ID)
@@ -776,35 +862,17 @@ def cargar_pedidos_combinados():
         df_datos = pd.DataFrame()
 
     if not df_datos.empty:
-        # quita filas totalmente vacías en claves mínimas
         claves = ['ID_Pedido', 'Cliente', 'Folio_Factura']
+        # borra filas totalmente vacías en claves
         df_datos = df_datos.dropna(subset=claves, how='all')
         if 'ID_Pedido' in df_datos.columns:
             df_datos = df_datos[df_datos['ID_Pedido'].astype(str).str.strip().ne("")]
-
-        # columnas que la UI puede usar desde datos_pedidos
-        needed_datos = [
-            'ID_Pedido','Cliente','Folio_Factura','Vendedor_Registro','Estado','Hora_Registro','Turno','Fecha_Entrega',
-            'Comentario','Estado_Pago',
-            # archivos/adjuntos
-            'Adjuntos','Adjuntos_Guia','Adjuntos_Surtido','Modificacion_Surtido',
-            # refacturación
-            'Refacturacion_Tipo','Refacturacion_Subtipo','Folio_Factura_Refacturada',
-            # para homogeneidad con casos (puede venir vacío en datos)
-            'Folio_Factura_Error','Estado_Caso','Numero_Cliente_RFC','Tipo_Envio','Tipo_Envio_Original',
-            'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
-            'Nota_Credito_URL','Documento_Adicional_URL','Comentarios_Admin_Devolucion',
-            'Hoja_Ruta_Mensajero','Fecha_Recepcion_Devolucion','Hora_Proceso','Area_Responsable','Nombre_Responsable'
-        ]
-        for c in needed_datos:
+        # Garantizar columnas que Tab2 usa (si faltan, créalas vacías)
+        for c in ['Adjuntos_Guia','Adjuntos','Adjuntos_Surtido','Modificacion_Surtido','Comentario',
+                  'Vendedor_Registro','Estado','Tipo_Envio','Turno','Fecha_Entrega','Hora_Registro',
+                  'Folio_Factura','Estado_Pago']:
             if c not in df_datos.columns:
                 df_datos[c] = ""
-
-        # asegura tipos string uniformes importantes
-        for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Refacturada']:
-            if c in df_datos.columns:
-                df_datos[c] = df_datos[c].astype(str)
-
         df_datos["Fuente"] = "datos_pedidos"
 
     # --- casos_especiales ---
@@ -822,30 +890,15 @@ def cargar_pedidos_combinados():
         else:
             df_casos["ID_Pedido"] = ""
 
-        # columnas mínimas + TODAS las que usa la UI en esta conversación
-        base_cols = [
-            'ID_Pedido','Cliente','Folio_Factura','Folio_Factura_Error','Estado','Tipo_Envio','Tipo_Envio_Original',
-            'Turno','Fecha_Entrega','Hora_Registro','Hora_Proceso','Vendedor_Registro','Comentario','Estado_Pago',
-            # adjuntos/guía/modificación
-            'Adjuntos','Adjuntos_Guia','Hoja_Ruta_Mensajero',
-            'Adjuntos_Surtido','Modificacion_Surtido',
-            # cliente/estatus caso
-            'Numero_Cliente_RFC','Estado_Caso',
-            # refacturación
-            'Refacturacion_Tipo','Refacturacion_Subtipo','Folio_Factura_Refacturada',
-            # detalle del caso
-            'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
-            'Area_Responsable','Nombre_Responsable',
-            # recepción/cierre
-            'Fecha_Recepcion_Devolucion','Estado_Recepcion',
-            # documentos de cierre
-            'Nota_Credito_URL','Documento_Adicional_URL','Comentarios_Admin_Devolucion'
-        ]
+        # Homologar columnas mínimas para Tab2
+        base_cols = ['Cliente','Folio_Factura','Estado','Tipo_Envio','Turno','Fecha_Entrega','Hora_Registro',
+                     'Vendedor_Registro','Adjuntos','Adjuntos_Surtido','Adjuntos_Guia','Modificacion_Surtido',
+                     'Comentario','Estado_Pago']
         for c in base_cols:
             if c not in df_casos.columns:
                 df_casos[c] = ""
 
-        # Si no hay Tipo_Envio, intenta inferirlo de Tipo_Caso (mantén tu lógica)
+        # Si no hay Tipo_Envio, intenta inferirlo de Tipo_Caso (opcional)
         if 'Tipo_Envio' in df_casos.columns:
             df_casos['Tipo_Envio'] = df_casos['Tipo_Envio'].astype(str)
         if 'Tipo_Envio' in df_casos.columns and df_casos['Tipo_Envio'].eq("").any():
@@ -862,21 +915,12 @@ def cargar_pedidos_combinados():
                     return "Caso especial"
                 df_casos['Tipo_Envio'] = df_casos.apply(_infer_tipo_envio, axis=1)
 
-        # Mapear Hoja_Ruta_Mensajero a Adjuntos_Guia si viene vacío
-        if 'Adjuntos_Guia' in df_casos.columns and 'Hoja_Ruta_Mensajero' in df_casos.columns:
-            mask_vacios = df_casos['Adjuntos_Guia'].astype(str).str.strip().eq("")
-            df_casos.loc[mask_vacios, 'Adjuntos_Guia'] = df_casos.loc[mask_vacios, 'Hoja_Ruta_Mensajero']
-
-        # asegura tipos string uniformes importantes
-        for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Error','Folio_Factura_Refacturada']:
-            if c in df_casos.columns:
-                df_casos[c] = df_casos[c].astype(str)
-
         df_casos["Fuente"] = "casos_especiales"
 
     # --- Unir respetando columnas ---
     if df_datos.empty and df_casos.empty:
         return pd.DataFrame()
+
     if df_datos.empty:
         return df_casos.copy()
     if df_casos.empty:
@@ -887,6 +931,8 @@ def cargar_pedidos_combinados():
     df_casos = df_casos.reindex(columns=all_cols, fill_value="")
     df_all = pd.concat([df_datos, df_casos], ignore_index=True)
     return df_all
+
+            
 # --- TAB 2: MODIFY EXISTING ORDER ---
 if "reset_inputs_tab2" in st.session_state:
     del st.session_state["reset_inputs_tab2"]
@@ -1012,179 +1058,43 @@ with tab2:
                 selected_row_data = matched
                 selected_source = matched.get('Fuente', 'datos_pedidos')  # 'datos_pedidos' o 'casos_especiales'
 
-                # ------------- Render detallado para CASOS ESPECIALES -------------
-                def __s(v):
-                    return "" if v is None else str(v).strip()
-                def __has(v):
-                    s = __s(v)
-                    return bool(s) and s.lower() not in ("nan", "none", "n/a")
-                def __is_url(v):
-                    s = __s(v).lower()
-                    return s.startswith("http://") or s.startswith("https://")
-                def __link(url, label=None):
-                    u = __s(url)
-                    if __is_url(u):
-                        import os
-                        return f"[{label or (os.path.basename(u) or 'Abrir')}]({u})"
-                    return u
-                def render_caso_especial(row):
-                    tipo = __s(row.get("Tipo_Envio", ""))
-                    is_dev = (tipo == "🔁 Devolución")
-                    title = "🧾 Caso Especial – 🔁 Devolución" if is_dev else "🧾 Caso Especial – 🛠 Garantía"
-                    st.markdown(f"### {title}")
+                # ----------------- Detalles del pedido -----------------
+                st.subheader(f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')} (ID {selected_order_id})")
+                st.write(f"**Fuente:** {'📄 datos_pedidos' if selected_source=='datos_pedidos' else '🔁 casos_especiales'}")
+                st.write(f"**Vendedor:** {selected_row_data.get('Vendedor', selected_row_data.get('Vendedor_Registro', 'No especificado'))}")
+                st.write(f"**Cliente:** {selected_row_data.get('Cliente', 'N/A')}")
+                st.write(f"**Folio de Factura:** {selected_row_data.get('Folio_Factura', 'N/A')}")
+                st.write(f"**Estado Actual:** {selected_row_data.get('Estado', 'N/A')}")
+                st.write(f"**Tipo de Envío:** {selected_row_data.get('Tipo_Envio', 'N/A')}")
+                if selected_row_data.get('Tipo_Envio') == "📍 Pedido Local":
+                    st.write(f"**Turno Local:** {selected_row_data.get('Turno', 'N/A')}")
+                st.write(f"**Fecha de Entrega:** {selected_row_data.get('Fecha_Entrega', 'N/A')}")
+                st.write(f"**Comentario Original:** {selected_row_data.get('Comentario', 'N/A')}")
+                st.write(f"**Estado de Pago:** {selected_row_data.get('Estado_Pago', '🔴 No Pagado')}")
 
-                    vendedor = row.get("Vendedor_Registro", "") or row.get("Vendedor", "")
-                    hora = row.get("Hora_Registro", "")
-
-                    if is_dev:
-                        folio_nuevo = row.get("Folio_Factura", "")
-                        folio_error = row.get("Folio_Factura_Error", "")
-                        st.markdown(
-                            f"📄 **Folio Nuevo:** `{folio_nuevo or 'N/A'}`  |  "
-                            f"📄 **Folio Error:** `{folio_error or 'N/A'}`  |  "
-                            f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
-                            f"🕒 **Hora:** `{hora or 'N/A'}`"
-                        )
-                    else:
-                        st.markdown(
-                            f"📄 **Folio:** `{row.get('Folio_Factura','') or 'N/A'}`  |  "
-                            f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
-                            f"🕒 **Hora:** `{hora or 'N/A'}`"
-                        )
-
-                    st.markdown(
-                        f"**👤 Cliente:** {row.get('Cliente','N/A')}  |  **RFC:** {row.get('Numero_Cliente_RFC','') or 'N/A'}"
-                    )
-                    st.markdown(
-                        f"**Estado:** {row.get('Estado','') or 'N/A'}  |  "
-                        f"**Estado del Caso:** {row.get('Estado_Caso','') or 'N/A'}  |  "
-                        f"**Turno:** {row.get('Turno','') or 'N/A'}"
-                    )
-
-                    rt = __s(row.get("Refacturacion_Tipo",""))
-                    rs = __s(row.get("Refacturacion_Subtipo",""))
-                    rf = __s(row.get("Folio_Factura_Refacturada",""))
-                    if __has(rt) or __has(rs) or __has(rf):
-                        st.markdown("**♻️ Refacturación:**")
-                        if __has(rt): st.markdown(f"- **Tipo:** {rt}")
-                        if __has(rs): st.markdown(f"- **Subtipo:** {rs}")
-                        if __has(rf): st.markdown(f"- **Folio refacturado:** {rf}")
-
-                    if __has(row.get("Resultado_Esperado","")):
-                        st.markdown(f"**🎯 Resultado Esperado:** {row.get('Resultado_Esperado')}")
-                    if __has(row.get("Motivo_Detallado","")):
-                        st.markdown("**📝 Motivo / Descripción:**")
-                        st.info(__s(row.get("Motivo_Detallado","")))
-                    if __has(row.get("Material_Devuelto","")):
-                        st.markdown("**📦 Piezas / Material:**")
-                        st.info(__s(row.get("Material_Devuelto","")))
-                    if __has(row.get("Monto_Devuelto","")):
-                        st.markdown(f"**💵 Monto (dev./estimado):** {row.get('Monto_Devuelto')}")
-
-                    if __has(row.get("Area_Responsable","")) or __has(row.get("Nombre_Responsable","")):
-                        st.markdown(
-                            f"**🏢 Área Responsable:** {row.get('Area_Responsable','') or 'N/A'}  |  "
-                            f"**👥 Responsable del Error:** {row.get('Nombre_Responsable','') or 'N/A'}"
-                        )
-
-                    if __has(row.get("Fecha_Entrega","")) or __has(row.get("Fecha_Recepcion_Devolucion","")) or __has(row.get("Estado_Recepcion","")):
-                        st.markdown(
-                            f"**📅 Fecha Entrega/Cierre:** {row.get('Fecha_Entrega','') or 'N/A'}  |  "
-                            f"**📅 Recepción:** {row.get('Fecha_Recepcion_Devolucion','') or 'N/A'}  |  "
-                            f"**📦 Recepción:** {row.get('Estado_Recepcion','') or 'N/A'}"
-                        )
-
-                    nota = __s(row.get("Nota_Credito_URL",""))
-                    docad = __s(row.get("Documento_Adicional_URL",""))
-                    if __has(nota):
-                        st.markdown(f"**🧾 Nota de Crédito:** {__link(nota, 'Nota de Crédito') if __is_url(nota) else nota}")
-                    if __has(docad):
-                        st.markdown(f"**📂 Documento Adicional:** {__link(docad, 'Documento Adicional') if __is_url(docad) else docad}")
-                    if __has(row.get("Comentarios_Admin_Devolucion","")):
-                        st.markdown("**🗒️ Comentario Administrativo:**")
-                        st.info(__s(row.get("Comentarios_Admin_Devolucion","")))
-
-                    mod_txt = __s(row.get("Modificacion_Surtido",""))
-                    adj_mod_raw = row.get("Adjuntos_Surtido","")
-                    if 'partir_urls' in globals():
-                        adj_mod = partir_urls(adj_mod_raw)
-                    else:
-                        adj_mod = [x.strip() for x in str(adj_mod_raw).split(",") if x.strip()]
-                    if __has(mod_txt) or adj_mod:
-                        st.markdown("#### 🛠 Modificación de surtido")
-                        if __has(mod_txt):
-                            st.info(mod_txt)
-                        if adj_mod:
-                            st.markdown("**Archivos de modificación:**")
-                            for u in adj_mod:
-                                st.markdown(f"- {__link(u)}")
-
-                    with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
-                        adj_raw = row.get("Adjuntos","")
-                        if 'partir_urls' in globals():
-                            adj = partir_urls(adj_raw)
-                        else:
-                            adj = [x.strip() for x in str(adj_raw).split(",") if x.strip()]
-                        guia = __s(row.get("Hoja_Ruta_Mensajero","")) or __s(row.get("Adjuntos_Guia",""))
-                        has_any = False
-                        if adj:
-                            has_any = True
-                            st.markdown("**Adjuntos:**")
-                            for u in adj:
-                                st.markdown(f"- {__link(u)}")
-                        if __has(guia) and __is_url(guia):
-                            has_any = True
-                            st.markdown("**Guía:**")
-                            st.markdown(f"- {__link(guia, 'Abrir guía')}")
-                        if not has_any:
-                            st.info("Sin archivos registrados en la hoja.")
-                    st.markdown("---")
-
-                # Si viene de casos_especiales y es Devolución/Garantía -> render especial
-                tipo_det = __s(selected_row_data.get('Tipo_Envio', ''))
-                if selected_source == "casos_especiales" and tipo_det in ("🔁 Devolución", "🛠 Garantía"):
-                    render_caso_especial(selected_row_data)
-                else:
-                    # ----------------- Detalles básicos (para datos_pedidos u otros) -----------------
-                    st.subheader(f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')} (ID {selected_order_id})")
-                    st.write(f"**Fuente:** {'📄 datos_pedidos' if selected_source=='datos_pedidos' else '🔁 casos_especiales'}")
-                    st.write(f"**Vendedor:** {selected_row_data.get('Vendedor', selected_row_data.get('Vendedor_Registro', 'No especificado'))}")
-                    st.write(f"**Cliente:** {selected_row_data.get('Cliente', 'N/A')}")
-                    st.write(f"**Folio de Factura:** {selected_row_data.get('Folio_Factura', 'N/A')}")
-                    st.write(f"**Estado Actual:** {selected_row_data.get('Estado', 'N/A')}")
-                    st.write(f"**Tipo de Envío:** {selected_row_data.get('Tipo_Envio', 'N/A')}")
-                    if selected_row_data.get('Tipo_Envio') == "📍 Pedido Local":
-                        st.write(f"**Turno Local:** {selected_row_data.get('Turno', 'N/A')}")
-                    st.write(f"**Fecha de Entrega:** {selected_row_data.get('Fecha_Entrega', 'N/A')}")
-                    st.write(f"**Comentario Original:** {selected_row_data.get('Comentario', 'N/A')}")
-                    st.write(f"**Estado de Pago:** {selected_row_data.get('Estado_Pago', '🔴 No Pagado')}")
-
-                    current_adjuntos_str_basic = selected_row_data.get('Adjuntos', '')
-                    current_adjuntos_list_basic = [f.strip() for f in str(current_adjuntos_str_basic).split(',') if f.strip()]
-                    current_adjuntos_surtido_str_basic = selected_row_data.get('Adjuntos_Surtido', '')
-                    current_adjuntos_surtido_list_basic = [f.strip() for f in str(current_adjuntos_surtido_str_basic).split(',') if f.strip()]
-
-                    if current_adjuntos_list_basic:
-                        st.write("**Adjuntos Originales:**")
-                        for adj in current_adjuntos_list_basic:
-                            st.markdown(f"- [{os.path.basename(adj)}]({adj})")
-                    else:
-                        st.write("**Adjuntos Originales:** Ninguno")
-
-                    if current_adjuntos_surtido_list_basic:
-                        st.write("**Adjuntos de Modificación/Surtido:**")
-                        for adj_surtido in current_adjuntos_surtido_list_basic:
-                            st.markdown(f"- [{os.path.basename(adj_surtido)}]({adj_surtido})")
-                    else:
-                        st.write("**Adjuntos de Modificación/Surtido:** Ninguno")
-
-                # ----------------- Valores actuales (para formulario) -----------------
+                # ----------------- Valores actuales -----------------
                 current_modificacion_surtido_value = selected_row_data.get('Modificacion_Surtido', '')
                 current_estado_pago_value = selected_row_data.get('Estado_Pago', '🔴 No Pagado')
+
                 current_adjuntos_str = selected_row_data.get('Adjuntos', '')
                 current_adjuntos_list = [f.strip() for f in str(current_adjuntos_str).split(',') if f.strip()]
+
                 current_adjuntos_surtido_str = selected_row_data.get('Adjuntos_Surtido', '')
                 current_adjuntos_surtido_list = [f.strip() for f in str(current_adjuntos_surtido_str).split(',') if f.strip()]
+
+                if current_adjuntos_list:
+                    st.write("**Adjuntos Originales:**")
+                    for adj in current_adjuntos_list:
+                        st.markdown(f"- [{os.path.basename(adj)}]({adj})")
+                else:
+                    st.write("**Adjuntos Originales:** Ninguno")
+
+                if current_adjuntos_surtido_list:
+                    st.write("**Adjuntos de Modificación/Surtido:**")
+                    for adj_surtido in current_adjuntos_surtido_list:
+                        st.markdown(f"- [{os.path.basename(adj_surtido)}]({adj_surtido})")
+                else:
+                    st.write("**Adjuntos de Modificación/Surtido:** Ninguno")
 
                 st.markdown("---")
                 st.subheader("Modificar Campos y Adjuntos (Surtido)")
@@ -1916,234 +1826,51 @@ with tab5:
         else:
             st.info("No hay datos que coincidan con los filtros seleccionados para descargar.")
 
-# ----------------- HELPERS FALTANTES -----------------
-
-def partir_urls(value):
-    """
-    Normaliza un campo de adjuntos que puede venir como JSON (lista o dict),
-    o como texto separado por comas/; / saltos de línea. Devuelve lista de URLs únicas.
-    """
-    if value is None:
-        return []
-    s = str(value).strip()
-    if not s or s.lower() in ("nan", "none", "n/a"):
-        return []
-    urls = []
-    # Intento como JSON
-    try:
-        obj = json.loads(s)
-        if isinstance(obj, list):
-            for it in obj:
-                if isinstance(it, str) and it.strip():
-                    urls.append(it.strip())
-                elif isinstance(it, dict):
-                    for k in ("url", "URL", "href", "link"):
-                        if k in it and str(it[k]).strip():
-                            urls.append(str(it[k]).strip())
-        elif isinstance(obj, dict):
-            for k in ("url", "URL", "href", "link"):
-                if k in obj and str(obj[k]).strip():
-                    urls.append(str(obj[k]).strip())
-    except Exception:
-        # Separadores comunes
-        for p in re.split(r"[,\n;]+", s):
-            p = p.strip()
-            if p:
-                urls.append(p)
-    # De-duplicar preservando orden
-    out, seen = [], set()
-    for u in urls:
-        if u not in seen:
-            seen.add(u); out.append(u)
-    return out
-
-
-@st.cache_data(ttl=300)
-def cargar_casos_especiales():
-    """
-    Lee la hoja 'casos_especiales' usando tu helper get_worksheet_casos_especiales()
-    y garantiza todas las columnas que la UI usa.
-    """
-    ws = get_worksheet_casos_especiales()
-    data = ws.get_all_records()
-    df = pd.DataFrame(data)
-
-    columnas_necesarias = [
-        # Identificación y encabezado
-        "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
-        "Hora_Registro","Tipo_Envio","Estado","Estado_Caso","Turno",
-        # Refacturación
-        "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
-        # Detalle del caso
-        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
-        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
-        # Fechas/recepción
-        "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
-        # Documentos de cierre
-        "Nota_Credito_URL","Documento_Adicional_URL","Comentarios_Admin_Devolucion",
-        # Modificación de surtido
-        "Modificacion_Surtido","Adjuntos_Surtido",
-        # Adjuntos/guía
-        "Adjuntos","Hoja_Ruta_Mensajero",
-        # Otros
-        "Hora_Proceso"
-    ]
-    for c in columnas_necesarias:
-        if c not in df.columns:
-            df[c] = ""
-    return df
-
-
 # --- TAB 6: SEARCH ORDER ---
 with tab6:
     st.subheader("🔍 Buscador de Pedidos por Guía o Cliente")
 
-    modo_busqueda = st.radio(
-        "Selecciona el modo de búsqueda:",
-        ["🔢 Por número de guía", "🧑 Por cliente"],
-        key="tab6_modo_busqueda_radio"
-    )
+    modo_busqueda = st.radio("Selecciona el modo de búsqueda:", ["🔢 Por número de guía", "🧑 Por cliente"], key="modo_busqueda_radio")
 
     if modo_busqueda == "🔢 Por número de guía":
-        keyword = st.text_input(
-            "📦 Ingresa una palabra clave, número de guía, fragmento o código a buscar:",
-            key="tab6_keyword_guia"
-        )
-        buscar_btn = st.button("🔎 Buscar", key="tab6_btn_buscar_guia")
+        keyword = st.text_input("📦 Ingresa una palabra clave, número de guía, fragmento o código a buscar:")
+        buscar_btn = st.button("🔎 Buscar")
     else:
-        keyword = st.text_input(
-            "🧑 Ingresa el nombre del cliente a buscar (sin importar mayúsculas ni acentos):",
-            key="tab6_keyword_cliente"
-        )
-        buscar_btn = st.button("🔍 Buscar Pedido del Cliente", key="tab6_btn_buscar_cliente")
+        keyword = st.text_input("🧑 Ingresa el nombre del cliente a buscar (sin importar mayúsculas ni acentos):")
+        buscar_btn = st.button("🔍 Buscar Pedido del Cliente")
         cliente_normalizado = normalizar(keyword.strip()) if keyword else ""
 
     if buscar_btn:
         if modo_busqueda == "🔢 Por número de guía":
             st.info("🔄 Buscando, por favor espera... puede tardar unos segundos...")
-
+        df_pedidos = cargar_pedidos()
         resultados = []
 
-        # ====== Siempre cargamos pedidos (datos_pedidos) ======
-        df_pedidos = cargar_pedidos()
         if 'Hora_Registro' in df_pedidos.columns:
             df_pedidos['Hora_Registro'] = pd.to_datetime(df_pedidos['Hora_Registro'], errors='coerce')
             df_pedidos = df_pedidos.sort_values(by='Hora_Registro', ascending=False).reset_index(drop=True)
 
-        # ====== BÚSQUEDA POR CLIENTE: también en casos_especiales ======
-        if modo_busqueda == "🧑 Por cliente":
-            if not keyword.strip():
-                st.warning("⚠️ Ingresa un nombre de cliente.")
-                st.stop()
+        for _, row in df_pedidos.iterrows():
+            pedido_id = str(row.get("ID_Pedido", "")).strip()
+            if not pedido_id:
+                continue
 
-            cliente_normalizado = normalizar(keyword.strip())
-
-            # 1) datos_pedidos (S3 + archivos)
-            for _, row in df_pedidos.iterrows():
-                nombre = str(row.get("Cliente", "")).strip()
-                if not nombre:
+            if modo_busqueda == "🧑 Por cliente":
+                cliente_row = row.get("Cliente", "").strip()
+                if not cliente_row:
                     continue
-                if cliente_normalizado not in normalizar(nombre):
-                    continue
-
-                pedido_id = str(row.get("ID_Pedido", "")).strip()
-                if not pedido_id:
+                cliente_row_normalizado = normalizar(cliente_row)
+                if cliente_normalizado not in cliente_row_normalizado:
                     continue
 
                 prefix = obtener_prefijo_s3(pedido_id)
-                todos_los_archivos = obtener_todos_los_archivos(prefix) if prefix else []
-
-                comprobantes = [f for f in todos_los_archivos if "comprobante" in f["Key"].lower()]
-                facturas = [f for f in todos_los_archivos if "factura" in f["Key"].lower()]
-                otros = [f for f in todos_los_archivos if f not in comprobantes and f not in facturas]
-
-                resultados.append({
-                    "__source": "pedidos",
-                    "ID_Pedido": pedido_id,
-                    "Cliente": row.get("Cliente", ""),
-                    "Estado": row.get("Estado", ""),
-                    "Vendedor": row.get("Vendedor_Registro", ""),
-                    "Folio": row.get("Folio_Factura", ""),
-                    "Hora_Registro": row.get("Hora_Registro", ""),
-                    # 🛠 Modificación de surtido
-                    "Modificacion_Surtido": str(row.get("Modificacion_Surtido", "")).strip(),
-                    "Adjuntos_Surtido_urls": partir_urls(row.get("Adjuntos_Surtido", "")),
-                    # ♻️ Refacturación
-                    "Refacturacion_Tipo": str(row.get("Refacturacion_Tipo","")).strip(),
-                    "Refacturacion_Subtipo": str(row.get("Refacturacion_Subtipo","")).strip(),
-                    "Folio_Factura_Refacturada": str(row.get("Folio_Factura_Refacturada","")).strip(),
-                    # Archivos S3
-                    "Coincidentes": [],
-                    "Comprobantes": [(f["Key"], generar_url_s3(f["Key"])) for f in comprobantes],
-                    "Facturas": [(f["Key"], generar_url_s3(f["Key"])) for f in facturas],
-                    "Otros": [(f["Key"], generar_url_s3(f["Key"])) for f in otros],
-                })
-
-            # 2) casos_especiales
-            df_casos = cargar_casos_especiales()
-            if "Hora_Registro" in df_casos.columns:
-                df_casos["Hora_Registro"] = pd.to_datetime(df_casos["Hora_Registro"], errors="coerce")
-
-            for _, row in df_casos.iterrows():
-                nombre = str(row.get("Cliente", "")).strip()
-                if not nombre:
-                    continue
-                if cliente_normalizado not in normalizar(nombre):
+                if not prefix:
                     continue
 
-                resultados.append({
-                    "__source": "casos",
-                    "ID_Pedido": str(row.get("ID_Pedido","")).strip(),
-                    "Cliente": row.get("Cliente",""),
-                    "Vendedor": row.get("Vendedor_Registro",""),
-                    # Folios
-                    "Folio": row.get("Folio_Factura",""),
-                    "Folio_Factura_Error": row.get("Folio_Factura_Error",""),
-                    "Hora_Registro": row.get("Hora_Registro",""),
-                    "Tipo_Envio": row.get("Tipo_Envio",""),
-                    "Estado": row.get("Estado",""),
-                    "Estado_Caso": row.get("Estado_Caso",""),
-                    # ♻️ Refacturación
-                    "Refacturacion_Tipo": str(row.get("Refacturacion_Tipo","")).strip(),
-                    "Refacturacion_Subtipo": str(row.get("Refacturacion_Subtipo","")).strip(),
-                    "Folio_Factura_Refacturada": str(row.get("Folio_Factura_Refacturada","")).strip(),
-                    # Detalle
-                    "Resultado_Esperado": row.get("Resultado_Esperado",""),
-                    "Material_Devuelto": row.get("Material_Devuelto",""),
-                    "Monto_Devuelto": row.get("Monto_Devuelto",""),
-                    "Motivo_Detallado": row.get("Motivo_Detallado",""),
-                    "Area_Responsable": row.get("Area_Responsable",""),
-                    "Nombre_Responsable": row.get("Nombre_Responsable",""),
-                    "Numero_Cliente_RFC": row.get("Numero_Cliente_RFC",""),
-                    "Tipo_Envio_Original": row.get("Tipo_Envio_Original",""),
-                    "Fecha_Entrega": row.get("Fecha_Entrega",""),
-                    "Fecha_Recepcion_Devolucion": row.get("Fecha_Recepcion_Devolucion",""),
-                    "Estado_Recepcion": row.get("Estado_Recepcion",""),
-                    "Nota_Credito_URL": row.get("Nota_Credito_URL",""),
-                    "Documento_Adicional_URL": row.get("Documento_Adicional_URL",""),
-                    "Comentarios_Admin_Devolucion": row.get("Comentarios_Admin_Devolucion",""),
-                    "Turno": row.get("Turno",""),
-                    "Hora_Proceso": row.get("Hora_Proceso",""),
-                    # 🛠 Modificación de surtido
-                    "Modificacion_Surtido": str(row.get("Modificacion_Surtido","")).strip(),
-                    "Adjuntos_Surtido_urls": partir_urls(row.get("Adjuntos_Surtido","")),
-                    # Archivos del caso
-                    "Adjuntos_urls": partir_urls(row.get("Adjuntos", "")),
-                    "Guia_url": str(row.get("Hoja_Ruta_Mensajero", "")).strip(),
-                })
+                archivos_coincidentes = []  # no se buscan coincidencias
+                todos_los_archivos = obtener_todos_los_archivos(prefix)
 
-        # ====== BÚSQUEDA POR NÚMERO DE GUÍA ======
-        elif modo_busqueda == "🔢 Por número de guía":
-            clave = keyword.strip()
-            if not clave:
-                st.warning("⚠️ Ingresa una palabra clave o número de guía.")
-                st.stop()
-
-            for _, row in df_pedidos.iterrows():
-                pedido_id = str(row.get("ID_Pedido", "")).strip()
-                if not pedido_id:
-                    continue
-
+            elif modo_busqueda == "🔢 Por número de guía":
                 prefix = obtener_prefijo_s3(pedido_id)
                 if not prefix:
                     continue
@@ -2155,6 +1882,7 @@ with tab6:
                     key = archivo["Key"]
                     texto = extraer_texto_pdf(key)
 
+                    clave = keyword.strip()
                     clave_sin_espacios = clave.replace(" ", "")
                     texto_limpio = texto.replace(" ", "").replace("\n", "")
 
@@ -2172,201 +1900,80 @@ with tab6:
 
                         archivos_coincidentes.append((key, generar_url_s3(key)))
                         todos_los_archivos = obtener_todos_los_archivos(prefix)
-                        comprobantes = [f for f in todos_los_archivos if "comprobante" in f["Key"].lower()]
-                        facturas = [f for f in todos_los_archivos if "factura" in f["Key"].lower()]
-                        otros = [f for f in todos_los_archivos if f not in comprobantes and f not in facturas and f["Key"] != archivos_coincidentes[0][0]]
-
-                        resultados.append({
-                            "__source": "pedidos",
-                            "ID_Pedido": pedido_id,
-                            "Cliente": row.get("Cliente", ""),
-                            "Estado": row.get("Estado", ""),
-                            "Vendedor": row.get("Vendedor_Registro", ""),
-                            "Folio": row.get("Folio_Factura", ""),
-                            "Hora_Registro": row.get("Hora_Registro", ""),
-                            # 🛠 Modificación de surtido
-                            "Modificacion_Surtido": str(row.get("Modificacion_Surtido", "")).strip(),
-                            "Adjuntos_Surtido_urls": partir_urls(row.get("Adjuntos_Surtido", "")),
-                            # ♻️ Refacturación
-                            "Refacturacion_Tipo": str(row.get("Refacturacion_Tipo","")).strip(),
-                            "Refacturacion_Subtipo": str(row.get("Refacturacion_Subtipo","")).strip(),
-                            "Folio_Factura_Refacturada": str(row.get("Folio_Factura_Refacturada","")).strip(),
-                            # Archivos S3
-                            "Coincidentes": archivos_coincidentes,
-                            "Comprobantes": [(f["Key"], generar_url_s3(f["Key"])) for f in comprobantes],
-                            "Facturas": [(f["Key"], generar_url_s3(f["Key"])) for f in facturas],
-                            "Otros": [(f["Key"], generar_url_s3(f["Key"])) for f in otros],
-                        })
                         break  # detener búsqueda tras encontrar coincidencia
                 else:
                     continue  # ningún PDF coincidió
 
-                break  # Solo un pedido en búsqueda por guía
+            else:
+                continue  # modo no reconocido
 
-        # ====== RENDER DE RESULTADOS ======
+            # Una vez tenemos los archivos del pedido
+            comprobantes = [f for f in todos_los_archivos if "comprobante" in f["Key"].lower()]
+            facturas = [f for f in todos_los_archivos if "factura" in f["Key"].lower()]
+            otros = [
+                f for f in todos_los_archivos
+                if f not in comprobantes and f not in facturas and
+                (modo_busqueda == "🧑 Por cliente" or f["Key"] != archivos_coincidentes[0][0])
+            ]
+
+            comprobantes_links = [(f["Key"], generar_url_s3(f["Key"])) for f in comprobantes]
+            facturas_links = [(f["Key"], generar_url_s3(f["Key"])) for f in facturas]
+            otros_links = [(f["Key"], generar_url_s3(f["Key"])) for f in otros]
+
+            resultados.append({
+                "ID_Pedido": pedido_id,
+                "Cliente": row.get("Cliente", ""),
+                "Estado": row.get("Estado", ""),
+                "Vendedor": row.get("Vendedor_Registro", ""),
+                "Folio": row.get("Folio_Factura", ""),
+                "Hora_Registro": row.get("Hora_Registro", ""),  # 🆕 Agregamos este campo
+                "Coincidentes": archivos_coincidentes,
+                "Comprobantes": comprobantes_links,
+                "Facturas": facturas_links,
+                "Otros": otros_links
+            })
+
+
+            if modo_busqueda == "🔢 Por número de guía":
+                break  # Solo detener si es búsqueda por guía
+
         st.markdown("---")
         if resultados:
-            st.success(f"✅ Se encontraron coincidencias en {len(resultados)} registro(s).")
-
-            # Ordena por Hora_Registro descendente cuando exista
-            def _parse_dt(v):
-                try:
-                    return pd.to_datetime(v)
-                except Exception:
-                    return pd.NaT
-            resultados = sorted(resultados, key=lambda r: _parse_dt(r.get("Hora_Registro")), reverse=True)
+            st.success(f"✅ Se encontraron coincidencias en {len(resultados)} pedido(s).")
 
             for res in resultados:
-                if res.get("__source") == "casos":
-                    # ---------- Render de CASOS ESPECIALES (solo lectura) ----------
-                    titulo = f"🧾 Caso Especial – {res.get('Tipo_Envio','') or 'N/A'}"
-                    st.markdown(f"### {titulo}")
+                st.markdown(f"### 🤝 {res['Cliente']}")
+                st.markdown(f"📄 **Folio:** `{res['Folio']}`  |  🔍 **Estado:** `{res['Estado']}`  |  🧑‍💼 **Vendedor:** `{res['Vendedor']}`  |  🕒 **Hora:** `{res['Hora_Registro']}`")
 
-                    # Folio Nuevo / Folio Error para Devoluciones
-                    is_devolucion = (str(res.get('Tipo_Envio','')).strip() == "🔁 Devolución")
-                    if is_devolucion:
-                        folio_nuevo = res.get("Folio","") or "N/A"
-                        folio_error = res.get("Folio_Factura_Error","") or "N/A"
-                        st.markdown(
-                            f"📄 **Folio Nuevo:** `{folio_nuevo}`  |  📄 **Folio Error:** `{folio_error}`  |  "
-                            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
-                        )
-                    else:
-                        st.markdown(
-                            f"📄 **Folio:** `{res.get('Folio','') or 'N/A'}`  |  "
-                            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
-                        )
+                with st.expander("📁 Archivos del Pedido", expanded=True):
+                    if res["Coincidentes"]:
+                        st.markdown("#### 🔍 Guías:")
+                        for key, url in res["Coincidentes"]:
+                            nombre = key.split("/")[-1]
+                            st.markdown(f"- [🔍 {nombre}]({url})")
 
-                    st.markdown(
-                        f"**👤 Cliente:** {res.get('Cliente','N/A')}  |  **RFC:** {res.get('Numero_Cliente_RFC','') or 'N/A'}"
-                    )
-                    st.markdown(
-                        f"**Estado:** {res.get('Estado','') or 'N/A'}  |  **Estado del Caso:** {res.get('Estado_Caso','') or 'N/A'}  |  **Turno:** {res.get('Turno','') or 'N/A'}"
-                    )
+                    if res["Comprobantes"]:
+                        st.markdown("#### 🧾 Comprobantes:")
+                        for key, url in res["Comprobantes"]:
+                            nombre = key.split("/")[-1]
+                            st.markdown(f"- [📄 {nombre}]({url})")
 
-                    # ♻️ Refacturación (si hay)
-                    ref_t = res.get("Refacturacion_Tipo","")
-                    ref_st = res.get("Refacturacion_Subtipo","")
-                    ref_f = res.get("Folio_Factura_Refacturada","")
-                    if any([ref_t, ref_st, ref_f]):
-                        st.markdown("**♻️ Refacturación:**")
-                        st.markdown(f"- **Tipo:** {ref_t or 'N/A'}")
-                        st.markdown(f"- **Subtipo:** {ref_st or 'N/A'}")
-                        st.markdown(f"- **Folio refacturado:** {ref_f or 'N/A'}")
+                    if res["Facturas"]:
+                        st.markdown("#### 📁 Facturas:")
+                        for key, url in res["Facturas"]:
+                            nombre = key.split("/")[-1]
+                            st.markdown(f"- [📄 {nombre}]({url})")
 
-                    if str(res.get("Resultado_Esperado","")).strip():
-                        st.markdown(f"**🎯 Resultado Esperado:** {res.get('Resultado_Esperado','')}")
-                    if str(res.get("Motivo_Detallado","")).strip():
-                        st.markdown("**📝 Motivo / Descripción:**")
-                        st.info(str(res.get("Motivo_Detallado","")).strip())
-                    if str(res.get("Material_Devuelto","")).strip():
-                        st.markdown("**📦 Piezas / Material:**")
-                        st.info(str(res.get("Material_Devuelto","")).strip())
-                    if str(res.get("Monto_Devuelto","")).strip():
-                        st.markdown(f"**💵 Monto (dev./estimado):** {res.get('Monto_Devuelto','')}")
-
-                    st.markdown(
-                        f"**🏢 Área Responsable:** {res.get('Area_Responsable','') or 'N/A'}  |  **👥 Responsable del Error:** {res.get('Nombre_Responsable','') or 'N/A'}"
-                    )
-                    st.markdown(
-                        f"**📅 Fecha Entrega/Cierre (si aplica):** {res.get('Fecha_Entrega','') or 'N/A'}  |  "
-                        f"**📅 Recepción:** {res.get('Fecha_Recepcion_Devolucion','') or 'N/A'}  |  "
-                        f"**📦 Recepción:** {res.get('Estado_Recepcion','') or 'N/A'}"
-                    )
-                    st.markdown(
-                        f"**🧾 Nota de Crédito:** {res.get('Nota_Credito_URL','') or 'N/A'}  |  "
-                        f"**📂 Documento Adicional:** {res.get('Documento_Adicional_URL','') or 'N/A'}"
-                    )
-                    if str(res.get("Comentarios_Admin_Devolucion","")).strip():
-                        st.markdown("**🗒️ Comentario Administrativo:**")
-                        st.info(str(res.get("Comentarios_Admin_Devolucion","")).strip())
-
-                    # 🛠 Modificación de surtido (si existe)
-                    mod_txt = res.get("Modificacion_Surtido", "") or ""
-                    mod_urls = res.get("Adjuntos_Surtido_urls", []) or []
-                    if mod_txt or mod_urls:
-                        st.markdown("#### 🛠 Modificación de surtido")
-                        if mod_txt:
-                            st.info(mod_txt)
-                        if mod_urls:
-                            st.markdown("**Archivos de modificación:**")
-                            for u in mod_urls:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
-
-                    with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
-                        adj = res.get("Adjuntos_urls", []) or []
-                        guia = res.get("Guia_url", "")
-                        if adj:
-                            st.markdown("**Adjuntos:**")
-                            for u in adj:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
-                        if guia and guia.lower() not in ("nan","none","n/a"):
-                            st.markdown("**Guía:**")
-                            st.markdown(f"- [Abrir guía]({guia})")
-                        if not adj and not guia:
-                            st.info("Sin archivos registrados en la hoja.")
-
-                    st.markdown("---")
-
-                else:
-                    # ---------- Render de PEDIDOS ----------
-                    st.markdown(f"### 🤝 {res['Cliente'] or 'Cliente N/D'}")
-                    st.markdown(
-                        f"📄 **Folio:** `{res['Folio'] or 'N/D'}`  |  🔍 **Estado:** `{res['Estado'] or 'N/D'}`  |  "
-                        f"🧑‍💼 **Vendedor:** `{res['Vendedor'] or 'N/D'}`  |  🕒 **Hora:** `{res['Hora_Registro'] or 'N/D'}`"
-                    )
-
-                    # ♻️ Refacturación (si hay)
-                    ref_t = res.get("Refacturacion_Tipo","")
-                    ref_st = res.get("Refacturacion_Subtipo","")
-                    ref_f = res.get("Folio_Factura_Refacturada","")
-                    if any([ref_t, ref_st, ref_f]):
-                        with st.expander("♻️ Refacturación", expanded=False):
-                            st.markdown(f"- **Tipo:** {ref_t or 'N/A'}")
-                            st.markdown(f"- **Subtipo:** {ref_st or 'N/A'}")
-                            st.markdown(f"- **Folio refacturado:** {ref_f or 'N/A'}")
-
-                    with st.expander("📁 Archivos del Pedido", expanded=True):
-                        if res.get("Coincidentes"):
-                            st.markdown("#### 🔍 Guías:")
-                            for key, url in res["Coincidentes"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [🔍 {nombre}]({url})")
-                        if res.get("Comprobantes"):
-                            st.markdown("#### 🧾 Comprobantes:")
-                            for key, url in res["Comprobantes"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
-                        if res.get("Facturas"):
-                            st.markdown("#### 📁 Facturas:")
-                            for key, url in res["Facturas"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
-                        if res.get("Otros"):
-                            st.markdown("#### 📂 Otros Archivos:")
-                            for key, url in res["Otros"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [📌 {nombre}]({url})")
-
-                        # 🛠 Modificación de surtido (si existe)
-                        mod_txt = res.get("Modificacion_Surtido", "") or ""
-                        mod_urls = res.get("Adjuntos_Surtido_urls", []) or []
-                        if mod_txt or mod_urls:
-                            st.markdown("#### 🛠 Modificación de surtido")
-                            if mod_txt:
-                                st.info(mod_txt)
-                            if mod_urls:
-                                st.markdown("**Archivos de modificación:**")
-                                for u in mod_urls:
-                                    nombre = u.split("/")[-1]
-                                    st.markdown(f"- [{nombre}]({u})")
+                    if res["Otros"]:
+                        st.markdown("#### 📂 Otros Archivos:")
+                        for key, url in res["Otros"]:
+                            nombre = key.split("/")[-1]
+                            st.markdown(f"- [📌 {nombre}]({url})")
 
         else:
             mensaje = (
                 "⚠️ No se encontraron coincidencias en ningún archivo PDF."
                 if modo_busqueda == "🔢 Por número de guía"
-                else "⚠️ No se encontraron pedidos o casos para el cliente ingresado."
+                else "⚠️ No se encontraron pedidos para el cliente ingresado."
             )
             st.warning(mensaje)
