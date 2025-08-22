@@ -484,9 +484,28 @@ with tab1:
     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
         st.markdown("---")
         st.subheader("💰 Estado de Pago")
-        estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
+        estado_pago = st.selectbox(
+            "Estado de Pago",
+            ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"],
+            index=0,
+            key="estado_pago",
+        )
 
-        # ... [se mantiene TODO lo de pagos tal como lo tienes] ...
+        if estado_pago == "✅ Pagado":
+            comprobante_pago_files = st.file_uploader(
+                "Comprobante de Pago (PDF o imagen)",
+                type=["pdf", "jpg", "jpeg", "png"],
+                accept_multiple_files=True,
+                key="comprobante_pago",
+            )
+            fecha_pago = st.date_input("Fecha de Pago")
+            forma_pago = st.text_input("Forma de Pago")
+            terminal = st.text_input("Terminal")
+            banco_destino = st.text_input("Banco Destino")
+            monto_pago = st.number_input(
+                "Monto del Pago", min_value=0.0, step=0.01, format="%.2f"
+            )
+            referencia_pago = st.text_input("Referencia del Pago")
 
     # -------------------------------
     # Registro del Pedido
