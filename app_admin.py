@@ -1194,6 +1194,138 @@ with tab3, suppress(StopException):
                 seen.add(u); out.append(u)
         return out
 
+    def __s(v):
+        return str(v).strip()
+
+    def __has(v):
+        s = __s(v)
+        return bool(s) and s.lower() not in ("nan", "none", "n/a")
+
+    def __is_url(v):
+        s = __s(v).lower()
+        return s.startswith("http://") or s.startswith("https://")
+
+    def __link(url, label=None):
+        u = __s(url)
+        if __is_url(u):
+            import os
+            return f"[{label or (os.path.basename(u) or 'Abrir')}]({u})"
+        return u
+
+    def render_caso_especial(row):
+        tipo = __s(row.get("Tipo_Envio", ""))
+        is_dev = (tipo == "🔁 Devolución")
+        title = "🧾 Caso Especial – 🔁 Devolución" if is_dev else "🧾 Caso Especial – 🛠 Garantía"
+        st.markdown(f"### {title}")
+
+        vendedor = row.get("Vendedor_Registro", "") or row.get("Vendedor", "")
+        hora = row.get("Hora_Registro", "")
+
+        if is_dev:
+            folio_nuevo = row.get("Folio_Factura", "")
+            folio_error = row.get("Folio_Factura_Error", "")
+            st.markdown(
+                f"📄 **Folio Nuevo:** `{folio_nuevo or 'N/A'}`  |  "
+                f"📄 **Folio Error:** `{folio_error or 'N/A'}`  |  "
+                f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
+                f"🕒 **Hora:** `{hora or 'N/A'}`"
+            )
+        else:
+            st.markdown(
+                f"📄 **Folio:** `{row.get('Folio_Factura','') or 'N/A'}`  |  "
+                f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
+                f"🕒 **Hora:** `{hora or 'N/A'}`"
+            )
+
+        st.markdown(
+            f"**👤 Cliente:** {row.get('Cliente','N/A')}  |  **RFC:** {row.get('Numero_Cliente_RFC','') or 'N/A'}"
+        )
+        st.markdown(
+            f"**Estado:** {row.get('Estado','') or 'N/A'}  |  "
+            f"**Estado del Caso:** {row.get('Estado_Caso','') or 'N/A'}  |  "
+            f"**Turno:** {row.get('Turno','') or 'N/A'}"
+        )
+
+        rt = __s(row.get("Refacturacion_Tipo",""))
+        rs = __s(row.get("Refacturacion_Subtipo",""))
+        rf = __s(row.get("Folio_Factura_Refacturada",""))
+        if __has(rt) or __has(rs) or __has(rf):
+            st.markdown("**♻️ Refacturación:**")
+            if __has(rt): st.markdown(f"- **Tipo:** {rt}")
+            if __has(rs): st.markdown(f"- **Subtipo:** {rs}")
+            if __has(rf): st.markdown(f"- **Folio refacturado:** {rf}")
+
+        if __has(row.get("Resultado_Esperado","")):
+            st.markdown(f"**🎯 Resultado Esperado:** {row.get('Resultado_Esperado')}")
+        if __has(row.get("Motivo_Detallado","")):
+            st.markdown("**📝 Motivo / Descripción:**")
+            st.info(__s(row.get("Motivo_Detallado","")))
+        if __has(row.get("Material_Devuelto","")):
+            st.markdown("**📦 Piezas / Material:**")
+            st.info(__s(row.get("Material_Devuelto","")))
+        if __has(row.get("Monto_Devuelto","")):
+            st.markdown(f"**💵 Monto (dev./estimado):** {row.get('Monto_Devuelto')}")
+
+        if __has(row.get("Area_Responsable","")) or __has(row.get("Nombre_Responsable","")):
+            st.markdown(
+                f"**🏢 Área Responsable:** {row.get('Area_Responsable','') or 'N/A'}  |  "
+                f"**👥 Responsable del Error:** {row.get('Nombre_Responsable','') or 'N/A'}"
+            )
+
+        if __has(row.get("Fecha_Entrega","")) or __has(row.get("Fecha_Recepcion_Devolucion","")) or __has(row.get("Estado_Recepcion","")):
+            st.markdown(
+                f"**📅 Fecha Entrega/Cierre:** {row.get('Fecha_Entrega','') or 'N/A'}  |  "
+                f"**📅 Recepción:** {row.get('Fecha_Recepcion_Devolucion','') or 'N/A'}  |  "
+                f"**📦 Recepción:** {row.get('Estado_Recepcion','') or 'N/A'}"
+            )
+
+        nota = __s(row.get("Nota_Credito_URL",""))
+        docad = __s(row.get("Documento_Adicional_URL",""))
+        if __has(nota):
+            st.markdown(f"**🧾 Nota de Crédito:** {__link(nota, 'Nota de Crédito') if __is_url(nota) else nota}")
+        if __has(docad):
+            st.markdown(f"**📂 Documento Adicional:** {__link(docad, 'Documento Adicional') if __is_url(docad) else docad}")
+        if __has(row.get("Comentarios_Admin_Devolucion","")):
+            st.markdown("**🗒️ Comentario Administrativo:**")
+            st.info(__s(row.get("Comentarios_Admin_Devolucion","")))
+
+        mod_txt = __s(row.get("Modificacion_Surtido",""))
+        adj_mod_raw = row.get("Adjuntos_Surtido","")
+        if 'partir_urls' in globals():
+            adj_mod = partir_urls(adj_mod_raw)
+        else:
+            adj_mod = [x.strip() for x in str(adj_mod_raw).split(",") if x.strip()]
+        if __has(mod_txt) or adj_mod:
+            st.markdown("#### 🛠 Modificación de surtido")
+            if __has(mod_txt):
+                st.info(mod_txt)
+            if adj_mod:
+                st.markdown("**Archivos de modificación:**")
+                for u in adj_mod:
+                    st.markdown(f"- {__link(u)}")
+
+        with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
+            adj_raw = row.get("Adjuntos","")
+            if 'partir_urls' in globals():
+                adj = partir_urls(adj_raw)
+            else:
+                adj = [x.strip() for x in str(adj_raw).split(",") if x.strip()]
+            guia = __s(row.get("Hoja_Ruta_Mensajero","")) or __s(row.get("Adjuntos_Guia",""))
+            has_any = False
+            if adj:
+                has_any = True
+                st.markdown("**Adjuntos:**")
+                for u in adj:
+                    st.markdown(f"- {__link(u)}")
+            if __has(guia) and __is_url(guia):
+                has_any = True
+                st.markdown("**Guía:**")
+                st.markdown(f"- {__link(guia, 'Abrir guía')}")
+            if not has_any:
+                st.info("Sin archivos registrados en la hoja.")
+
+        st.markdown("---")
+
     # PENDIENTES (ambos tipos)
     mask_tipo_valido = df_casos["Tipo_Envio"].astype(str).str.strip().isin(["🔁 Devolución","🛠 Garantía"])
     mask_recepcion_vacia = df_casos["Estado_Recepcion"].apply(_is_blank)
@@ -1270,45 +1402,7 @@ with tab3, suppress(StopException):
     # Garantía si no es devolución:
     is_gar = not is_dev
 
-    st.markdown("---")
-    st.subheader("🧾 Detalle del Caso Seleccionado")
-
-    if is_dev:
-        st.markdown(f"**🪪 Tipo:** 🔁 Devolución")
-        st.markdown(f"**Tipo de Envío (original):** {row.get('Tipo_Envio_Original', '')}")
-    else:
-        st.markdown(f"**🪪 Tipo:** 🛠 Garantía")
-
-    st.markdown(f"**📄 Folio:** {row.get('Folio_Factura','N/A')}")
-    st.markdown(f"**👤 Vendedor:** {row.get('Vendedor_Registro','N/A')}")
-    st.markdown(f"**🏷️ Cliente/RFC:** {row.get('Cliente','N/A')} / {row.get('Numero_Cliente_RFC','')}")
-    st.markdown(f"**🎯 Resultado Esperado:** {row.get('Resultado_Esperado','')}")
-    st.markdown(f"**🏢 Área Responsable:** {row.get('Area_Responsable','')}")
-    st.markdown(f"**👥 Responsable del Error:** {row.get('Nombre_Responsable','')}")
-    st.markdown("**📝 Motivo / Descripción:**")
-    st.info(str(row.get("Motivo_Detallado","")).strip() or "N/A")
-    st.markdown("**📦 Piezas / Material:**")
-    st.info(str(row.get("Material_Devuelto","")).strip() or "N/A")
-    if str(row.get("Monto_Devuelto","")).strip():
-        st.markdown(f"**💵 Monto (dev./estimado):** {row.get('Monto_Devuelto','')}")
-
-    with st.expander("📎 Archivos (Adjuntos + Guía)", expanded=False):
-        adjuntos_urls = _normalize_urls(row.get("Adjuntos",""))
-        guia_url = str(row.get("Hoja_Ruta_Mensajero","")).strip()
-        items = []
-        for u in adjuntos_urls:
-            if not u: continue
-            file_name = os.path.basename(u)
-            items.append((file_name or "Adjunto", u))
-        if guia_url and guia_url.lower() not in ("nan","none","n/a"):
-            items.append(("Guía de Retorno/Envío", guia_url))
-        if items:
-            for label, url in items:
-                st.markdown(f"- [{label}]({url})")
-        else:
-            st.info("No hay archivos registrados para este caso.")
-
-    st.markdown("---")
+    render_caso_especial(row)
 
     # ===== FORMULARIO (ajusta columnas según tipo detectado) =====
     with st.form(key="tab3_confirm_form", clear_on_submit=False):
