@@ -1354,7 +1354,8 @@ with tab2:
                         key="uploaded_comprobantes_extra"
                     )
 
-                    modify_button = st.form_submit_button("💾 Guardar Cambios")
+                    # Botón para procesar la modificación del pedido
+                    modify_button = st.form_submit_button("✅ Procesar Modificación")
 
                     if modify_button:
                         message_placeholder_tab2.empty()
@@ -1388,16 +1389,12 @@ with tab2:
                             # 2) Guardar Modificacion_Surtido (si cambió)
                             if col_exists("Modificacion_Surtido"):
                                 if new_modificacion_surtido_input.strip() != current_modificacion_surtido_value.strip():
-                                    worksheet.update_cell(gsheet_row_index, col_idx("Modificacion_Surtido"), new_modificacion_surtido_input.strip())
+                                    worksheet.update_cell(
+                                        gsheet_row_index,
+                                        col_idx("Modificacion_Surtido"),
+                                        new_modificacion_surtido_input.strip(),
+                                    )
                                     changes_made = True
-
-                                    # Solo forzar '🛠 Modificación' en datos_pedidos (tu flujo actual)
-                                    if selected_source == "datos_pedidos":
-                                        if col_exists("Estado"):
-                                            worksheet.update_cell(gsheet_row_index, col_idx("Estado"), "🛠 Modificación")
-                                        if col_exists("Fecha_Completado"):
-                                            worksheet.update_cell(gsheet_row_index, col_idx("Fecha_Completado"), "")
-                                        message_placeholder_tab2.warning("🛠 El estado se cambió a 'Modificación' por los cambios realizados.")
 
                             # 3) Subida de archivos de Surtido -> Adjuntos_Surtido
                             new_adjuntos_surtido_urls = []
@@ -1453,7 +1450,15 @@ with tab2:
                                     if col_exists(campo):
                                         worksheet.update_cell(gsheet_row_index, col_idx(campo), "")
 
-                            # 6) Mensajes y limpieza de inputs
+                            # 6) Cambiar estado del pedido a 'En Proceso'
+                            if col_exists("Estado"):
+                                worksheet.update_cell(gsheet_row_index, col_idx("Estado"), "🔵 En Proceso")
+                                changes_made = True
+                                message_placeholder_tab2.info("🔵 El estado del pedido se cambió a 'En Proceso'.")
+                            if selected_source == "datos_pedidos" and col_exists("Fecha_Completado"):
+                                worksheet.update_cell(gsheet_row_index, col_idx("Fecha_Completado"), "")
+
+                            # 7) Mensajes y limpieza de inputs
                             if changes_made:
                                 st.session_state["reset_inputs_tab2"] = True
                                 st.session_state["show_success_message"] = True
