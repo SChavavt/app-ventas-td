@@ -1140,7 +1140,8 @@ with tab3, suppress(StopException):
         "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
         "Tipo_Envio","Resultado_Esperado","Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
         "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Tipo_Envio_Original",
-        "Adjuntos","Hoja_Ruta_Mensajero","Estado_Caso","Estado_Recepcion","Turno","Fecha_Entrega"
+        "Adjuntos","Hoja_Ruta_Mensajero","Estado_Caso","Estado_Recepcion","Turno","Fecha_Entrega",
+        "Numero_Serie","Fecha_Compra"
     ]
     for c in needed_cols:
         if c not in df_casos.columns:
@@ -1240,6 +1241,11 @@ with tab3, suppress(StopException):
         st.markdown(
             f"**👤 Cliente:** {row.get('Cliente','N/A')}  |  **RFC:** {row.get('Numero_Cliente_RFC','') or 'N/A'}"
         )
+        if not is_dev:
+            st.markdown(
+                f"**🔢 Número de Serie:** {row.get('Numero_Serie','') or 'N/A'}  |  "
+                f"**🗓️ Fecha de Compra:** {row.get('Fecha_Compra','') or 'N/A'}"
+            )
         st.markdown(
             f"**Estado:** {row.get('Estado','') or 'N/A'}  |  "
             f"**Estado del Caso:** {row.get('Estado_Caso','') or 'N/A'}  |  "
@@ -1610,7 +1616,7 @@ with tab4:
         "Documento_Adicional_URL", "Dictamen_Garantia_URL",
         "Estado", "Estado_Caso", "Estado_Recepcion", "Tipo_Envio_Original",
         "Resultado_Esperado", "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado",
-        "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable", "Turno", "Fecha_Entrega"
+        "Numero_Serie", "Fecha_Compra", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable", "Turno", "Fecha_Entrega"
     ]:
         if c not in df_ce.columns:
             df_ce[c] = ""
@@ -1677,6 +1683,7 @@ with tab4:
     # ------- Columnas a mostrar/descargar -------
     columnas_base = [
         "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
+        "Numero_Serie","Fecha_Compra",
         "Tipo_Envio","Estado","Estado_Caso","Estado_Recepcion",
         "Tipo_Envio_Original","Turno","Fecha_Entrega",
         "Resultado_Esperado","Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
