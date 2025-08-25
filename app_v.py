@@ -866,7 +866,9 @@ def cargar_pedidos_combinados():
     client = build_gspread_client()
     sh = client.open_by_key(GOOGLE_SHEET_ID)
 
-    # --- datos_pedidos ---
+    # ---------------------------
+    # datos_pedidos
+    # ---------------------------
     try:
         ws_datos = sh.worksheet("datos_pedidos")
         headers_datos = ws_datos.row_values(1)
@@ -907,7 +909,9 @@ def cargar_pedidos_combinados():
 
         df_datos["Fuente"] = "datos_pedidos"
 
-    # --- casos_especiales ---
+    # ---------------------------
+    # casos_especiales
+    # ---------------------------
     try:
         ws_casos = sh.worksheet("casos_especiales")
         headers_casos = ws_casos.row_values(1)
@@ -922,7 +926,7 @@ def cargar_pedidos_combinados():
         else:
             df_casos["ID_Pedido"] = ""
 
-        # columnas mínimas + TODAS las que usa la UI en esta conversación
+        # columnas mínimas + TODAS las que usa la UI (incluye Garantías)
         base_cols = [
             'ID_Pedido','Cliente','Folio_Factura','Folio_Factura_Error','Estado','Tipo_Envio','Tipo_Envio_Original',
             'Turno','Fecha_Entrega','Hora_Registro','Hora_Proceso','Vendedor_Registro','Comentario','Estado_Pago',
@@ -933,9 +937,11 @@ def cargar_pedidos_combinados():
             'Numero_Cliente_RFC','Estado_Caso',
             # refacturación
             'Refacturacion_Tipo','Refacturacion_Subtipo','Folio_Factura_Refacturada',
-            # detalle del caso
+            # detalle del caso (dev/garantía)
             'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
             'Area_Responsable','Nombre_Responsable',
+            # ⚙️ NUEVO: Garantías
+            'Numero_Serie','Fecha_Compra',   # si tu hoja usa "FechaCompra", abajo lo normalizamos
             # recepción/cierre
             'Fecha_Recepcion_Devolucion','Estado_Recepcion',
             # documentos de cierre
@@ -945,7 +951,11 @@ def cargar_pedidos_combinados():
             if c not in df_casos.columns:
                 df_casos[c] = ""
 
-        # Si no hay Tipo_Envio, intenta inferirlo de Tipo_Caso (mantén tu lógica)
+        # Normalizar fecha de compra si el encabezado real es "FechaCompra"
+        if 'Fecha_Compra' not in headers_casos and 'FechaCompra' in headers_casos:
+            df_casos['Fecha_Compra'] = df_casos['FechaCompra']
+
+        # Inferir Tipo_Envio desde Tipo_Caso si viene vacío
         if 'Tipo_Envio' in df_casos.columns:
             df_casos['Tipo_Envio'] = df_casos['Tipo_Envio'].astype(str)
         if 'Tipo_Envio' in df_casos.columns and df_casos['Tipo_Envio'].eq("").any():
@@ -962,7 +972,7 @@ def cargar_pedidos_combinados():
                     return "Caso especial"
                 df_casos['Tipo_Envio'] = df_casos.apply(_infer_tipo_envio, axis=1)
 
-        # Mapear Hoja_Ruta_Mensajero a Adjuntos_Guia si viene vacío
+        # Mapear Hoja_Ruta_Mensajero -> Adjuntos_Guia si esta última está vacía
         if 'Adjuntos_Guia' in df_casos.columns and 'Hoja_Ruta_Mensajero' in df_casos.columns:
             mask_vacios = df_casos['Adjuntos_Guia'].astype(str).str.strip().eq("")
             df_casos.loc[mask_vacios, 'Adjuntos_Guia'] = df_casos.loc[mask_vacios, 'Hoja_Ruta_Mensajero']
@@ -974,7 +984,9 @@ def cargar_pedidos_combinados():
 
         df_casos["Fuente"] = "casos_especiales"
 
-    # --- Unir respetando columnas ---
+    # ---------------------------
+    # Unir respetando columnas
+    # ---------------------------
     if df_datos.empty and df_casos.empty:
         return pd.DataFrame()
     if df_datos.empty:
@@ -987,6 +999,7 @@ def cargar_pedidos_combinados():
     df_casos = df_casos.reindex(columns=all_cols, fill_value="")
     df_all = pd.concat([df_datos, df_casos], ignore_index=True)
     return df_all
+
             
 # --- TAB 2: MODIFY EXISTING ORDER ---
 if "reset_inputs_tab2" in st.session_state:
@@ -1153,6 +1166,16 @@ with tab2:
                             f"🕒 **Hora:** `{hora or 'N/A'}`"
                         )
 
+                        # ⭐⭐⭐ INSERTA ESTO (muestra serie y fecha de compra en Garantías) ⭐⭐⭐
+                        num_serie = __s(row.get("Numero_Serie", ""))
+                        fec_compra = __s(row.get("Fecha_Compra", "")) or __s(row.get("FechaCompra", ""))
+
+                        if __has(num_serie) or __has(fec_compra):
+                            st.markdown("**🧷 Datos de compra y serie:**")
+                            st.markdown(f"- **Número de serie / lote:** `{num_serie or 'N/A'}`")
+                            st.markdown(f"- **Fecha de compra:** `{fec_compra or 'N/A'}`")
+                        # ⭐⭐⭐ FIN DEL INSERTO ⭐⭐⭐
+
                     st.markdown(
                         f"**👤 Cliente:** {row.get('Cliente','N/A')}  |  **RFC:** {row.get('Numero_Cliente_RFC','') or 'N/A'}"
                     )
@@ -1240,6 +1263,7 @@ with tab2:
                         if not has_any:
                             st.info("Sin archivos registrados en la hoja.")
                     st.markdown("---")
+
 
                 # Si viene de casos_especiales y es Devolución/Garantía -> render especial
                 tipo_det = __s(selected_row_data.get('Tipo_Envio', ''))
@@ -2082,6 +2106,8 @@ def cargar_casos_especiales():
         # Detalle del caso
         "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
         "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
+        # ⚙️ NUEVO: Garantías
+        "Numero_Serie","Fecha_Compra",  # (si tu hoja usa 'FechaCompra', abajo la normalizamos)
         # Fechas/recepción
         "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
         # Documentos de cierre
@@ -2096,10 +2122,19 @@ def cargar_casos_especiales():
     for c in columnas_necesarias:
         if c not in df.columns:
             df[c] = ""
+
+    # Normaliza 'Fecha_Compra' si en la hoja existe como 'FechaCompra'
+    if "Fecha_Compra" not in df.columns and "FechaCompra" in df.columns:
+        df["Fecha_Compra"] = df["FechaCompra"]
+    elif "Fecha_Compra" in df.columns and "FechaCompra" in df.columns and df["Fecha_Compra"].eq("").all():
+        # Si ambas existen pero 'Fecha_Compra' viene vacía, usa 'FechaCompra'
+        df["Fecha_Compra"] = df["Fecha_Compra"].where(df["Fecha_Compra"].astype(str).str.strip() != "", df["FechaCompra"])
+
     return df
 
 
-# --- TAB 6: SEARCH ORDER ---
+
+# --- TAB 6: SEARCH ORDER --- 
 with tab6:
     st.subheader("🔍 Buscador de Pedidos por Guía o Cliente")
 
@@ -2185,7 +2220,7 @@ with tab6:
                 })
 
             # 2) casos_especiales
-            df_casos = cargar_casos_especiales()
+            df_casos = cargar_casos_especiales()  # << garantiza Numero_Serie y Fecha_Compra
             if "Hora_Registro" in df_casos.columns:
                 df_casos["Hora_Registro"] = pd.to_datetime(df_casos["Hora_Registro"], errors="coerce")
 
@@ -2235,6 +2270,10 @@ with tab6:
                     # Archivos del caso
                     "Adjuntos_urls": partir_urls(row.get("Adjuntos", "")),
                     "Guia_url": str(row.get("Hoja_Ruta_Mensajero", "")).strip(),
+
+                    # ⭐⭐⭐ NUEVO: Campos de Garantía ⭐⭐⭐
+                    "Numero_Serie": row.get("Numero_Serie",""),
+                    "Fecha_Compra": row.get("Fecha_Compra","") or row.get("FechaCompra",""),
                 })
 
         # ====== BÚSQUEDA POR NÚMERO DE GUÍA ======
@@ -2341,6 +2380,15 @@ with tab6:
                             f"📄 **Folio:** `{res.get('Folio','') or 'N/A'}`  |  "
                             f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
                         )
+
+                        # ⭐⭐⭐ NUEVO: Mostrar datos de Garantía ⭐⭐⭐
+                        if str(res.get("Tipo_Envio","")).strip() == "🛠 Garantía":
+                            num_serie = (res.get("Numero_Serie") or "").strip()
+                            fec_compra = (res.get("Fecha_Compra") or "").strip()
+                            if num_serie or fec_compra:
+                                st.markdown("**🧷 Datos de compra y serie (Garantía):**")
+                                st.markdown(f"- **Número de serie / lote:** `{num_serie or 'N/A'}`")
+                                st.markdown(f"- **Fecha de compra:** `{fec_compra or 'N/A'}`")
 
                     st.markdown(
                         f"**👤 Cliente:** {res.get('Cliente','N/A')}  |  **RFC:** {res.get('Numero_Cliente_RFC','') or 'N/A'}"
