@@ -2383,8 +2383,8 @@ with tab6:
 
                         # ⭐⭐⭐ NUEVO: Mostrar datos de Garantía ⭐⭐⭐
                         if str(res.get("Tipo_Envio","")).strip() == "🛠 Garantía":
-                            num_serie = (res.get("Numero_Serie") or "").strip()
-                            fec_compra = (res.get("Fecha_Compra") or "").strip()
+                            num_serie = str(res.get("Numero_Serie") or "").strip()
+                            fec_compra = str(res.get("Fecha_Compra") or "").strip()
                             if num_serie or fec_compra:
                                 st.markdown("**🧷 Datos de compra y serie (Garantía):**")
                                 st.markdown(f"- **Número de serie / lote:** `{num_serie or 'N/A'}`")
