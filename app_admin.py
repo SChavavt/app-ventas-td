@@ -319,9 +319,34 @@ else:
     pedidos_pagados_no_confirmados = pd.DataFrame()
 
 # ---- TABS ADMIN ----
-tab_names = ["💳 Pendientes de Confirmar", "📥 Confirmados", "📦 Casos Especiales", "🗂️ Data Especiales"]
+# Mantiene la pestaña activa usando los query params de Streamlit
+tab_names = [
+    "💳 Pendientes de Confirmar",
+    "📥 Confirmados",
+    "📦 Casos Especiales",
+    "🗂️ Data Especiales",
+]
+
+# índice de pestaña activo desde la URL (por defecto 0)
+_tab_param = st.experimental_get_query_params().get("tab", ["0"])[0]
+try:
+    _default_tab = int(_tab_param)
+except Exception:
+    _default_tab = 0
+
 tabs = st.tabs(tab_names)
 tab1, tab2, tab3, tab4 = tabs
+
+# forza la pestaña almacenada al recargar
+st.markdown(
+    f"""
+    <script>
+        const tabs = window.parent.document.querySelectorAll('div[data-baseweb="tab-list"] button');
+        if (tabs.length > {_default_tab}) {{ tabs[{_default_tab}].click(); }}
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # --- INTERFAZ PRINCIPAL ---
@@ -1117,10 +1142,18 @@ with tab3, suppress(StopException):
     # Recargar
     col_recargar, _ = st.columns([1, 5])
     with col_recargar:
-        if st.button("🔄 Recargar casos", type="secondary", key="tab3_reload_btn"):
+        def _reload_tab3():
             st.session_state["tab3_reload_nonce"] += 1
             st.cache_data.clear()
-            tab3_alert.info("♻️ Casos recargados.")
+            st.experimental_set_query_params(tab="2")
+            st.rerun()
+
+        st.button(
+            "🔄 Recargar casos",
+            type="secondary",
+            key="tab3_reload_btn",
+            on_click=_reload_tab3,
+        )
 
     # Carga principal
     try:
@@ -1386,11 +1419,16 @@ with tab3, suppress(StopException):
     if st.session_state["tab3_selected_idx"] >= len(options):
         st.session_state["tab3_selected_idx"] = 0
 
+    def _keep_tab3():
+        st.experimental_set_query_params(tab="2")
+        st.rerun()
+
     selected = st.selectbox(
         "📋 Selecciona un caso",
         options,
         index=st.session_state["tab3_selected_idx"],
         key="tab3_selectbox",
+        on_change=_keep_tab3,
     )
     st.session_state["tab3_selected_idx"] = options.index(selected) if selected in options else 0
     row = df_pendientes[df_pendientes["__display__"] == selected].iloc[0]
@@ -1517,6 +1555,9 @@ with tab3, suppress(StopException):
         if ok_all:
             tab3_alert.success("✅ Confirmación guardada.")
             st.session_state["tab3_reload_nonce"] += 1
+            st.cache_data.clear()
+            st.experimental_set_query_params(tab="2")
+            st.rerun()
         else:
             tab3_alert.error("❌ Ocurrió un problema al guardar.")
 
