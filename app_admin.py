@@ -328,7 +328,7 @@ tab_names = [
 ]
 
 # índice de pestaña activo desde la URL (por defecto 0)
-_tab_param = st.experimental_get_query_params().get("tab", ["0"])[0]
+_tab_param = st.query_params.get("tab", ["0"])[0]
 try:
     _default_tab = int(_tab_param)
 except Exception:
@@ -1145,7 +1145,7 @@ with tab3, suppress(StopException):
         def _reload_tab3():
             st.session_state["tab3_reload_nonce"] += 1
             st.cache_data.clear()
-            st.experimental_set_query_params(tab="2")
+            st.query_params["tab"] = "2"
             st.rerun()
 
         st.button(
@@ -1420,7 +1420,7 @@ with tab3, suppress(StopException):
         st.session_state["tab3_selected_idx"] = 0
 
     def _keep_tab3():
-        st.experimental_set_query_params(tab="2")
+        st.query_params["tab"] = "2"
         st.rerun()
 
     selected = st.selectbox(
@@ -1556,7 +1556,7 @@ with tab3, suppress(StopException):
             tab3_alert.success("✅ Confirmación guardada.")
             st.session_state["tab3_reload_nonce"] += 1
             st.cache_data.clear()
-            st.experimental_set_query_params(tab="2")
+            st.query_params["tab"] = "2"
             st.rerun()
         else:
             tab3_alert.error("❌ Ocurrió un problema al guardar.")
