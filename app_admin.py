@@ -148,6 +148,9 @@ def get_google_sheets_client():
 
 
 df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
+# Excluir pedidos de cursos y eventos para que no aparezcan en ningún flujo
+if 'Tipo_Envio' in df_pedidos.columns:
+    df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
 if df_pedidos.empty:
     st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
     # No st.stop(): deja que otras pestañas/partes sigan funcionando
