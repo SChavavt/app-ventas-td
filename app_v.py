@@ -272,9 +272,17 @@ with tab1:
 
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
-        ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local", "🔁 Devolución", "🛠 Garantía"],
+        [
+            "🚚 Pedido Foráneo",
+            "🏙️ Pedido CDMX",
+            "📋 Solicitudes de Guía",
+            "📍 Pedido Local",
+            "🎓 Cursos y Eventos",
+            "🔁 Devolución",
+            "🛠 Garantía",
+        ],
         index=0,
-        key="tipo_envio_selector_global"
+        key="tipo_envio_selector_global",
     )
 
     subtipo_local = ""
@@ -634,7 +642,13 @@ with tab1:
                     st.stop()
 
             # Validar comprobante de pago para tipos normales
-            if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
+            if tipo_envio in [
+                "🚚 Pedido Foráneo",
+                "🏙️ Pedido CDMX",
+                "📋 Solicitudes de Guía",
+                "📍 Pedido Local",
+                "🎓 Cursos y Eventos",
+            ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                 st.stop()
 
@@ -1971,7 +1985,14 @@ with tab5:
             st.warning("La columna 'Vendedor_Registro' no está disponible en los datos cargados para aplicar este filtro. Por favor, asegúrate de que el nombre de la columna en tu Google Sheet sea 'Vendedor_Registro'.")
 
         if 'Tipo_Envio' in filtered_df_download.columns:
-            unique_tipos_envio_download = ["Todos", "📍 Pedido Local", "🚚 Pedido Foráneo", "🔁 Devolución", "🛠 Garantía"]
+            unique_tipos_envio_download = [
+                "Todos",
+                "📍 Pedido Local",
+                "🚚 Pedido Foráneo",
+                "🎓 Cursos y Eventos",
+                "🔁 Devolución",
+                "🛠 Garantía",
+            ]
             selected_tipo_envio_download = st.selectbox(
                 "Filtrar por Tipo de Envío:",
                 options=unique_tipos_envio_download,
