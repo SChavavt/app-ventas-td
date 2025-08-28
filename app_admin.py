@@ -1177,7 +1177,7 @@ with tab3, suppress(StopException):
         "Tipo_Envio","Resultado_Esperado","Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
         "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Tipo_Envio_Original",
         "Adjuntos","Hoja_Ruta_Mensajero","Estado_Caso","Estado_Recepcion","Turno","Fecha_Entrega",
-        "Numero_Serie","Fecha_Compra"
+        "Numero_Serie","Fecha_Compra","Seguimiento"
     ]
     for c in needed_cols:
         if c not in df_casos.columns:
@@ -1370,11 +1370,12 @@ with tab3, suppress(StopException):
 
     # PENDIENTES (ambos tipos)
     mask_tipo_valido = df_casos["Tipo_Envio"].astype(str).str.strip().isin(["🔁 Devolución","🛠 Garantía"])
-    mask_recepcion_vacia = df_casos["Estado_Recepcion"].apply(_is_blank)
     estado_caso_norm = df_casos["Estado_Caso"].astype(str).apply(_norm).str.lower()
     mask_estado_caso_ok = (estado_caso_norm == "aprobado") | (estado_caso_norm == "")
+    seguimiento_norm = df_casos["Seguimiento"].astype(str).apply(_norm).str.lower()
+    mask_seguimiento_activo = (seguimiento_norm != "cerrado")
 
-    df_pendientes = df_casos[mask_tipo_valido & mask_recepcion_vacia & mask_estado_caso_ok].copy()
+    df_pendientes = df_casos[mask_tipo_valido & mask_estado_caso_ok & mask_seguimiento_activo].copy()
 
     # ====== TABLA (se mantiene) ======
     if df_pendientes.empty:
@@ -1388,7 +1389,7 @@ with tab3, suppress(StopException):
             "Hora_Registro","Resultado_Esperado","Numero_Cliente_RFC",
             "Area_Responsable","Nombre_Responsable",
             "Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
-            "Tipo_Envio_Original","Estado_Caso","Estado_Recepcion"
+            "Tipo_Envio_Original","Estado_Caso","Estado_Recepcion","Seguimiento"
         ]
         existing_columns = [c for c in columns_to_show if c in df_pendientes.columns]
 
@@ -1464,6 +1465,23 @@ with tab3, suppress(StopException):
             placeholder="Selecciona el estado de recepción",
             key=f"estado_recepcion_{'devolucion' if is_dev else 'garantia'}"
         )
+        seguimiento_opts = [
+            "En revisión de paquete",
+            "Falta información vendedor",
+            "Autorización de devolución",
+            "Pendiente Nota de crédito",
+            "Pendiente Transferencia",
+            "Cerrado",
+        ]
+        _segui_val = str(row.get("Seguimiento", "")).strip()
+        _segui_idx = seguimiento_opts.index(_segui_val) if _segui_val in seguimiento_opts else None
+        seguimiento_sel = st.selectbox(
+            "🔄 Seguimiento",
+            options=seguimiento_opts,
+            index=_segui_idx,
+            placeholder="Selecciona el estado de seguimiento",
+            key=f"seguimiento_{row.get('ID_Pedido','')}",
+        )
         doc_principal = st.file_uploader(
             "🧾 Subir Nota de Crédito / Dictamen (PDF/Imagen)",
             type=["pdf","jpg","jpeg","png"],
@@ -1500,6 +1518,9 @@ with tab3, suppress(StopException):
     if submitted:
         if not estado_recepcion:
             tab3_alert.warning("⚠️ Completa el campo de estado de recepción.")
+            st.stop()
+        if not seguimiento_sel:
+            tab3_alert.warning("⚠️ Selecciona el estado de seguimiento.")
             st.stop()
 
         # Subir archivos
@@ -1545,6 +1566,7 @@ with tab3, suppress(StopException):
             col_doc_extra: urls.get("extra",""),
             col_comentarios: comentario_admin,
             "Estado_Caso": "Aprobado",
+            "Seguimiento": seguimiento_sel,
         }
 
         ok_all = True
