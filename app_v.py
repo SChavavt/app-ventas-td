@@ -241,6 +241,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = tabs
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
+    "ADAMARIS",
     "ALEJANDRO RODRIGUEZ",
     "ANA KAREN ORTEGA MAHUAD",
     "DANIELA LOPEZ RAMIREZ",
@@ -249,6 +250,7 @@ VENDEDORES_LIST = sorted([
     "GRISELDA CAROLINA SANCHEZ GARCIA",
     "HECTOR DEL ANGEL AREVALO ALCALA",
     "JOSELIN TRUJILLO PATRACA",
+    "JUAN CASTILLEJO",
     "NORA ALEJANDRA MARTINEZ MORENO",
     "PAULINA TREJO"
 ])
