@@ -1860,6 +1860,15 @@ with tab4:
         df_casos = df_casos.sort_values(by="Hora_Registro", ascending=False)
 
         for _, row in df_casos.iterrows():
+            adj_surtido_raw = row.get("Adjuntos_Surtido", "")
+            adjuntos_raw = row.get("Adjuntos", "")
+            if 'partir_urls' in globals():
+                adj_surtido_urls = partir_urls(adj_surtido_raw)
+                adjuntos_urls = partir_urls(adjuntos_raw)
+            else:
+                adj_surtido_urls = [x.strip() for x in str(adj_surtido_raw).split(",") if x.strip()]
+                adjuntos_urls = [x.strip() for x in str(adjuntos_raw).split(",") if x.strip()]
+
             res = {
                 "ID_Pedido": str(row.get("ID_Pedido","" )).strip(),
                 "Cliente": row.get("Cliente",""),
@@ -1891,8 +1900,8 @@ with tab4:
                 "Hora_Proceso": row.get("Hora_Proceso",""),
                 "Seguimiento": row.get("Seguimiento",""),
                 "Modificacion_Surtido": str(row.get("Modificacion_Surtido","" )).strip(),
-                "Adjuntos_Surtido_urls": partir_urls(row.get("Adjuntos_Surtido","")),
-                "Adjuntos_urls": partir_urls(row.get("Adjuntos","")),
+                "Adjuntos_Surtido_urls": adj_surtido_urls,
+                "Adjuntos_urls": adjuntos_urls,
                 "Guia_url": str(row.get("Hoja_Ruta_Mensajero","" )).strip(),
                 "Numero_Serie": row.get("Numero_Serie",""),
                 "Fecha_Compra": row.get("Fecha_Compra","") or row.get("FechaCompra",""),
