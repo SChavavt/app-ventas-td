@@ -166,6 +166,38 @@ def cargar_pedidos():
     data = sheet.get_all_records()
     return pd.DataFrame(data)
 
+@st.cache_data(ttl=300)
+def cargar_casos_especiales():
+    """Carga y prepara los casos especiales desde Google Sheets."""
+    ws = get_worksheet_casos_especiales()
+    data = ws.get_all_records()
+    df = pd.DataFrame(data)
+
+    columnas_necesarias = [
+        "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
+        "Hora_Registro","Tipo_Envio","Estado","Estado_Caso","Turno",
+        "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
+        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
+        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
+        "Numero_Serie","Fecha_Compra",
+        "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
+        "Nota_Credito_URL","Documento_Adicional_URL","Comentarios_Admin_Devolucion",
+        "Seguimiento",
+        "Modificacion_Surtido","Adjuntos_Surtido",
+        "Adjuntos","Hoja_Ruta_Mensajero",
+        "Hora_Proceso"
+    ]
+    for c in columnas_necesarias:
+        if c not in df.columns:
+            df[c] = ""
+
+    if "Fecha_Compra" not in df.columns and "FechaCompra" in df.columns:
+        df["Fecha_Compra"] = df["FechaCompra"]
+    elif "Fecha_Compra" in df.columns and "FechaCompra" in df.columns and df["Fecha_Compra"].eq("").all():
+        df["Fecha_Compra"] = df["Fecha_Compra"].where(df["Fecha_Compra"].astype(str).str.strip() != "", df["FechaCompra"])
+
+    return df
+
 def normalizar(texto):
     return unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
 
@@ -2268,52 +2300,6 @@ def partir_urls(value):
     return out
 
 
-@st.cache_data(ttl=300)
-def cargar_casos_especiales():
-    """
-    Lee la hoja 'casos_especiales' usando tu helper get_worksheet_casos_especiales()
-    y garantiza todas las columnas que la UI usa.
-    """
-    ws = get_worksheet_casos_especiales()
-    data = ws.get_all_records()
-    df = pd.DataFrame(data)
-
-    columnas_necesarias = [
-        # Identificación y encabezado
-        "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
-        "Hora_Registro","Tipo_Envio","Estado","Estado_Caso","Turno",
-        # Refacturación
-        "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
-        # Detalle del caso
-        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
-        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
-        # ⚙️ NUEVO: Garantías
-        "Numero_Serie","Fecha_Compra",  # (si tu hoja usa 'FechaCompra', abajo la normalizamos)
-        # Fechas/recepción
-        "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
-        # Documentos de cierre
-        "Nota_Credito_URL","Documento_Adicional_URL","Comentarios_Admin_Devolucion",
-        # Seguimiento de casos especiales
-        "Seguimiento",
-        # Modificación de surtido
-        "Modificacion_Surtido","Adjuntos_Surtido",
-        # Adjuntos/guía
-        "Adjuntos","Hoja_Ruta_Mensajero",
-        # Otros
-        "Hora_Proceso"
-    ]
-    for c in columnas_necesarias:
-        if c not in df.columns:
-            df[c] = ""
-
-    # Normaliza 'Fecha_Compra' si en la hoja existe como 'FechaCompra'
-    if "Fecha_Compra" not in df.columns and "FechaCompra" in df.columns:
-        df["Fecha_Compra"] = df["FechaCompra"]
-    elif "Fecha_Compra" in df.columns and "FechaCompra" in df.columns and df["Fecha_Compra"].eq("").all():
-        # Si ambas existen pero 'Fecha_Compra' viene vacía, usa 'FechaCompra'
-        df["Fecha_Compra"] = df["Fecha_Compra"].where(df["Fecha_Compra"].astype(str).str.strip() != "", df["FechaCompra"])
-
-    return df
 
 
 
