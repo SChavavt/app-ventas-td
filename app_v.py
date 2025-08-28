@@ -173,6 +173,18 @@ def cargar_casos_especiales():
     data = ws.get_all_records()
     df = pd.DataFrame(data)
 
+    # Eliminar filas completamente vacías (celdas en blanco o 'N/A')
+    if not df.empty:
+        df = df[
+            ~df.apply(
+                lambda fila: all(
+                    (str(v).strip() == "") or (str(v).strip().lower() in ("n/a", "na", "nan"))
+                    for v in fila.values
+                ),
+                axis=1,
+            )
+        ]
+
     columnas_necesarias = [
         "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
         "Hora_Registro","Tipo_Envio","Estado","Estado_Caso","Turno",
