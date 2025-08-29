@@ -54,38 +54,70 @@ def get_google_sheets_client():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
 
-    try:
-        client = try_get_client()
-        _ = client.open_by_key(GOOGLE_SHEET_ID)
-        return client
-    except gspread.exceptions.APIError as e:
-        if "RESOURCE_EXHAUSTED" in str(e) or "expired" in str(e).lower():
-            st.warning("🔁 Token expirado o cuota alcanzada. Reintentando con nuevo cliente...")
-            st.cache_resource.clear()
-            time.sleep(2)
-
-            try:
-                client = try_get_client()
-                _ = client.open_by_key(GOOGLE_SHEET_ID)
-                return client
-            except Exception as e2:
-                st.error(f"❌ Falló la reconexión con Google Sheets: {e2}")
+    max_retries = 3
+    delay = 1
+    for attempt in range(max_retries):
+        try:
+            client = try_get_client()
+            _ = client.open_by_key(GOOGLE_SHEET_ID)
+            return client
+        except gspread.exceptions.APIError as e:
+            if attempt < max_retries - 1:
+                st.warning(
+                    f"🔁 Error al conectar con Google Sheets ({e}). Reintentando en {delay}s..."
+                )
+                time.sleep(delay)
+                delay *= 2
+                st.cache_resource.clear()
+            else:
+                st.error(
+                    f"❌ No se pudo conectar con Google Sheets después de {max_retries} intentos: {e}"
+                )
                 st.stop()
-        else:
-            st.error(f"❌ Error al conectar con Google Sheets: {e}")
-            st.stop()
 
 @st.cache_resource
 def get_worksheet():
-    client = get_google_sheets_client()
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-    return spreadsheet.worksheet("datos_pedidos")
+    max_retries = 3
+    delay = 1
+    for attempt in range(max_retries):
+        try:
+            client = get_google_sheets_client()
+            spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+            return spreadsheet.worksheet("datos_pedidos")
+        except gspread.exceptions.APIError as e:
+            if attempt < max_retries - 1:
+                st.warning(
+                    f"⚠️ Error al obtener la hoja 'datos_pedidos' ({e}). Reintentando en {delay}s..."
+                )
+                time.sleep(delay)
+                delay *= 2
+            else:
+                st.error(
+                    f"❌ No se pudo obtener la hoja 'datos_pedidos' tras {max_retries} intentos: {e}"
+                )
+                st.stop()
 
 @st.cache_resource
 def get_worksheet_casos_especiales():
-    client = get_google_sheets_client()
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-    return spreadsheet.worksheet("casos_especiales")
+    max_retries = 3
+    delay = 1
+    for attempt in range(max_retries):
+        try:
+            client = get_google_sheets_client()
+            spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+            return spreadsheet.worksheet("casos_especiales")
+        except gspread.exceptions.APIError as e:
+            if attempt < max_retries - 1:
+                st.warning(
+                    f"⚠️ Error al obtener la hoja 'casos_especiales' ({e}). Reintentando en {delay}s..."
+                )
+                time.sleep(delay)
+                delay *= 2
+            else:
+                st.error(
+                    f"❌ No se pudo obtener la hoja 'casos_especiales' tras {max_retries} intentos: {e}"
+                )
+                st.stop()
 
 
 # --- AWS S3 CONFIGURATION (NEW) ---
@@ -164,8 +196,24 @@ def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
             st.error(f"❌ Error: La columna '{col_name}' no se encontró en Google Sheets para la actualización.")
             return False
         col_index = headers.index(col_name) + 1
-        worksheet.update_cell(row_index, col_index, value)
-        return True
+        max_retries = 3
+        delay = 1
+        for attempt in range(max_retries):
+            try:
+                worksheet.update_cell(row_index, col_index, value)
+                return True
+            except gspread.exceptions.APIError as e:
+                if attempt < max_retries - 1:
+                    st.warning(
+                        f"⚠️ Error al actualizar la celda ({row_index}, {col_name}). Reintentando en {delay}s..."
+                    )
+                    time.sleep(delay)
+                    delay *= 2
+                else:
+                    st.error(
+                        f"❌ No se pudo actualizar la celda ({row_index}, {col_name}) tras {max_retries} intentos: {e}"
+                    )
+                    return False
     except Exception as e:
         st.error(f"❌ Error al actualizar la celda ({row_index}, {col_name}) en Google Sheets: {e}")
         return False

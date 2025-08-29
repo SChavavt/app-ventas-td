@@ -25,13 +25,14 @@ def _err_signature(e) -> tuple[int|None, str]:
         text = str(e)
     return status, text.lower()
 
-def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 5, wait: float = 0.9):
+def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
     """
     Abre una worksheet con reintentos automáticos en caso de errores temporales
-    (429 cuota excedida, 5xx de servidor o mensajes de rate limit).
+    utilizando backoff exponencial (1s, 2s, 4s).
     """
     last_err = None
-    for i in range(retries + 1):
+    delay = 1
+    for attempt in range(retries):
         try:
             gc = get_google_sheets_client()  # refresca el cliente en cada intento
             ss = gc.open_by_key(sheet_id)
@@ -46,15 +47,20 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 5, wa
                 ("resource_exhausted" in text) or
                 ("backenderror" in text)
             )
-            if is_rate and i < retries:
-                if i == 0:
+            if is_rate and attempt < retries - 1:
+                if attempt == 0:
                     # primer fallo: fuerza refresco de recursos
                     st.cache_resource.clear()
-                # backoff incremental con jitter ligero
-                time.sleep(wait * (i + 1) + 0.15 * i)
+                st.warning(
+                    f"⚠️ Error de Google Sheets al abrir '{worksheet_name}'. Reintentando en {delay}s..."
+                )
+                time.sleep(delay)
+                delay *= 2
                 continue
             break
-    # agotado o no transitorio
+    st.error(
+        f"❌ No se pudo abrir la hoja '{worksheet_name}' tras {retries} intentos: {last_err}"
+    )
     raise last_err
 
 
@@ -127,24 +133,39 @@ def get_google_sheets_client():
     Crea el cliente de Google Sheets con google.oauth2 (no oauth2client).
     No hace llamadas a la API aquí para evitar errores 429 al crear el cliente.
     """
-    try:
-        credentials_json_str = st.secrets["google_credentials"]
-        creds_dict = json.loads(credentials_json_str)
-        # Normaliza el private_key con saltos de línea reales
-        if "private_key" in creds_dict:
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
+    max_retries = 3
+    delay = 1
+    for attempt in range(max_retries):
+        try:
+            credentials_json_str = st.secrets["google_credentials"]
+            creds_dict = json.loads(credentials_json_str)
+            # Normaliza el private_key con saltos de línea reales
+            if "private_key" in creds_dict:
+                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").strip()
 
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",  # necesario si agregas hojas, etc.
-        ]
-        creds = GoogleCredentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        return client
+            scopes = [
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",  # necesario si agregas hojas, etc.
+            ]
+            creds = GoogleCredentials.from_service_account_info(creds_dict, scopes=scopes)
+            client = gspread.authorize(creds)
+            # Verifica acceso inmediato
+            client.open_by_key(GOOGLE_SHEET_ID)
+            return client
 
-    except Exception as e:
-        st.error(f"❌ Error crítico al autenticar con Google Sheets: {e}")
-        st.stop()
+        except Exception as e:
+            if attempt < max_retries - 1:
+                st.warning(
+                    f"⚠️ Error al autenticar con Google Sheets ({e}). Reintentando en {delay}s..."
+                )
+                time.sleep(delay)
+                delay *= 2
+                st.cache_resource.clear()
+            else:
+                st.error(
+                    f"❌ No se pudo autenticar con Google Sheets tras {max_retries} intentos: {e}"
+                )
+                st.stop()
 
 
 df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
@@ -1441,8 +1462,8 @@ with tab3, suppress(StopException):
         st.stop()
     gsheet_row_idx = int(matches[0]) + 2
 
-    # Worksheet para escritura
-    worksheet_casos = get_sheets_client_cached().open_by_key(GOOGLE_SHEET_ID).worksheet("casos_especiales")
+    # Worksheet para escritura con reintentos
+    worksheet_casos = safe_open_worksheet(GOOGLE_SHEET_ID, "casos_especiales")
 
     # ========= RENDER DEL CASO SELECCIONADO (detecta si es Devolución o Garantía) =========
     tipo_case = str(row.get("Tipo_Envio","")).strip()
