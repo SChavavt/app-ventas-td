@@ -14,6 +14,9 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 # NEW: Import boto3 for AWS S3
 import boto3
@@ -879,13 +882,25 @@ with tab1:
                 else:
                     values.append("")
 
-            # Primero registramos el pedido sin adjuntos
-            try:
-                worksheet.append_row(values)
-                new_row_index = len(all_data) + 1
-            except Exception as e:
-                st.error(f"❌ Error al insertar el pedido en Google Sheets: {e}")
-                st.stop()
+            # Primero registramos el pedido sin adjuntos con reintentos
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    worksheet.append_row(values)
+                    all_data_after = worksheet.get_all_values()
+                    if all_data_after and all_data_after[-1][0] == id_pedido:
+                        new_row_index = len(all_data_after)
+                        break
+                    if any(row[0] == id_pedido for row in all_data_after):
+                        new_row_index = next(i for i, row in enumerate(all_data_after, start=1) if row[0] == id_pedido)
+                        break
+                    raise ValueError("ID mismatch after append")
+                except Exception as e:
+                    if attempt == max_retries:
+                        logging.error(f"Fallo definitivo al insertar pedido {id_pedido}: {e}")
+                        st.error(f"❌ Error al insertar el pedido en Google Sheets: {e}")
+                        st.stop()
+                    time.sleep(attempt * 2)
 
             # Subida de adjuntos (pedido + pagos + evidencias) solo si se insertó correctamente
             adjuntos_urls = []
