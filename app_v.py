@@ -146,6 +146,16 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     except Exception as e:
         st.error(f"❌ Error al subir el archivo '{s3_key}' a S3: {e}")
         return False, None
+
+
+def delete_file_from_s3(s3_client, bucket_name, s3_key):
+    """Elimina un archivo de S3 si existe."""
+    try:
+        s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
+        return True
+    except Exception as e:
+        st.error(f"❌ Error al eliminar el archivo '{s3_key}' de S3: {e}")
+        return False
     
 # --- Función para actualizar una celda de Google Sheets de forma segura ---
 def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
@@ -729,45 +739,6 @@ with tab1:
                     st.error(f"❌ Error al acceder a Google Sheets: {e}")
                     st.stop()
 
-            # Subida de adjuntos (pedido + pagos + evidencias)
-            adjuntos_urls = []
-
-            if uploaded_files:
-                for file in uploaded_files:
-                    ext = os.path.splitext(file.name)[1]
-                    s3_key = f"{id_pedido}/{file.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
-                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
-                    if success:
-                        adjuntos_urls.append(url)
-                    else:
-                        st.error(f"❌ Falló la subida de {file.name}")
-                        st.stop()
-
-            if comprobante_pago_files:
-                for archivo in comprobante_pago_files:
-                    ext_cp = os.path.splitext(archivo.name)[1]
-                    s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cp}"
-                    success_cp, url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
-                    if success_cp:
-                        adjuntos_urls.append(url_cp)
-                    else:
-                        st.error(f"❌ Falló la subida de {archivo.name}")
-                        st.stop()
-
-            # Evidencias de Casos Especiales (Devolución/Garantía)
-            if comprobante_cliente:
-                for archivo_cc in comprobante_cliente:
-                    ext_cc = os.path.splitext(archivo_cc.name)[1]
-                    s3_key_cc = f"{id_pedido}/evidencia_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
-                    success_cc, url_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
-                    if success_cc:
-                        adjuntos_urls.append(url_cc)
-                    else:
-                        st.error(f"❌ Falló la subida de {archivo_cc.name}")
-                        st.stop()
-
-            adjuntos_str = ", ".join(adjuntos_urls)
-
             # Mapeo de columnas a valores
             values = []
             for header in headers:
@@ -805,7 +776,7 @@ with tab1:
                     else:
                         values.append(comentario)
                 elif header == "Adjuntos":
-                    values.append(adjuntos_str)
+                    values.append("")
                 elif header == "Adjuntos_Surtido":
                     values.append("")
                 elif header == "Estado":
@@ -902,7 +873,66 @@ with tab1:
                 else:
                     values.append("")
 
-            worksheet.append_row(values)
+            # Primero registramos el pedido sin adjuntos
+            try:
+                worksheet.append_row(values)
+                new_row_index = len(all_data) + 1
+            except Exception as e:
+                st.error(f"❌ Error al insertar el pedido en Google Sheets: {e}")
+                st.stop()
+
+            # Subida de adjuntos (pedido + pagos + evidencias) solo si se insertó correctamente
+            adjuntos_urls = []
+            uploaded_keys = []
+
+            try:
+                if uploaded_files:
+                    for file in uploaded_files:
+                        ext = os.path.splitext(file.name)[1]
+                        s3_key = f"{id_pedido}/{file.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
+                        success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
+                        if success:
+                            adjuntos_urls.append(url)
+                            uploaded_keys.append(s3_key)
+                        else:
+                            raise Exception(f"Falló la subida de {file.name}")
+
+                if comprobante_pago_files:
+                    for archivo in comprobante_pago_files:
+                        ext_cp = os.path.splitext(archivo.name)[1]
+                        s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cp}"
+                        success_cp, url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
+                        if success_cp:
+                            adjuntos_urls.append(url_cp)
+                            uploaded_keys.append(s3_key_cp)
+                        else:
+                            raise Exception(f"Falló la subida de {archivo.name}")
+
+                # Evidencias de Casos Especiales (Devolución/Garantía)
+                if comprobante_cliente:
+                    for archivo_cc in comprobante_cliente:
+                        ext_cc = os.path.splitext(archivo_cc.name)[1]
+                        s3_key_cc = f"{id_pedido}/evidencia_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
+                        success_cc, url_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
+                        if success_cc:
+                            adjuntos_urls.append(url_cc)
+                            uploaded_keys.append(s3_key_cc)
+                        else:
+                            raise Exception(f"Falló la subida de {archivo_cc.name}")
+
+            except Exception as e:
+                for key in uploaded_keys:
+                    delete_file_from_s3(s3_client, S3_BUCKET_NAME, key)
+                st.error(f"❌ {e}")
+                st.stop()
+
+            if adjuntos_urls:
+                adjuntos_str = ", ".join(adjuntos_urls)
+                try:
+                    col_index = headers.index("Adjuntos") + 1
+                    worksheet.update_cell(new_row_index, col_index, adjuntos_str)
+                except Exception as e:
+                    st.error(f"❌ Error al actualizar adjuntos en Google Sheets: {e}")
 
             # ✅ Mensajes de éxito y limpieza
             st.session_state["success_pedido_registrado"] = id_pedido
