@@ -1871,6 +1871,9 @@ with tab4:
             df_casos["Hora_Registro"] = pd.to_datetime(df_casos["Hora_Registro"], errors="coerce")
         df_casos = df_casos.sort_values(by="Hora_Registro", ascending=False)
 
+        def _s(x):
+            return "" if pd.isna(x) else str(x).strip()
+
         for _, row in df_casos.iterrows():
             adj_surtido_raw = row.get("Adjuntos_Surtido", "")
             adjuntos_raw = row.get("Adjuntos", "")
@@ -1918,7 +1921,14 @@ with tab4:
                 "Numero_Serie": row.get("Numero_Serie",""),
                 "Fecha_Compra": row.get("Fecha_Compra","") or row.get("FechaCompra",""),
             }
-            mostrar_caso_especial(res)
+            display_label = (
+                f"📄 {(_s(row.get('Folio_Factura')) or _s(row.get('ID_Pedido')))}"
+                f" - {_s(row.get('Cliente'))}"
+                f" - {_s(row.get('Estado'))}"
+                f" - {_s(row.get('Tipo_Envio'))}"
+            )
+            with st.expander(display_label, expanded=False):
+                mostrar_caso_especial(res)
 
 # --- TAB 5: GUIAS CARGADAS ---
 def fijar_tab5_activa():
