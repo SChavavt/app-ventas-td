@@ -170,18 +170,22 @@ def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
         st.error(f"❌ Error al actualizar la celda ({row_index}, {col_name}) en Google Sheets: {e}")
         return False
     
-@st.cache_data(ttl=300)
 def cargar_pedidos():
-    sheet = get_worksheet()
-    data = sheet.get_all_records()
-    return pd.DataFrame(data)
+    """Carga los pedidos y los cachea en ``st.session_state``."""
+    if "pedidos_df" not in st.session_state:
+        sheet = get_worksheet()
+        st.session_state["pedidos_headers"] = sheet.row_values(1)
+        data = sheet.get_all_records()
+        st.session_state["pedidos_df"] = pd.DataFrame(data)
+    return st.session_state["pedidos_df"]
 
-@st.cache_data(ttl=300)
 def cargar_casos_especiales():
     """Carga y prepara los casos especiales desde Google Sheets."""
-    ws = get_worksheet_casos_especiales()
-    data = ws.get_all_records()
-    df = pd.DataFrame(data)
+    if "casos_df" not in st.session_state:
+        ws = get_worksheet_casos_especiales()
+        st.session_state["casos_headers"] = ws.row_values(1)
+        data = ws.get_all_records()
+        df = pd.DataFrame(data)
 
     # Eliminar filas completamente vacías (celdas en blanco o 'N/A')
     if not df.empty:
@@ -218,7 +222,8 @@ def cargar_casos_especiales():
     elif "Fecha_Compra" in df.columns and "FechaCompra" in df.columns and df["Fecha_Compra"].eq("").all():
         df["Fecha_Compra"] = df["Fecha_Compra"].where(df["Fecha_Compra"].astype(str).str.strip() != "", df["FechaCompra"])
 
-    return df
+        st.session_state["casos_df"] = df
+    return st.session_state["casos_df"]
 
 def normalizar(texto):
     return unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
@@ -722,11 +727,10 @@ with tab1:
                         worksheet = get_worksheet()
                         st.session_state["worksheet"] = worksheet
 
-                all_data = worksheet.get_all_values()
-                if not all_data:
+                headers = worksheet.row_values(1)
+                if not headers:
                     st.error("❌ La hoja de cálculo está vacía.")
                     st.stop()
-                headers = all_data[0]
 
                 # Hora local de CDMX para ID y Hora_Registro
                 zona_mexico = timezone("America/Mexico_City")
@@ -879,24 +883,29 @@ with tab1:
                     values.append("")
 
             # Primero registramos el pedido sin adjuntos con reintentos
+            df_cache = (
+                cargar_casos_especiales() if tipo_envio in ["🔁 Devolución", "🛠 Garantía"] else cargar_pedidos()
+            )
+            new_row_index = len(df_cache) + 2
             max_retries = 3
             for attempt in range(1, max_retries + 1):
                 try:
                     worksheet.append_row(values)
-                    all_data_after = worksheet.get_all_values()
-                    if all_data_after and all_data_after[-1][0] == id_pedido:
-                        new_row_index = len(all_data_after)
-                        break
-                    if any(row[0] == id_pedido for row in all_data_after):
-                        new_row_index = next(i for i, row in enumerate(all_data_after, start=1) if row[0] == id_pedido)
-                        break
-                    raise ValueError("ID mismatch after append")
+                    break
                 except Exception as e:
                     if attempt == max_retries:
                         logging.error(f"Fallo definitivo al insertar pedido {id_pedido}: {e}")
                         st.error(f"❌ Error al insertar el pedido en Google Sheets: {e}")
                         st.stop()
                     time.sleep(attempt * 2)
+
+            # Actualizar caché en session_state
+            new_row_dict = dict(zip(headers, values))
+            df_cache = pd.concat([df_cache, pd.DataFrame([new_row_dict])], ignore_index=True)
+            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                st.session_state["casos_df"] = df_cache
+            else:
+                st.session_state["pedidos_df"] = df_cache
 
             # Subida de adjuntos (pedido + pagos + evidencias) solo si se insertó correctamente
             adjuntos_urls = []
@@ -948,6 +957,11 @@ with tab1:
                 try:
                     col_index = headers.index("Adjuntos") + 1
                     worksheet.update_cell(new_row_index, col_index, adjuntos_str)
+                    df_cache.loc[new_row_index-2, "Adjuntos"] = adjuntos_str
+                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                        st.session_state["casos_df"] = df_cache
+                    else:
+                        st.session_state["pedidos_df"] = df_cache
                 except Exception as e:
                     st.error(f"❌ Error al actualizar adjuntos en Google Sheets: {e}")
 
@@ -963,27 +977,14 @@ with tab1:
 
 
 
-@st.cache_data(ttl=30)
 def cargar_pedidos_combinados():
-    """
-    Carga y unifica pedidos de 'datos_pedidos' y 'casos_especiales'.
-    Devuelve un DataFrame con columna 'Fuente' indicando el origen.
-    Garantiza columnas usadas por la UI (modificación de surtido, refacturación, folio error, documentos, etc.)
-    y mapea Hoja_Ruta_Mensajero -> Adjuntos_Guia para homogeneizar.
-    """
-    client = build_gspread_client()
-    sh = client.open_by_key(GOOGLE_SHEET_ID)
+    """Unifica pedidos de ``datos_pedidos`` y ``casos_especiales``.
 
-    # ---------------------------
-    # datos_pedidos
-    # ---------------------------
-    try:
-        ws_datos = sh.worksheet("datos_pedidos")
-        headers_datos = ws_datos.row_values(1)
-        df_datos = pd.DataFrame(ws_datos.get_all_records()) if headers_datos else pd.DataFrame()
-    except Exception:
-        headers_datos = []
-        df_datos = pd.DataFrame()
+    Se apoya en los DataFrames cacheados en ``st.session_state`` para evitar
+    recargar toda la hoja en cada llamada.
+    """
+    df_datos = cargar_pedidos().copy()
+    df_casos = cargar_casos_especiales().copy()
 
     if not df_datos.empty:
         # quita filas totalmente vacías en claves mínimas
@@ -1020,14 +1021,6 @@ def cargar_pedidos_combinados():
     # ---------------------------
     # casos_especiales
     # ---------------------------
-    try:
-        ws_casos = sh.worksheet("casos_especiales")
-        headers_casos = ws_casos.row_values(1)
-        df_casos = pd.DataFrame(ws_casos.get_all_records()) if headers_casos else pd.DataFrame()
-    except Exception:
-        headers_casos = []
-        df_casos = pd.DataFrame()
-
     if not df_casos.empty:
         if 'ID_Pedido' in df_casos.columns:
             df_casos = df_casos[df_casos['ID_Pedido'].astype(str).str.strip().ne("")]
@@ -1060,6 +1053,7 @@ def cargar_pedidos_combinados():
                 df_casos[c] = ""
 
         # Normalizar fecha de compra si el encabezado real es "FechaCompra"
+        headers_casos = st.session_state.get("casos_headers", [])
         if 'Fecha_Compra' not in headers_casos and 'FechaCompra' in headers_casos:
             df_casos['Fecha_Compra'] = df_casos['FechaCompra']
 
@@ -1493,14 +1487,16 @@ with tab2:
                         message_placeholder_tab2.empty()
                         try:
                             # 1) Enrutar a la hoja correcta según la fuente
-                            client = build_gspread_client()
-                            sh = client.open_by_key(GOOGLE_SHEET_ID)
                             hoja_objetivo = "datos_pedidos" if selected_source == "datos_pedidos" else "casos_especiales"
-                            worksheet = sh.worksheet(hoja_objetivo)
+                            worksheet = get_worksheet() if hoja_objetivo == "datos_pedidos" else get_worksheet_casos_especiales()
 
-                            headers = worksheet.row_values(1)
-                            all_data_actual = worksheet.get_all_records()
-                            df_actual = pd.DataFrame(all_data_actual)
+                            headers = st.session_state.get(
+                                "pedidos_headers" if hoja_objetivo == "datos_pedidos" else "casos_headers",
+                                worksheet.row_values(1)
+                            )
+                            df_actual = (
+                                cargar_pedidos() if hoja_objetivo == "datos_pedidos" else cargar_casos_especiales()
+                            )
 
                             if df_actual.empty or 'ID_Pedido' not in df_actual.columns:
                                 message_placeholder_tab2.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
@@ -1623,30 +1619,20 @@ with tab2:
 with tab3:
     st.header("🧾 Pedidos Pendientes de Comprobante")
 
-    df_pedidos_comprobante = pd.DataFrame()
-    try:
-        worksheet = get_worksheet()
-        headers = worksheet.row_values(1)
-        if headers:
-            df_pedidos_comprobante = pd.DataFrame(worksheet.get_all_records())
-            if "Adjuntos_Guia" not in df_pedidos_comprobante.columns:
-                df_pedidos_comprobante["Adjuntos_Guia"] = ""
-
-            if 'Folio_Factura' in df_pedidos_comprobante.columns:
-                df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '')
-            if 'Vendedor_Registro' in df_pedidos_comprobante.columns:
-                df_pedidos_comprobante['Vendedor_Registro'] = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
-                df_pedidos_comprobante.loc[~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST), 'Vendedor_Registro'] = 'Otro/Desconocido'
-                df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'].isin(['', 'nan', 'None']), 'Vendedor_Registro'] = 'N/A'
-
-        else:
-            st.warning("No se pudieron cargar los encabezados del Google Sheet. Asegúrate de que la primera fila no esté vacía.")
-    except Exception as e:
-        st.error(f"❌ Error al cargar pedidos para comprobante: {e}")
-
+    df_pedidos_comprobante = cargar_pedidos().copy()
     if df_pedidos_comprobante.empty:
         st.info("No hay pedidos registrados.")
     else:
+        if "Adjuntos_Guia" not in df_pedidos_comprobante.columns:
+            df_pedidos_comprobante["Adjuntos_Guia"] = ""
+
+        if 'Folio_Factura' in df_pedidos_comprobante.columns:
+            df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '')
+        if 'Vendedor_Registro' in df_pedidos_comprobante.columns:
+            df_pedidos_comprobante['Vendedor_Registro'] = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
+            df_pedidos_comprobante.loc[~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST), 'Vendedor_Registro'] = 'Otro/Desconocido'
+            df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'].isin(['', 'nan', 'None']), 'Vendedor_Registro'] = 'N/A'
+
         filtered_pedidos_comprobante = df_pedidos_comprobante.copy()
 
         col3_tab3, col4_tab3 = st.columns(2)
@@ -1744,9 +1730,8 @@ with tab3:
                     if submit_comprobante:
                         if comprobante_files:
                             try:
-                                headers = worksheet.row_values(1)
-                                all_data_actual = worksheet.get_all_records()
-                                df_actual = pd.DataFrame(all_data_actual)
+                                headers = st.session_state.get("pedidos_headers", worksheet.row_values(1))
+                                df_actual = df_pedidos_comprobante
 
                                 if selected_pending_order_id not in df_actual['ID_Pedido'].values:
                                     st.error("❌ No se encontró el ID del pedido en la hoja. Verifica que no se haya borrado.")
@@ -1770,8 +1755,12 @@ with tab3:
                                     adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
                                     adjuntos_list.extend(new_urls)
 
-                                    worksheet.update_cell(sheet_row, headers.index('Adjuntos') + 1, ", ".join(adjuntos_list))
+                                    adjuntos_str = ", ".join(adjuntos_list)
+                                    worksheet.update_cell(sheet_row, headers.index('Adjuntos') + 1, adjuntos_str)
                                     worksheet.update_cell(sheet_row, headers.index('Estado_Pago') + 1, "✅ Pagado")
+                                    df_pedidos_comprobante.loc[df_index, 'Adjuntos'] = adjuntos_str
+                                    df_pedidos_comprobante.loc[df_index, 'Estado_Pago'] = "✅ Pagado"
+                                    st.session_state['pedidos_df'] = df_pedidos_comprobante
                                     worksheet.update_cell(sheet_row, headers.index('Fecha_Pago_Comprobante') + 1, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
 
                                     st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
@@ -1981,11 +1970,9 @@ with tab4:
 def fijar_tab5_activa():
     st.query_params.update({"tab": "4"})
 
-@st.cache_data(ttl=60)
 def cargar_datos_guias_unificadas():
     # ---------- A) datos_pedidos ----------
-    ws_ped = get_worksheet()
-    df_ped = pd.DataFrame(ws_ped.get_all_records())
+    df_ped = cargar_pedidos().copy()
 
     if df_ped.empty:
         df_ped = pd.DataFrame()
@@ -2004,11 +1991,7 @@ def cargar_datos_guias_unificadas():
         )
 
     # ---------- B) casos_especiales ----------
-    try:
-        ws_casos = get_worksheet_casos_especiales()
-        df_casos = pd.DataFrame(ws_casos.get_all_records())
-    except Exception:
-        df_casos = pd.DataFrame()
+    df_casos = cargar_casos_especiales().copy()
 
     if df_casos.empty:
         df_b = pd.DataFrame(columns=[
@@ -2151,16 +2134,12 @@ with tab5:
 with tab6:
     st.header("⬇️ Descargar Datos de Pedidos")
 
-    @st.cache_data(ttl=60)
     def cargar_todos_los_pedidos():
-        worksheet = get_worksheet()
-        headers = worksheet.row_values(1)
-        if headers:
-            df = pd.DataFrame(worksheet.get_all_records())
-            if "Adjuntos_Guia" not in df.columns:
-                df["Adjuntos_Guia"] = ""
-            return df, headers
-        return pd.DataFrame(), []
+        df = cargar_pedidos().copy()
+        headers = st.session_state.get("pedidos_headers", [])
+        if "Adjuntos_Guia" not in df.columns:
+            df["Adjuntos_Guia"] = ""
+        return df, headers
 
     try:
         df_all_pedidos, headers = cargar_todos_los_pedidos()
