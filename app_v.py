@@ -75,19 +75,17 @@ def get_google_sheets_client():
             st.error(f"❌ Error al conectar con Google Sheets: {e}")
             st.stop()
 
+@st.cache_resource
 def get_worksheet():
     client = get_google_sheets_client()
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
     return spreadsheet.worksheet("datos_pedidos")
 
+@st.cache_resource
 def get_worksheet_casos_especiales():
-    client = build_gspread_client()
+    client = get_google_sheets_client()
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
     return spreadsheet.worksheet("casos_especiales")
-
-
-# ✅ Cliente listo para usar en cualquier parte
-g_spread_client = get_google_sheets_client()
 
 
 # --- AWS S3 CONFIGURATION (NEW) ---
@@ -174,7 +172,7 @@ def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
     
 @st.cache_data(ttl=300)
 def cargar_pedidos():
-    sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet("datos_pedidos")
+    sheet = get_worksheet()
     data = sheet.get_all_records()
     return pd.DataFrame(data)
 
@@ -271,8 +269,6 @@ def generar_url_s3(s3_key):
     )
 
 # --- Initialize Gspread Client and S3 Client ---
-# NEW: Initialize gspread client using the new function
-g_spread_client = get_google_sheets_client()
 s3_client = get_s3_client() # Initialize S3 client
 
 # Removed the old try-except block for client initialization
