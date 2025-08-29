@@ -72,7 +72,6 @@ def get_google_sheets_client():
             st.error(f"❌ Error al conectar con Google Sheets: {e}")
             st.stop()
 
-@st.cache_resource
 def get_worksheet():
     client = get_google_sheets_client()
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
@@ -391,6 +390,10 @@ with tab1:
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
+
+        if "worksheet" not in st.session_state:
+            st.session_state["worksheet"] = get_worksheet()
+        worksheet = st.session_state["worksheet"]
 
         try:
             initial_vendedor_index = VENDEDORES_LIST.index(st.session_state.last_selected_vendedor)
@@ -715,7 +718,10 @@ with tab1:
                 if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
                     worksheet = get_worksheet_casos_especiales()
                 else:
-                    worksheet = get_worksheet()
+                    worksheet = st.session_state.get("worksheet")
+                    if worksheet is None:
+                        worksheet = get_worksheet()
+                        st.session_state["worksheet"] = worksheet
 
                 all_data = worksheet.get_all_values()
                 if not all_data:
