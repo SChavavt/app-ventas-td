@@ -14,9 +14,6 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 
-import logging
-
-logging.basicConfig(level=logging.INFO)
 
 # NEW: Import boto3 for AWS S3
 import boto3
@@ -54,70 +51,41 @@ def get_google_sheets_client():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
 
-    max_retries = 3
-    delay = 1
-    for attempt in range(max_retries):
-        try:
-            client = try_get_client()
-            _ = client.open_by_key(GOOGLE_SHEET_ID)
-            return client
-        except gspread.exceptions.APIError as e:
-            if attempt < max_retries - 1:
-                st.warning(
-                    f"🔁 Error al conectar con Google Sheets ({e}). Reintentando en {delay}s..."
-                )
-                time.sleep(delay)
-                delay *= 2
-                st.cache_resource.clear()
-            else:
-                st.error(
-                    f"❌ No se pudo conectar con Google Sheets después de {max_retries} intentos: {e}"
-                )
+    try:
+        client = try_get_client()
+        _ = client.open_by_key(GOOGLE_SHEET_ID)
+        return client
+    except gspread.exceptions.APIError as e:
+        if "RESOURCE_EXHAUSTED" in str(e) or "expired" in str(e).lower():
+            st.warning("🔁 Token expirado o cuota alcanzada. Reintentando con nuevo cliente...")
+            st.cache_resource.clear()
+            time.sleep(2)
+
+            try:
+                client = try_get_client()
+                _ = client.open_by_key(GOOGLE_SHEET_ID)
+                return client
+            except Exception as e2:
+                st.error(f"❌ Falló la reconexión con Google Sheets: {e2}")
                 st.stop()
+        else:
+            st.error(f"❌ Error al conectar con Google Sheets: {e}")
+            st.stop()
 
 @st.cache_resource
 def get_worksheet():
-    max_retries = 3
-    delay = 1
-    for attempt in range(max_retries):
-        try:
-            client = get_google_sheets_client()
-            spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-            return spreadsheet.worksheet("datos_pedidos")
-        except gspread.exceptions.APIError as e:
-            if attempt < max_retries - 1:
-                st.warning(
-                    f"⚠️ Error al obtener la hoja 'datos_pedidos' ({e}). Reintentando en {delay}s..."
-                )
-                time.sleep(delay)
-                delay *= 2
-            else:
-                st.error(
-                    f"❌ No se pudo obtener la hoja 'datos_pedidos' tras {max_retries} intentos: {e}"
-                )
-                st.stop()
+    client = get_google_sheets_client()
+    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    return spreadsheet.worksheet("datos_pedidos")
 
-@st.cache_resource
 def get_worksheet_casos_especiales():
-    max_retries = 3
-    delay = 1
-    for attempt in range(max_retries):
-        try:
-            client = get_google_sheets_client()
-            spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-            return spreadsheet.worksheet("casos_especiales")
-        except gspread.exceptions.APIError as e:
-            if attempt < max_retries - 1:
-                st.warning(
-                    f"⚠️ Error al obtener la hoja 'casos_especiales' ({e}). Reintentando en {delay}s..."
-                )
-                time.sleep(delay)
-                delay *= 2
-            else:
-                st.error(
-                    f"❌ No se pudo obtener la hoja 'casos_especiales' tras {max_retries} intentos: {e}"
-                )
-                st.stop()
+    client = build_gspread_client()
+    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    return spreadsheet.worksheet("casos_especiales")
+
+
+# ✅ Cliente listo para usar en cualquier parte
+g_spread_client = get_google_sheets_client()
 
 
 # --- AWS S3 CONFIGURATION (NEW) ---
@@ -178,16 +146,6 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     except Exception as e:
         st.error(f"❌ Error al subir el archivo '{s3_key}' a S3: {e}")
         return False, None
-
-
-def delete_file_from_s3(s3_client, bucket_name, s3_key):
-    """Elimina un archivo de S3 si existe."""
-    try:
-        s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
-        return True
-    except Exception as e:
-        st.error(f"❌ Error al eliminar el archivo '{s3_key}' de S3: {e}")
-        return False
     
 # --- Función para actualizar una celda de Google Sheets de forma segura ---
 def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
@@ -196,82 +154,17 @@ def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
             st.error(f"❌ Error: La columna '{col_name}' no se encontró en Google Sheets para la actualización.")
             return False
         col_index = headers.index(col_name) + 1
-        max_retries = 3
-        delay = 1
-        for attempt in range(max_retries):
-            try:
-                worksheet.update_cell(row_index, col_index, value)
-                return True
-            except gspread.exceptions.APIError as e:
-                if attempt < max_retries - 1:
-                    st.warning(
-                        f"⚠️ Error al actualizar la celda ({row_index}, {col_name}). Reintentando en {delay}s..."
-                    )
-                    time.sleep(delay)
-                    delay *= 2
-                else:
-                    st.error(
-                        f"❌ No se pudo actualizar la celda ({row_index}, {col_name}) tras {max_retries} intentos: {e}"
-                    )
-                    return False
+        worksheet.update_cell(row_index, col_index, value)
+        return True
     except Exception as e:
         st.error(f"❌ Error al actualizar la celda ({row_index}, {col_name}) en Google Sheets: {e}")
         return False
     
+@st.cache_data(ttl=300)
 def cargar_pedidos():
-    """Carga los pedidos y los cachea en ``st.session_state``."""
-    if "pedidos_df" not in st.session_state:
-        sheet = get_worksheet()
-        st.session_state["pedidos_headers"] = sheet.row_values(1)
-        data = sheet.get_all_records()
-        st.session_state["pedidos_df"] = pd.DataFrame(data)
-    return st.session_state["pedidos_df"]
-
-def cargar_casos_especiales():
-    """Carga y prepara los casos especiales desde Google Sheets."""
-    if "casos_df" not in st.session_state:
-        ws = get_worksheet_casos_especiales()
-        st.session_state["casos_headers"] = ws.row_values(1)
-        data = ws.get_all_records()
-        df = pd.DataFrame(data)
-
-    # Eliminar filas completamente vacías (celdas en blanco o 'N/A')
-    if not df.empty:
-        df = df[
-            ~df.apply(
-                lambda fila: all(
-                    (str(v).strip() == "") or (str(v).strip().lower() in ("n/a", "na", "nan"))
-                    for v in fila.values
-                ),
-                axis=1,
-            )
-        ]
-
-    columnas_necesarias = [
-        "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
-        "Hora_Registro","Tipo_Envio","Estado","Estado_Caso","Turno",
-        "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
-        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
-        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
-        "Numero_Serie","Fecha_Compra",
-        "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
-        "Nota_Credito_URL","Documento_Adicional_URL","Comentarios_Admin_Devolucion",
-        "Seguimiento",
-        "Modificacion_Surtido","Adjuntos_Surtido",
-        "Adjuntos","Hoja_Ruta_Mensajero",
-        "Hora_Proceso"
-    ]
-    for c in columnas_necesarias:
-        if c not in df.columns:
-            df[c] = ""
-
-    if "Fecha_Compra" not in df.columns and "FechaCompra" in df.columns:
-        df["Fecha_Compra"] = df["FechaCompra"]
-    elif "Fecha_Compra" in df.columns and "FechaCompra" in df.columns and df["Fecha_Compra"].eq("").all():
-        df["Fecha_Compra"] = df["Fecha_Compra"].where(df["Fecha_Compra"].astype(str).str.strip() != "", df["FechaCompra"])
-
-        st.session_state["casos_df"] = df
-    return st.session_state["casos_df"]
+    sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet("datos_pedidos")
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
 
 def normalizar(texto):
     return unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
@@ -322,6 +215,8 @@ def generar_url_s3(s3_key):
     )
 
 # --- Initialize Gspread Client and S3 Client ---
+# NEW: Initialize gspread client using the new function
+g_spread_client = get_google_sheets_client()
 s3_client = get_s3_client() # Initialize S3 client
 
 # Removed the old try-except block for client initialization
@@ -331,7 +226,6 @@ tabs_labels = [
     "🛒 Registrar Nuevo Pedido",
     "✏️ Modificar Pedido Existente",
     "🧾 Pedidos Pendientes de Comprobante",
-    "📞 Casos Especiales",
     "📦 Guías Cargadas",
     "⬇️ Descargar Datos",
     "🔍 Buscar Pedido"
@@ -343,7 +237,7 @@ active_tab_index = int(params.get("tab", ["0"])[0])
 
 # Crear pestañas y mantener referencia
 tabs = st.tabs(tabs_labels)
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
+tab1, tab2, tab3, tab4, tab5, tab6 = tabs
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
@@ -442,10 +336,6 @@ with tab1:
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
-
-        if "worksheet" not in st.session_state:
-            st.session_state["worksheet"] = get_worksheet()
-        worksheet = st.session_state["worksheet"]
 
         try:
             initial_vendedor_index = VENDEDORES_LIST.index(st.session_state.last_selected_vendedor)
@@ -770,15 +660,13 @@ with tab1:
                 if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
                     worksheet = get_worksheet_casos_especiales()
                 else:
-                    worksheet = st.session_state.get("worksheet")
-                    if worksheet is None:
-                        worksheet = get_worksheet()
-                        st.session_state["worksheet"] = worksheet
+                    worksheet = get_worksheet()
 
-                headers = worksheet.row_values(1)
-                if not headers:
+                all_data = worksheet.get_all_values()
+                if not all_data:
                     st.error("❌ La hoja de cálculo está vacía.")
                     st.stop()
+                headers = all_data[0]
 
                 # Hora local de CDMX para ID y Hora_Registro
                 zona_mexico = timezone("America/Mexico_City")
@@ -795,6 +683,45 @@ with tab1:
                 else:
                     st.error(f"❌ Error al acceder a Google Sheets: {e}")
                     st.stop()
+
+            # Subida de adjuntos (pedido + pagos + evidencias)
+            adjuntos_urls = []
+
+            if uploaded_files:
+                for file in uploaded_files:
+                    ext = os.path.splitext(file.name)[1]
+                    s3_key = f"{id_pedido}/{file.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
+                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
+                    if success:
+                        adjuntos_urls.append(url)
+                    else:
+                        st.error(f"❌ Falló la subida de {file.name}")
+                        st.stop()
+
+            if comprobante_pago_files:
+                for archivo in comprobante_pago_files:
+                    ext_cp = os.path.splitext(archivo.name)[1]
+                    s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cp}"
+                    success_cp, url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
+                    if success_cp:
+                        adjuntos_urls.append(url_cp)
+                    else:
+                        st.error(f"❌ Falló la subida de {archivo.name}")
+                        st.stop()
+
+            # Evidencias de Casos Especiales (Devolución/Garantía)
+            if comprobante_cliente:
+                for archivo_cc in comprobante_cliente:
+                    ext_cc = os.path.splitext(archivo_cc.name)[1]
+                    s3_key_cc = f"{id_pedido}/evidencia_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
+                    success_cc, url_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
+                    if success_cc:
+                        adjuntos_urls.append(url_cc)
+                    else:
+                        st.error(f"❌ Falló la subida de {archivo_cc.name}")
+                        st.stop()
+
+            adjuntos_str = ", ".join(adjuntos_urls)
 
             # Mapeo de columnas a valores
             values = []
@@ -833,7 +760,7 @@ with tab1:
                     else:
                         values.append(comentario)
                 elif header == "Adjuntos":
-                    values.append("")
+                    values.append(adjuntos_str)
                 elif header == "Adjuntos_Surtido":
                     values.append("")
                 elif header == "Estado":
@@ -930,88 +857,7 @@ with tab1:
                 else:
                     values.append("")
 
-            # Primero registramos el pedido sin adjuntos con reintentos
-            df_cache = (
-                cargar_casos_especiales() if tipo_envio in ["🔁 Devolución", "🛠 Garantía"] else cargar_pedidos()
-            )
-            new_row_index = len(df_cache) + 2
-            max_retries = 3
-            for attempt in range(1, max_retries + 1):
-                try:
-                    worksheet.append_row(values)
-                    break
-                except Exception as e:
-                    if attempt == max_retries:
-                        logging.error(f"Fallo definitivo al insertar pedido {id_pedido}: {e}")
-                        st.error(f"❌ Error al insertar el pedido en Google Sheets: {e}")
-                        st.stop()
-                    time.sleep(attempt * 2)
-
-            # Actualizar caché en session_state
-            new_row_dict = dict(zip(headers, values))
-            df_cache = pd.concat([df_cache, pd.DataFrame([new_row_dict])], ignore_index=True)
-            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                st.session_state["casos_df"] = df_cache
-            else:
-                st.session_state["pedidos_df"] = df_cache
-
-            # Subida de adjuntos (pedido + pagos + evidencias) solo si se insertó correctamente
-            adjuntos_urls = []
-            uploaded_keys = []
-
-            try:
-                if uploaded_files:
-                    for file in uploaded_files:
-                        ext = os.path.splitext(file.name)[1]
-                        s3_key = f"{id_pedido}/{file.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
-                        success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
-                        if success:
-                            adjuntos_urls.append(url)
-                            uploaded_keys.append(s3_key)
-                        else:
-                            raise Exception(f"Falló la subida de {file.name}")
-
-                if comprobante_pago_files:
-                    for archivo in comprobante_pago_files:
-                        ext_cp = os.path.splitext(archivo.name)[1]
-                        s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cp}"
-                        success_cp, url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
-                        if success_cp:
-                            adjuntos_urls.append(url_cp)
-                            uploaded_keys.append(s3_key_cp)
-                        else:
-                            raise Exception(f"Falló la subida de {archivo.name}")
-
-                # Evidencias de Casos Especiales (Devolución/Garantía)
-                if comprobante_cliente:
-                    for archivo_cc in comprobante_cliente:
-                        ext_cc = os.path.splitext(archivo_cc.name)[1]
-                        s3_key_cc = f"{id_pedido}/evidencia_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
-                        success_cc, url_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
-                        if success_cc:
-                            adjuntos_urls.append(url_cc)
-                            uploaded_keys.append(s3_key_cc)
-                        else:
-                            raise Exception(f"Falló la subida de {archivo_cc.name}")
-
-            except Exception as e:
-                for key in uploaded_keys:
-                    delete_file_from_s3(s3_client, S3_BUCKET_NAME, key)
-                st.error(f"❌ {e}")
-                st.stop()
-
-            if adjuntos_urls:
-                adjuntos_str = ", ".join(adjuntos_urls)
-                try:
-                    col_index = headers.index("Adjuntos") + 1
-                    worksheet.update_cell(new_row_index, col_index, adjuntos_str)
-                    df_cache.loc[new_row_index-2, "Adjuntos"] = adjuntos_str
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        st.session_state["casos_df"] = df_cache
-                    else:
-                        st.session_state["pedidos_df"] = df_cache
-                except Exception as e:
-                    st.error(f"❌ Error al actualizar adjuntos en Google Sheets: {e}")
+            worksheet.append_row(values)
 
             # ✅ Mensajes de éxito y limpieza
             st.session_state["success_pedido_registrado"] = id_pedido
@@ -1025,14 +871,27 @@ with tab1:
 
 
 
+@st.cache_data(ttl=30)
 def cargar_pedidos_combinados():
-    """Unifica pedidos de ``datos_pedidos`` y ``casos_especiales``.
-
-    Se apoya en los DataFrames cacheados en ``st.session_state`` para evitar
-    recargar toda la hoja en cada llamada.
     """
-    df_datos = cargar_pedidos().copy()
-    df_casos = cargar_casos_especiales().copy()
+    Carga y unifica pedidos de 'datos_pedidos' y 'casos_especiales'.
+    Devuelve un DataFrame con columna 'Fuente' indicando el origen.
+    Garantiza columnas usadas por la UI (modificación de surtido, refacturación, folio error, documentos, etc.)
+    y mapea Hoja_Ruta_Mensajero -> Adjuntos_Guia para homogeneizar.
+    """
+    client = build_gspread_client()
+    sh = client.open_by_key(GOOGLE_SHEET_ID)
+
+    # ---------------------------
+    # datos_pedidos
+    # ---------------------------
+    try:
+        ws_datos = sh.worksheet("datos_pedidos")
+        headers_datos = ws_datos.row_values(1)
+        df_datos = pd.DataFrame(ws_datos.get_all_records()) if headers_datos else pd.DataFrame()
+    except Exception:
+        headers_datos = []
+        df_datos = pd.DataFrame()
 
     if not df_datos.empty:
         # quita filas totalmente vacías en claves mínimas
@@ -1069,6 +928,14 @@ def cargar_pedidos_combinados():
     # ---------------------------
     # casos_especiales
     # ---------------------------
+    try:
+        ws_casos = sh.worksheet("casos_especiales")
+        headers_casos = ws_casos.row_values(1)
+        df_casos = pd.DataFrame(ws_casos.get_all_records()) if headers_casos else pd.DataFrame()
+    except Exception:
+        headers_casos = []
+        df_casos = pd.DataFrame()
+
     if not df_casos.empty:
         if 'ID_Pedido' in df_casos.columns:
             df_casos = df_casos[df_casos['ID_Pedido'].astype(str).str.strip().ne("")]
@@ -1101,7 +968,6 @@ def cargar_pedidos_combinados():
                 df_casos[c] = ""
 
         # Normalizar fecha de compra si el encabezado real es "FechaCompra"
-        headers_casos = st.session_state.get("casos_headers", [])
         if 'Fecha_Compra' not in headers_casos and 'FechaCompra' in headers_casos:
             df_casos['Fecha_Compra'] = df_casos['FechaCompra']
 
@@ -1535,16 +1401,14 @@ with tab2:
                         message_placeholder_tab2.empty()
                         try:
                             # 1) Enrutar a la hoja correcta según la fuente
+                            client = build_gspread_client()
+                            sh = client.open_by_key(GOOGLE_SHEET_ID)
                             hoja_objetivo = "datos_pedidos" if selected_source == "datos_pedidos" else "casos_especiales"
-                            worksheet = get_worksheet() if hoja_objetivo == "datos_pedidos" else get_worksheet_casos_especiales()
+                            worksheet = sh.worksheet(hoja_objetivo)
 
-                            headers = st.session_state.get(
-                                "pedidos_headers" if hoja_objetivo == "datos_pedidos" else "casos_headers",
-                                worksheet.row_values(1)
-                            )
-                            df_actual = (
-                                cargar_pedidos() if hoja_objetivo == "datos_pedidos" else cargar_casos_especiales()
-                            )
+                            headers = worksheet.row_values(1)
+                            all_data_actual = worksheet.get_all_records()
+                            df_actual = pd.DataFrame(all_data_actual)
 
                             if df_actual.empty or 'ID_Pedido' not in df_actual.columns:
                                 message_placeholder_tab2.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
@@ -1667,20 +1531,30 @@ with tab2:
 with tab3:
     st.header("🧾 Pedidos Pendientes de Comprobante")
 
-    df_pedidos_comprobante = cargar_pedidos().copy()
+    df_pedidos_comprobante = pd.DataFrame()
+    try:
+        worksheet = get_worksheet()
+        headers = worksheet.row_values(1)
+        if headers:
+            df_pedidos_comprobante = pd.DataFrame(worksheet.get_all_records())
+            if "Adjuntos_Guia" not in df_pedidos_comprobante.columns:
+                df_pedidos_comprobante["Adjuntos_Guia"] = ""
+
+            if 'Folio_Factura' in df_pedidos_comprobante.columns:
+                df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '')
+            if 'Vendedor_Registro' in df_pedidos_comprobante.columns:
+                df_pedidos_comprobante['Vendedor_Registro'] = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
+                df_pedidos_comprobante.loc[~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST), 'Vendedor_Registro'] = 'Otro/Desconocido'
+                df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'].isin(['', 'nan', 'None']), 'Vendedor_Registro'] = 'N/A'
+
+        else:
+            st.warning("No se pudieron cargar los encabezados del Google Sheet. Asegúrate de que la primera fila no esté vacía.")
+    except Exception as e:
+        st.error(f"❌ Error al cargar pedidos para comprobante: {e}")
+
     if df_pedidos_comprobante.empty:
         st.info("No hay pedidos registrados.")
     else:
-        if "Adjuntos_Guia" not in df_pedidos_comprobante.columns:
-            df_pedidos_comprobante["Adjuntos_Guia"] = ""
-
-        if 'Folio_Factura' in df_pedidos_comprobante.columns:
-            df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '')
-        if 'Vendedor_Registro' in df_pedidos_comprobante.columns:
-            df_pedidos_comprobante['Vendedor_Registro'] = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
-            df_pedidos_comprobante.loc[~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST), 'Vendedor_Registro'] = 'Otro/Desconocido'
-            df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'].isin(['', 'nan', 'None']), 'Vendedor_Registro'] = 'N/A'
-
         filtered_pedidos_comprobante = df_pedidos_comprobante.copy()
 
         col3_tab3, col4_tab3 = st.columns(2)
@@ -1778,8 +1652,9 @@ with tab3:
                     if submit_comprobante:
                         if comprobante_files:
                             try:
-                                headers = st.session_state.get("pedidos_headers", worksheet.row_values(1))
-                                df_actual = df_pedidos_comprobante
+                                headers = worksheet.row_values(1)
+                                all_data_actual = worksheet.get_all_records()
+                                df_actual = pd.DataFrame(all_data_actual)
 
                                 if selected_pending_order_id not in df_actual['ID_Pedido'].values:
                                     st.error("❌ No se encontró el ID del pedido en la hoja. Verifica que no se haya borrado.")
@@ -1803,12 +1678,8 @@ with tab3:
                                     adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
                                     adjuntos_list.extend(new_urls)
 
-                                    adjuntos_str = ", ".join(adjuntos_list)
-                                    worksheet.update_cell(sheet_row, headers.index('Adjuntos') + 1, adjuntos_str)
+                                    worksheet.update_cell(sheet_row, headers.index('Adjuntos') + 1, ", ".join(adjuntos_list))
                                     worksheet.update_cell(sheet_row, headers.index('Estado_Pago') + 1, "✅ Pagado")
-                                    df_pedidos_comprobante.loc[df_index, 'Adjuntos'] = adjuntos_str
-                                    df_pedidos_comprobante.loc[df_index, 'Estado_Pago'] = "✅ Pagado"
-                                    st.session_state['pedidos_df'] = df_pedidos_comprobante
                                     worksheet.update_cell(sheet_row, headers.index('Fecha_Pago_Comprobante') + 1, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
 
                                     st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
@@ -1838,189 +1709,15 @@ with tab3:
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
 
-# --- TAB 4: CASOS ESPECIALES ---
-def mostrar_caso_especial(res):
-    """Renderiza en Streamlit la información de un caso especial."""
-    titulo = f"🧾 Caso Especial – {res.get('Tipo_Envio','') or 'N/A'}"
-    st.markdown(f"### {titulo}")
+# --- TAB 4: GUIAS CARGADAS ---
+def fijar_tab4_activa():
+    st.query_params.update({"tab": "3"})
 
-    is_devolucion = (str(res.get('Tipo_Envio','')).strip() == "🔁 Devolución")
-    if is_devolucion:
-        folio_nuevo = res.get("Folio","") or "N/A"
-        folio_error = res.get("Folio_Factura_Error","") or "N/A"
-        st.markdown(
-            f"📄 **Folio Nuevo:** `{folio_nuevo}`  |  📄 **Folio Error:** `{folio_error}`  |  "
-            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
-        )
-    else:
-        st.markdown(
-            f"📄 **Folio:** `{res.get('Folio','') or 'N/A'}`  |  "
-            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
-        )
-
-        if str(res.get("Tipo_Envio","")).strip() == "🛠 Garantía":
-            num_serie = str(res.get("Numero_Serie") or "").strip()
-            fec_compra = str(res.get("Fecha_Compra") or "").strip()
-            if num_serie or fec_compra:
-                st.markdown("**🧷 Datos de compra y serie (Garantía):**")
-                st.markdown(f"- **Número de serie / lote:** `{num_serie or 'N/A'}`")
-                st.markdown(f"- **Fecha de compra:** `{fec_compra or 'N/A'}`")
-
-    st.markdown(
-        f"**👤 Cliente:** {res.get('Cliente','N/A')}  |  **RFC:** {res.get('Numero_Cliente_RFC','') or 'N/A'}"
-    )
-    st.markdown(
-        f"**Estado:** {res.get('Estado','') or 'N/A'}  |  **Estado del Caso:** {res.get('Estado_Caso','') or 'N/A'}  |  **Turno:** {res.get('Turno','') or 'N/A'}"
-    )
-
-    ref_t = res.get("Refacturacion_Tipo","")
-    ref_st = res.get("Refacturacion_Subtipo","")
-    ref_f = res.get("Folio_Factura_Refacturada","")
-    if any([ref_t, ref_st, ref_f]):
-        st.markdown("**♻️ Refacturación:**")
-        st.markdown(f"- **Tipo:** {ref_t or 'N/A'}")
-        st.markdown(f"- **Subtipo:** {ref_st or 'N/A'}")
-        st.markdown(f"- **Folio refacturado:** {ref_f or 'N/A'}")
-
-    if str(res.get("Resultado_Esperado","")).strip():
-        st.markdown(f"**🎯 Resultado Esperado:** {res.get('Resultado_Esperado','')}")
-    if str(res.get("Motivo_Detallado","")).strip():
-        st.markdown("**📝 Motivo / Descripción:**")
-        st.info(str(res.get("Motivo_Detallado","")).strip())
-    if str(res.get("Material_Devuelto","")).strip():
-        st.markdown("**📦 Piezas / Material:**")
-        st.info(str(res.get("Material_Devuelto","")).strip())
-    if str(res.get("Monto_Devuelto","")).strip():
-        st.markdown(f"**💵 Monto (dev./estimado):** {res.get('Monto_Devuelto','')}")
-
-    st.markdown(
-        f"**🏢 Área Responsable:** {res.get('Area_Responsable','') or 'N/A'}  |  **👥 Responsable del Error:** {res.get('Nombre_Responsable','') or 'N/A'}"
-    )
-    st.markdown(
-        f"**📅 Fecha Entrega/Cierre (si aplica):** {res.get('Fecha_Entrega','') or 'N/A'}  |  "
-        f"**📅 Recepción:** {res.get('Fecha_Recepcion_Devolucion','') or 'N/A'}  |  "
-        f"**📦 Recepción:** {res.get('Estado_Recepcion','') or 'N/A'}"
-    )
-    st.markdown(
-        f"**🧾 Nota de Crédito:** {res.get('Nota_Credito_URL','') or 'N/A'}  |  "
-        f"**📂 Documento Adicional:** {res.get('Documento_Adicional_URL','') or 'N/A'}"
-    )
-    if str(res.get("Comentarios_Admin_Devolucion","")).strip():
-        st.markdown("**🗒️ Comentario Administrativo:**")
-        st.info(str(res.get("Comentarios_Admin_Devolucion","")).strip())
-    if str(res.get("Seguimiento","")).strip():
-        st.markdown("**📍 Seguimiento:**")
-        st.info(str(res.get("Seguimiento","")).strip())
-
-    mod_txt = res.get("Modificacion_Surtido", "") or ""
-    mod_urls = res.get("Adjuntos_Surtido_urls", []) or []
-    if mod_txt or mod_urls:
-        st.markdown("#### 🛠 Modificación de surtido")
-        if mod_txt:
-            st.info(mod_txt)
-        if mod_urls:
-            st.markdown("**Archivos de modificación:**")
-            for u in mod_urls:
-                nombre = u.split("/")[-1]
-                st.markdown(f"- [{nombre}]({u})")
-
-    with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
-        adj = res.get("Adjuntos_urls", []) or []
-        guia = res.get("Guia_url", "")
-        if adj:
-            st.markdown("**Adjuntos:**")
-            for u in adj:
-                nombre = u.split("/")[-1]
-                st.markdown(f"- [{nombre}]({u})")
-        if guia and guia.lower() not in ("nan","none","n/a"):
-            st.markdown("**Guía:**")
-            st.markdown(f"- [Abrir guía]({guia})")
-        if not adj and not guia:
-            st.info("Sin archivos registrados en la hoja.")
-
-    st.markdown("---")
-
-with tab4:
-    st.header("📞 Casos Especiales (Devoluciones y Garantías)")
-    try:
-        df_casos = cargar_casos_especiales()
-    except Exception as e:
-        st.error(f"❌ Error al cargar casos especiales: {e}")
-        df_casos = pd.DataFrame()
-
-    if df_casos.empty:
-        st.info("No hay casos especiales registrados.")
-    else:
-        if "Hora_Registro" in df_casos.columns:
-            df_casos["Hora_Registro"] = pd.to_datetime(df_casos["Hora_Registro"], errors="coerce")
-        df_casos = df_casos.sort_values(by="Hora_Registro", ascending=False)
-
-        def _s(x):
-            return "" if pd.isna(x) else str(x).strip()
-
-        for _, row in df_casos.iterrows():
-            adj_surtido_raw = row.get("Adjuntos_Surtido", "")
-            adjuntos_raw = row.get("Adjuntos", "")
-            if 'partir_urls' in globals():
-                adj_surtido_urls = partir_urls(adj_surtido_raw)
-                adjuntos_urls = partir_urls(adjuntos_raw)
-            else:
-                adj_surtido_urls = [x.strip() for x in str(adj_surtido_raw).split(",") if x.strip()]
-                adjuntos_urls = [x.strip() for x in str(adjuntos_raw).split(",") if x.strip()]
-
-            res = {
-                "ID_Pedido": str(row.get("ID_Pedido","" )).strip(),
-                "Cliente": row.get("Cliente",""),
-                "Vendedor": row.get("Vendedor_Registro",""),
-                "Folio": row.get("Folio_Factura",""),
-                "Folio_Factura_Error": row.get("Folio_Factura_Error",""),
-                "Hora_Registro": row.get("Hora_Registro",""),
-                "Tipo_Envio": row.get("Tipo_Envio",""),
-                "Estado": row.get("Estado",""),
-                "Estado_Caso": row.get("Estado_Caso",""),
-                "Refacturacion_Tipo": str(row.get("Refacturacion_Tipo","" )).strip(),
-                "Refacturacion_Subtipo": str(row.get("Refacturacion_Subtipo","" )).strip(),
-                "Folio_Factura_Refacturada": str(row.get("Folio_Factura_Refacturada","" )).strip(),
-                "Resultado_Esperado": row.get("Resultado_Esperado",""),
-                "Material_Devuelto": row.get("Material_Devuelto",""),
-                "Monto_Devuelto": row.get("Monto_Devuelto",""),
-                "Motivo_Detallado": row.get("Motivo_Detallado",""),
-                "Area_Responsable": row.get("Area_Responsable",""),
-                "Nombre_Responsable": row.get("Nombre_Responsable",""),
-                "Numero_Cliente_RFC": row.get("Numero_Cliente_RFC",""),
-                "Tipo_Envio_Original": row.get("Tipo_Envio_Original",""),
-                "Fecha_Entrega": row.get("Fecha_Entrega",""),
-                "Fecha_Recepcion_Devolucion": row.get("Fecha_Recepcion_Devolucion",""),
-                "Estado_Recepcion": row.get("Estado_Recepcion",""),
-                "Nota_Credito_URL": row.get("Nota_Credito_URL",""),
-                "Documento_Adicional_URL": row.get("Documento_Adicional_URL",""),
-                "Comentarios_Admin_Devolucion": row.get("Comentarios_Admin_Devolucion",""),
-                "Turno": row.get("Turno",""),
-                "Hora_Proceso": row.get("Hora_Proceso",""),
-                "Seguimiento": row.get("Seguimiento",""),
-                "Modificacion_Surtido": str(row.get("Modificacion_Surtido","" )).strip(),
-                "Adjuntos_Surtido_urls": adj_surtido_urls,
-                "Adjuntos_urls": adjuntos_urls,
-                "Guia_url": str(row.get("Hoja_Ruta_Mensajero","" )).strip(),
-                "Numero_Serie": row.get("Numero_Serie",""),
-                "Fecha_Compra": row.get("Fecha_Compra","") or row.get("FechaCompra",""),
-            }
-            display_label = (
-                f"📄 {(_s(row.get('Folio_Factura')) or _s(row.get('ID_Pedido')))}"
-                f" - {_s(row.get('Cliente'))}"
-                f" - {_s(row.get('Estado'))}"
-                f" - {_s(row.get('Tipo_Envio'))}"
-            )
-            with st.expander(display_label, expanded=False):
-                mostrar_caso_especial(res)
-
-# --- TAB 5: GUIAS CARGADAS ---
-def fijar_tab5_activa():
-    st.query_params.update({"tab": "4"})
-
+@st.cache_data(ttl=60)
 def cargar_datos_guias_unificadas():
     # ---------- A) datos_pedidos ----------
-    df_ped = cargar_pedidos().copy()
+    ws_ped = get_worksheet()
+    df_ped = pd.DataFrame(ws_ped.get_all_records())
 
     if df_ped.empty:
         df_ped = pd.DataFrame()
@@ -2039,7 +1736,11 @@ def cargar_datos_guias_unificadas():
         )
 
     # ---------- B) casos_especiales ----------
-    df_casos = cargar_casos_especiales().copy()
+    try:
+        ws_casos = get_worksheet_casos_especiales()
+        df_casos = pd.DataFrame(ws_casos.get_all_records())
+    except Exception:
+        df_casos = pd.DataFrame()
 
     if df_casos.empty:
         df_b = pd.DataFrame(columns=[
@@ -2106,7 +1807,7 @@ def cargar_datos_guias_unificadas():
 
     return df
 
-with tab5:
+with tab4:
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
     try:
@@ -2127,7 +1828,7 @@ with tab5:
                 "Filtrar por Vendedor",
                 vendedores,
                 key="filtro_vendedor_guias",
-                on_change=fijar_tab5_activa
+                on_change=fijar_tab4_activa
             )
 
         with col2_tab4:
@@ -2178,16 +1879,20 @@ with tab5:
             else:
                 st.warning("⚠️ No se encontró una URL válida para la guía.")
 
-# --- TAB 6: DOWNLOAD DATA ---
-with tab6:
+# --- TAB 5: DOWNLOAD DATA ---
+with tab5:
     st.header("⬇️ Descargar Datos de Pedidos")
 
+    @st.cache_data(ttl=60)
     def cargar_todos_los_pedidos():
-        df = cargar_pedidos().copy()
-        headers = st.session_state.get("pedidos_headers", [])
-        if "Adjuntos_Guia" not in df.columns:
-            df["Adjuntos_Guia"] = ""
-        return df, headers
+        worksheet = get_worksheet()
+        headers = worksheet.row_values(1)
+        if headers:
+            df = pd.DataFrame(worksheet.get_all_records())
+            if "Adjuntos_Guia" not in df.columns:
+                df["Adjuntos_Guia"] = ""
+            return df, headers
+        return pd.DataFrame(), []
 
     try:
         df_all_pedidos, headers = cargar_todos_los_pedidos()
@@ -2405,31 +2110,75 @@ def partir_urls(value):
     return out
 
 
+@st.cache_data(ttl=300)
+def cargar_casos_especiales():
+    """
+    Lee la hoja 'casos_especiales' usando tu helper get_worksheet_casos_especiales()
+    y garantiza todas las columnas que la UI usa.
+    """
+    ws = get_worksheet_casos_especiales()
+    data = ws.get_all_records()
+    df = pd.DataFrame(data)
+
+    columnas_necesarias = [
+        # Identificación y encabezado
+        "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
+        "Hora_Registro","Tipo_Envio","Estado","Estado_Caso","Turno",
+        # Refacturación
+        "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
+        # Detalle del caso
+        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
+        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
+        # ⚙️ NUEVO: Garantías
+        "Numero_Serie","Fecha_Compra",  # (si tu hoja usa 'FechaCompra', abajo la normalizamos)
+        # Fechas/recepción
+        "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
+        # Documentos de cierre
+        "Nota_Credito_URL","Documento_Adicional_URL","Comentarios_Admin_Devolucion",
+        # Modificación de surtido
+        "Modificacion_Surtido","Adjuntos_Surtido",
+        # Adjuntos/guía
+        "Adjuntos","Hoja_Ruta_Mensajero",
+        # Otros
+        "Hora_Proceso"
+    ]
+    for c in columnas_necesarias:
+        if c not in df.columns:
+            df[c] = ""
+
+    # Normaliza 'Fecha_Compra' si en la hoja existe como 'FechaCompra'
+    if "Fecha_Compra" not in df.columns and "FechaCompra" in df.columns:
+        df["Fecha_Compra"] = df["FechaCompra"]
+    elif "Fecha_Compra" in df.columns and "FechaCompra" in df.columns and df["Fecha_Compra"].eq("").all():
+        # Si ambas existen pero 'Fecha_Compra' viene vacía, usa 'FechaCompra'
+        df["Fecha_Compra"] = df["Fecha_Compra"].where(df["Fecha_Compra"].astype(str).str.strip() != "", df["FechaCompra"])
+
+    return df
 
 
 
-# --- TAB 7: SEARCH ORDER ---
-with tab7:
+# --- TAB 6: SEARCH ORDER --- 
+with tab6:
     st.subheader("🔍 Buscador de Pedidos por Guía o Cliente")
 
     modo_busqueda = st.radio(
         "Selecciona el modo de búsqueda:",
         ["🔢 Por número de guía", "🧑 Por cliente"],
-        key="tab7_modo_busqueda_radio"
+        key="tab6_modo_busqueda_radio"
     )
 
     if modo_busqueda == "🔢 Por número de guía":
         keyword = st.text_input(
             "📦 Ingresa una palabra clave, número de guía, fragmento o código a buscar:",
-            key="tab7_keyword_guia"
+            key="tab6_keyword_guia"
         )
-        buscar_btn = st.button("🔎 Buscar", key="tab7_btn_buscar_guia")
+        buscar_btn = st.button("🔎 Buscar", key="tab6_btn_buscar_guia")
     else:
         keyword = st.text_input(
             "🧑 Ingresa el nombre del cliente a buscar (sin importar mayúsculas ni acentos):",
-            key="tab7_keyword_cliente"
+            key="tab6_keyword_cliente"
         )
-        buscar_btn = st.button("🔍 Buscar Pedido del Cliente", key="tab7_btn_buscar_cliente")
+        buscar_btn = st.button("🔍 Buscar Pedido del Cliente", key="tab6_btn_buscar_cliente")
         cliente_normalizado = normalizar(keyword.strip()) if keyword else ""
 
     if buscar_btn:
@@ -2538,7 +2287,6 @@ with tab7:
                     "Comentarios_Admin_Devolucion": row.get("Comentarios_Admin_Devolucion",""),
                     "Turno": row.get("Turno",""),
                     "Hora_Proceso": row.get("Hora_Proceso",""),
-                    "Seguimiento": row.get("Seguimiento",""),
                     # 🛠 Modificación de surtido
                     "Modificacion_Surtido": str(row.get("Modificacion_Surtido","")).strip(),
                     "Adjuntos_Surtido_urls": partir_urls(row.get("Adjuntos_Surtido","")),
@@ -2637,7 +2385,107 @@ with tab7:
 
             for res in resultados:
                 if res.get("__source") == "casos":
-                    mostrar_caso_especial(res)
+                    # ---------- Render de CASOS ESPECIALES (solo lectura) ----------
+                    titulo = f"🧾 Caso Especial – {res.get('Tipo_Envio','') or 'N/A'}"
+                    st.markdown(f"### {titulo}")
+
+                    # Folio Nuevo / Folio Error para Devoluciones
+                    is_devolucion = (str(res.get('Tipo_Envio','')).strip() == "🔁 Devolución")
+                    if is_devolucion:
+                        folio_nuevo = res.get("Folio","") or "N/A"
+                        folio_error = res.get("Folio_Factura_Error","") or "N/A"
+                        st.markdown(
+                            f"📄 **Folio Nuevo:** `{folio_nuevo}`  |  📄 **Folio Error:** `{folio_error}`  |  "
+                            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
+                        )
+                    else:
+                        st.markdown(
+                            f"📄 **Folio:** `{res.get('Folio','') or 'N/A'}`  |  "
+                            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
+                        )
+
+                        # ⭐⭐⭐ NUEVO: Mostrar datos de Garantía ⭐⭐⭐
+                        if str(res.get("Tipo_Envio","")).strip() == "🛠 Garantía":
+                            num_serie = str(res.get("Numero_Serie") or "").strip()
+                            fec_compra = str(res.get("Fecha_Compra") or "").strip()
+                            if num_serie or fec_compra:
+                                st.markdown("**🧷 Datos de compra y serie (Garantía):**")
+                                st.markdown(f"- **Número de serie / lote:** `{num_serie or 'N/A'}`")
+                                st.markdown(f"- **Fecha de compra:** `{fec_compra or 'N/A'}`")
+
+                    st.markdown(
+                        f"**👤 Cliente:** {res.get('Cliente','N/A')}  |  **RFC:** {res.get('Numero_Cliente_RFC','') or 'N/A'}"
+                    )
+                    st.markdown(
+                        f"**Estado:** {res.get('Estado','') or 'N/A'}  |  **Estado del Caso:** {res.get('Estado_Caso','') or 'N/A'}  |  **Turno:** {res.get('Turno','') or 'N/A'}"
+                    )
+
+                    # ♻️ Refacturación (si hay)
+                    ref_t = res.get("Refacturacion_Tipo","")
+                    ref_st = res.get("Refacturacion_Subtipo","")
+                    ref_f = res.get("Folio_Factura_Refacturada","")
+                    if any([ref_t, ref_st, ref_f]):
+                        st.markdown("**♻️ Refacturación:**")
+                        st.markdown(f"- **Tipo:** {ref_t or 'N/A'}")
+                        st.markdown(f"- **Subtipo:** {ref_st or 'N/A'}")
+                        st.markdown(f"- **Folio refacturado:** {ref_f or 'N/A'}")
+
+                    if str(res.get("Resultado_Esperado","")).strip():
+                        st.markdown(f"**🎯 Resultado Esperado:** {res.get('Resultado_Esperado','')}")
+                    if str(res.get("Motivo_Detallado","")).strip():
+                        st.markdown("**📝 Motivo / Descripción:**")
+                        st.info(str(res.get("Motivo_Detallado","")).strip())
+                    if str(res.get("Material_Devuelto","")).strip():
+                        st.markdown("**📦 Piezas / Material:**")
+                        st.info(str(res.get("Material_Devuelto","")).strip())
+                    if str(res.get("Monto_Devuelto","")).strip():
+                        st.markdown(f"**💵 Monto (dev./estimado):** {res.get('Monto_Devuelto','')}")
+
+                    st.markdown(
+                        f"**🏢 Área Responsable:** {res.get('Area_Responsable','') or 'N/A'}  |  **👥 Responsable del Error:** {res.get('Nombre_Responsable','') or 'N/A'}"
+                    )
+                    st.markdown(
+                        f"**📅 Fecha Entrega/Cierre (si aplica):** {res.get('Fecha_Entrega','') or 'N/A'}  |  "
+                        f"**📅 Recepción:** {res.get('Fecha_Recepcion_Devolucion','') or 'N/A'}  |  "
+                        f"**📦 Recepción:** {res.get('Estado_Recepcion','') or 'N/A'}"
+                    )
+                    st.markdown(
+                        f"**🧾 Nota de Crédito:** {res.get('Nota_Credito_URL','') or 'N/A'}  |  "
+                        f"**📂 Documento Adicional:** {res.get('Documento_Adicional_URL','') or 'N/A'}"
+                    )
+                    if str(res.get("Comentarios_Admin_Devolucion","")).strip():
+                        st.markdown("**🗒️ Comentario Administrativo:**")
+                        st.info(str(res.get("Comentarios_Admin_Devolucion","")).strip())
+
+                    # 🛠 Modificación de surtido (si existe)
+                    mod_txt = res.get("Modificacion_Surtido", "") or ""
+                    mod_urls = res.get("Adjuntos_Surtido_urls", []) or []
+                    if mod_txt or mod_urls:
+                        st.markdown("#### 🛠 Modificación de surtido")
+                        if mod_txt:
+                            st.info(mod_txt)
+                        if mod_urls:
+                            st.markdown("**Archivos de modificación:**")
+                            for u in mod_urls:
+                                nombre = u.split("/")[-1]
+                                st.markdown(f"- [{nombre}]({u})")
+
+                    with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
+                        adj = res.get("Adjuntos_urls", []) or []
+                        guia = res.get("Guia_url", "")
+                        if adj:
+                            st.markdown("**Adjuntos:**")
+                            for u in adj:
+                                nombre = u.split("/")[-1]
+                                st.markdown(f"- [{nombre}]({u})")
+                        if guia and guia.lower() not in ("nan","none","n/a"):
+                            st.markdown("**Guía:**")
+                            st.markdown(f"- [Abrir guía]({guia})")
+                        if not adj and not guia:
+                            st.info("Sin archivos registrados en la hoja.")
+
+                    st.markdown("---")
+
                 else:
                     # ---------- Render de PEDIDOS ----------
                     st.markdown(f"### 🤝 {res['Cliente'] or 'Cliente N/D'}")
