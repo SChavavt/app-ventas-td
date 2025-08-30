@@ -1494,14 +1494,20 @@ with tab3, suppress(StopException):
             "Pendiente Transferencia",
             "Cerrado",
         ]
+        seg_key = f"seguimiento_{row.get('ID_Pedido','')}"
         _segui_val = str(row.get("Seguimiento", "")).strip()
-        _segui_idx = seguimiento_opts.index(_segui_val) if _segui_val in seguimiento_opts else None
+        if (
+            seg_key not in st.session_state
+            or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
+        ):
+            st.session_state[seg_key] = _segui_val
+        st.session_state["tab3_last_case_id"] = row.get("ID_Pedido")
+
         seguimiento_sel = st.selectbox(
             "🔄 Seguimiento",
             options=seguimiento_opts,
-            index=_segui_idx,
             placeholder="Selecciona el estado de seguimiento",
-            key=f"seguimiento_{row.get('ID_Pedido','')}",
+            key=seg_key,
         )
         doc_principal = st.file_uploader(
             "🧾 Subir Nota de Crédito / Dictamen (PDF/Imagen)",
@@ -1599,6 +1605,7 @@ with tab3, suppress(StopException):
             tab3_alert.success("✅ Confirmación guardada.")
             st.session_state["tab3_reload_nonce"] += 1
             st.cache_data.clear()
+            st.session_state[seg_key] = seguimiento_sel
             st.query_params["tab"] = "2"
             st.rerun()
         else:
