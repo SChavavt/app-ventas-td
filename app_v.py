@@ -1867,11 +1867,12 @@ with tab4:
         if df_casos.empty:
             st.info("No hay casos especiales abiertos.")
         else:
-            columnas_mostrar = ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Seguimiento"]
+            df_casos = df_casos.reset_index(drop=True)
+            columnas_mostrar = ["Estado","Cliente","Vendedor_Registro","Tipo_Envio","Seguimiento"]
             st.dataframe(df_casos[columnas_mostrar], use_container_width=True, hide_index=True)
 
             df_casos["display_label"] = df_casos.apply(
-                lambda r: f"{r['ID_Pedido']} - {r['Cliente']} ({r['Tipo_Envio']})", axis=1
+                lambda r: f"{r.name} - {r['Estado']} - {r['Cliente']} ({r['Tipo_Envio']})", axis=1
             )
             selected_case = st.selectbox(
                 "📂 Selecciona un caso para ver detalles",
