@@ -1605,7 +1605,6 @@ with tab3, suppress(StopException):
             tab3_alert.success("✅ Confirmación guardada.")
             st.session_state["tab3_reload_nonce"] += 1
             st.cache_data.clear()
-            st.session_state[seg_key] = seguimiento_sel
             st.query_params["tab"] = "2"
             st.rerun()
         else:
