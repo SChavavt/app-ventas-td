@@ -304,7 +304,8 @@ def render_caso_especial(row):
     st.markdown(
         f"**Estado:** {row.get('Estado','') or 'N/A'}  |  "
         f"**Estado del Caso:** {row.get('Estado_Caso','') or 'N/A'}  |  "
-        f"**Turno:** {row.get('Turno','') or 'N/A'}"
+        f"**Turno:** {row.get('Turno','') or 'N/A'}  |  "
+        f"**Tipo Envío Original:** {row.get('Tipo_Envio_Original','') or 'N/A'}"
     )
     st.markdown(f"**📌 Seguimiento:** {row.get('Seguimiento', 'N/A')}")
 
