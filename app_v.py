@@ -902,7 +902,8 @@ def cargar_pedidos_combinados():
             df_datos = df_datos[df_datos['ID_Pedido'].astype(str).str.strip().ne("")]
 
         # columnas que la UI puede usar desde datos_pedidos
-        needed_datos = [
+        needed_datos: list[str] = []
+        needed_datos += [
             'ID_Pedido','Cliente','Folio_Factura','Vendedor_Registro','Estado','Hora_Registro','Turno','Fecha_Entrega',
             'Comentario','Estado_Pago',
             # archivos/adjuntos
@@ -913,11 +914,15 @@ def cargar_pedidos_combinados():
             'Folio_Factura_Error','Estado_Caso','Numero_Cliente_RFC','Tipo_Envio','Tipo_Envio_Original',
             'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
             'Nota_Credito_URL','Documento_Adicional_URL','Comentarios_Admin_Devolucion',
-            'Hoja_Ruta_Mensajero','Fecha_Recepcion_Devolucion','Hora_Proceso','Area_Responsable','Nombre_Responsable'
+            'Hoja_Ruta_Mensajero','Fecha_Recepcion_Devolucion','Hora_Proceso','Area_Responsable','Nombre_Responsable',
+            # seguimiento
+            'Seguimiento'
         ]
         for c in needed_datos:
             if c not in df_datos.columns:
                 df_datos[c] = ""
+
+        df_datos['Seguimiento'] = df_datos['Seguimiento'].fillna("")
 
         # asegura tipos string uniformes importantes
         for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Refacturada']:
@@ -962,11 +967,15 @@ def cargar_pedidos_combinados():
             # recepción/cierre
             'Fecha_Recepcion_Devolucion','Estado_Recepcion',
             # documentos de cierre
-            'Nota_Credito_URL','Documento_Adicional_URL','Comentarios_Admin_Devolucion'
+            'Nota_Credito_URL','Documento_Adicional_URL','Comentarios_Admin_Devolucion',
+            # seguimiento
+            'Seguimiento'
         ]
         for c in base_cols:
             if c not in df_casos.columns:
                 df_casos[c] = ""
+
+        df_casos['Seguimiento'] = df_casos['Seguimiento'].fillna("")
 
         # Normalizar fecha de compra si el encabezado real es "FechaCompra"
         if 'Fecha_Compra' not in headers_casos and 'FechaCompra' in headers_casos:
@@ -1789,6 +1798,10 @@ def cargar_casos_especiales():
     for c in columnas_necesarias:
         if c not in df.columns:
             df[c] = ""
+
+    # Quitar casos cerrados
+    df["Seguimiento"] = df["Seguimiento"].fillna("")
+    df = df[~df["Seguimiento"].astype(str).str.lower().eq("cerrado")]
 
     # Normaliza 'Fecha_Compra' si en la hoja existe como 'FechaCompra'
     if "Fecha_Compra" not in df.columns and "FechaCompra" in df.columns:
