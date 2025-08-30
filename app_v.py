@@ -226,6 +226,7 @@ tabs_labels = [
     "🛒 Registrar Nuevo Pedido",
     "✏️ Modificar Pedido Existente",
     "🧾 Pedidos Pendientes de Comprobante",
+    "🗂 Casos Especiales",
     "📦 Guías Cargadas",
     "⬇️ Descargar Datos",
     "🔍 Buscar Pedido"
@@ -237,7 +238,7 @@ active_tab_index = int(params.get("tab", ["0"])[0])
 
 # Crear pestañas y mantener referencia
 tabs = st.tabs(tabs_labels)
-tab1, tab2, tab3, tab4, tab5, tab6 = tabs
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
@@ -1709,9 +1710,148 @@ with tab3:
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
 
-# --- TAB 4: GUIAS CARGADAS ---
-def fijar_tab4_activa():
-    st.query_params.update({"tab": "3"})
+# ----------------- HELPERS FALTANTES -----------------
+
+def partir_urls(value):
+    """
+    Normaliza un campo de adjuntos que puede venir como JSON (lista o dict),
+    o como texto separado por comas/; / saltos de línea. Devuelve lista de URLs únicas.
+    """
+    if value is None:
+        return []
+    s = str(value).strip()
+    if not s or s.lower() in ("nan", "none", "n/a"):
+        return []
+    urls = []
+    # Intento como JSON
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, list):
+            for it in obj:
+                if isinstance(it, str) and it.strip():
+                    urls.append(it.strip())
+                elif isinstance(it, dict):
+                    for k in ("url", "URL", "href", "link"):
+                        if k in it and str(it[k]).strip():
+                            urls.append(str(it[k]).strip())
+        elif isinstance(obj, dict):
+            for k in ("url", "URL", "href", "link"):
+                if k in obj and str(obj[k]).strip():
+                    urls.append(str(obj[k]).strip())
+    except Exception:
+        # Separadores comunes
+        for p in re.split(r"[,\n;]+", s):
+            p = p.strip()
+            if p:
+                urls.append(p)
+    # De-duplicar preservando orden
+    out, seen = [], set()
+    for u in urls:
+        if u not in seen:
+            seen.add(u); out.append(u)
+    return out
+
+
+@st.cache_data(ttl=300)
+def cargar_casos_especiales():
+    """
+    Lee la hoja 'casos_especiales' usando tu helper get_worksheet_casos_especiales()
+    y garantiza todas las columnas que la UI usa.
+    """
+    ws = get_worksheet_casos_especiales()
+    data = ws.get_all_records()
+    df = pd.DataFrame(data)
+
+    columnas_necesarias = [
+        # Identificación y encabezado
+        "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
+        "Hora_Registro","Tipo_Envio","Estado","Estado_Caso","Turno",
+        # Refacturación
+        "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
+        # Detalle del caso
+        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
+        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
+        # ⚙️ NUEVO: Garantías
+        "Numero_Serie","Fecha_Compra",  # (si tu hoja usa 'FechaCompra', abajo la normalizamos)
+        # Fechas/recepción
+        "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
+        # Documentos de cierre
+        "Nota_Credito_URL","Documento_Adicional_URL","Comentarios_Admin_Devolucion",
+        # Modificación de surtido
+        "Modificacion_Surtido","Adjuntos_Surtido",
+        # Adjuntos/guía
+        "Adjuntos","Hoja_Ruta_Mensajero",
+        # Otros
+        "Hora_Proceso",
+        # Seguimiento
+        "Seguimiento"
+    ]
+    for c in columnas_necesarias:
+        if c not in df.columns:
+            df[c] = ""
+
+    # Normaliza 'Fecha_Compra' si en la hoja existe como 'FechaCompra'
+    if "Fecha_Compra" not in df.columns and "FechaCompra" in df.columns:
+        df["Fecha_Compra"] = df["FechaCompra"]
+    elif "Fecha_Compra" in df.columns and "FechaCompra" in df.columns and df["Fecha_Compra"].eq("").all():
+        # Si ambas existen pero 'Fecha_Compra' viene vacía, usa 'FechaCompra'
+        df["Fecha_Compra"] = df["Fecha_Compra"].where(df["Fecha_Compra"].astype(str).str.strip() != "", df["FechaCompra"])
+
+    return df
+
+
+def render_caso_especial(row):
+    st.markdown(f"### 🗂 Caso Especial – {row.get('Tipo_Envio', '')}")
+    st.write(f"**ID Pedido:** {row.get('ID_Pedido', 'N/A')}")
+    st.write(f"**Cliente:** {row.get('Cliente', 'N/A')}")
+    st.write(f"**Vendedor:** {row.get('Vendedor_Registro', 'N/A')}")
+    st.write(f"**Seguimiento:** {row.get('Seguimiento', 'N/A')}")
+    st.write(f"**Estado del Caso:** {row.get('Estado_Caso', 'N/A')}")
+    with st.expander("📎 Detalle del caso", expanded=False):
+        st.json(row.to_dict())
+
+
+# --- TAB 4: CASOS ESPECIALES ---
+with tab4:
+    st.header("🗂 Casos Especiales")
+
+    try:
+        df_casos = cargar_casos_especiales()
+    except Exception as e:
+        st.error(f"❌ Error al cargar casos especiales: {e}")
+        df_casos = pd.DataFrame()
+
+    if df_casos.empty:
+        st.info("No hay casos especiales.")
+    else:
+        df_casos = df_casos[
+            df_casos["Tipo_Envio"].isin(["🔁 Devolución", "🛠 Garantía"]) &
+            (df_casos["Seguimiento"] != "Cerrado")
+        ]
+
+        if df_casos.empty:
+            st.info("No hay casos especiales abiertos.")
+        else:
+            columnas_mostrar = ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Seguimiento"]
+            st.dataframe(df_casos[columnas_mostrar], use_container_width=True, hide_index=True)
+
+            df_casos["display_label"] = df_casos.apply(
+                lambda r: f"{r['ID_Pedido']} - {r['Cliente']} ({r['Tipo_Envio']})", axis=1
+            )
+            selected_case = st.selectbox(
+                "📂 Selecciona un caso para ver detalles",
+                df_casos["display_label"].tolist(),
+                key="select_caso_especial_tab4"
+            )
+
+            if selected_case:
+                case_row = df_casos[df_casos["display_label"] == selected_case].iloc[0]
+                render_caso_especial(case_row)
+
+
+# --- TAB 5: GUIAS CARGADAS ---
+def fijar_tab5_activa():
+    st.query_params.update({"tab": "4"})
 
 @st.cache_data(ttl=60)
 def cargar_datos_guias_unificadas():
@@ -1807,7 +1947,7 @@ def cargar_datos_guias_unificadas():
 
     return df
 
-with tab4:
+with tab5:
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
     try:
@@ -1820,19 +1960,19 @@ with tab4:
         st.info("No hay pedidos o casos especiales con guías subidas.")
     else:
         st.markdown("### 🔍 Filtros")
-        col1_tab4, col2_tab4 = st.columns(2)
+        col1_tab5, col2_tab5 = st.columns(2)
 
-        with col1_tab4:
+        with col1_tab5:
             vendedores = ["Todos"] + sorted(df_guias["Vendedor_Registro"].dropna().unique().tolist())
             vendedor_filtrado = st.selectbox(
                 "Filtrar por Vendedor",
                 vendedores,
                 key="filtro_vendedor_guias",
-                on_change=fijar_tab4_activa
+                on_change=fijar_tab5_activa
             )
 
-        with col2_tab4:
-            fecha_filtro_tab4 = st.date_input(
+        with col2_tab5:
+            fecha_filtro_tab5 = st.date_input(
                 "📅 Filtrar por Fecha de Registro:",
                 value=datetime.now().date(),
                 key="filtro_fecha_guias"
@@ -1845,7 +1985,7 @@ with tab4:
             fecha_col_para_filtrar = "Fecha_Entrega"
 
         if fecha_col_para_filtrar:
-            df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date == fecha_filtro_tab4]
+            df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date == fecha_filtro_tab5]
 
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
@@ -1879,8 +2019,8 @@ with tab4:
             else:
                 st.warning("⚠️ No se encontró una URL válida para la guía.")
 
-# --- TAB 5: DOWNLOAD DATA ---
-with tab5:
+# --- TAB 6: DOWNLOAD DATA ---
+with tab6:
     st.header("⬇️ Descargar Datos de Pedidos")
 
     @st.cache_data(ttl=60)
@@ -1978,7 +2118,7 @@ with tab5:
             selected_vendedor = st.selectbox(
                 "Filtrar por Vendedor:",
                 options=options_for_selectbox,
-                key="download_vendedor_filter_tab4_final"
+                key="download_vendedor_filter_tab6_final"
             )
 
             if selected_vendedor != "Todos":
@@ -2008,7 +2148,7 @@ with tab5:
 
         if 'Estado' in filtered_df_download.columns:
             unique_estados = ["Todos"] + list(filtered_df_download['Estado'].dropna().unique())
-            selected_estado = st.selectbox("Filtrar por Estado:", unique_estados, key="download_estado_filter_tab4")
+            selected_estado = st.selectbox("Filtrar por Estado:", unique_estados, key="download_estado_filter_tab6")
             if selected_estado != "Todos":
                 filtered_df_download = filtered_df_download[filtered_df_download['Estado'] == selected_estado]
 
@@ -2068,117 +2208,28 @@ with tab5:
             )
         else:
             st.info("No hay datos que coincidan con los filtros seleccionados para descargar.")
-# ----------------- HELPERS FALTANTES -----------------
-
-def partir_urls(value):
-    """
-    Normaliza un campo de adjuntos que puede venir como JSON (lista o dict),
-    o como texto separado por comas/; / saltos de línea. Devuelve lista de URLs únicas.
-    """
-    if value is None:
-        return []
-    s = str(value).strip()
-    if not s or s.lower() in ("nan", "none", "n/a"):
-        return []
-    urls = []
-    # Intento como JSON
-    try:
-        obj = json.loads(s)
-        if isinstance(obj, list):
-            for it in obj:
-                if isinstance(it, str) and it.strip():
-                    urls.append(it.strip())
-                elif isinstance(it, dict):
-                    for k in ("url", "URL", "href", "link"):
-                        if k in it and str(it[k]).strip():
-                            urls.append(str(it[k]).strip())
-        elif isinstance(obj, dict):
-            for k in ("url", "URL", "href", "link"):
-                if k in obj and str(obj[k]).strip():
-                    urls.append(str(obj[k]).strip())
-    except Exception:
-        # Separadores comunes
-        for p in re.split(r"[,\n;]+", s):
-            p = p.strip()
-            if p:
-                urls.append(p)
-    # De-duplicar preservando orden
-    out, seen = [], set()
-    for u in urls:
-        if u not in seen:
-            seen.add(u); out.append(u)
-    return out
-
-
-@st.cache_data(ttl=300)
-def cargar_casos_especiales():
-    """
-    Lee la hoja 'casos_especiales' usando tu helper get_worksheet_casos_especiales()
-    y garantiza todas las columnas que la UI usa.
-    """
-    ws = get_worksheet_casos_especiales()
-    data = ws.get_all_records()
-    df = pd.DataFrame(data)
-
-    columnas_necesarias = [
-        # Identificación y encabezado
-        "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
-        "Hora_Registro","Tipo_Envio","Estado","Estado_Caso","Turno",
-        # Refacturación
-        "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
-        # Detalle del caso
-        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
-        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
-        # ⚙️ NUEVO: Garantías
-        "Numero_Serie","Fecha_Compra",  # (si tu hoja usa 'FechaCompra', abajo la normalizamos)
-        # Fechas/recepción
-        "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
-        # Documentos de cierre
-        "Nota_Credito_URL","Documento_Adicional_URL","Comentarios_Admin_Devolucion",
-        # Modificación de surtido
-        "Modificacion_Surtido","Adjuntos_Surtido",
-        # Adjuntos/guía
-        "Adjuntos","Hoja_Ruta_Mensajero",
-        # Otros
-        "Hora_Proceso"
-    ]
-    for c in columnas_necesarias:
-        if c not in df.columns:
-            df[c] = ""
-
-    # Normaliza 'Fecha_Compra' si en la hoja existe como 'FechaCompra'
-    if "Fecha_Compra" not in df.columns and "FechaCompra" in df.columns:
-        df["Fecha_Compra"] = df["FechaCompra"]
-    elif "Fecha_Compra" in df.columns and "FechaCompra" in df.columns and df["Fecha_Compra"].eq("").all():
-        # Si ambas existen pero 'Fecha_Compra' viene vacía, usa 'FechaCompra'
-        df["Fecha_Compra"] = df["Fecha_Compra"].where(df["Fecha_Compra"].astype(str).str.strip() != "", df["FechaCompra"])
-
-    return df
-
-
-
-# --- TAB 6: SEARCH ORDER --- 
-with tab6:
+# --- TAB 7: SEARCH ORDER ---
+with tab7:
     st.subheader("🔍 Buscador de Pedidos por Guía o Cliente")
 
     modo_busqueda = st.radio(
         "Selecciona el modo de búsqueda:",
         ["🔢 Por número de guía", "🧑 Por cliente"],
-        key="tab6_modo_busqueda_radio"
+        key="tab7_modo_busqueda_radio"
     )
 
     if modo_busqueda == "🔢 Por número de guía":
         keyword = st.text_input(
             "📦 Ingresa una palabra clave, número de guía, fragmento o código a buscar:",
-            key="tab6_keyword_guia"
+            key="tab7_keyword_guia"
         )
-        buscar_btn = st.button("🔎 Buscar", key="tab6_btn_buscar_guia")
+        buscar_btn = st.button("🔎 Buscar", key="tab7_btn_buscar_guia")
     else:
         keyword = st.text_input(
             "🧑 Ingresa el nombre del cliente a buscar (sin importar mayúsculas ni acentos):",
-            key="tab6_keyword_cliente"
+            key="tab7_keyword_cliente"
         )
-        buscar_btn = st.button("🔍 Buscar Pedido del Cliente", key="tab6_btn_buscar_cliente")
+        buscar_btn = st.button("🔍 Buscar Pedido del Cliente", key="tab7_btn_buscar_cliente")
         cliente_normalizado = normalizar(keyword.strip()) if keyword else ""
 
     if buscar_btn:
