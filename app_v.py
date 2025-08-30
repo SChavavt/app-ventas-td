@@ -2507,8 +2507,16 @@ with tab7:
                     st.markdown(
                         f"**👤 Cliente:** {res.get('Cliente','N/A')}  |  **RFC:** {res.get('Numero_Cliente_RFC','') or 'N/A'}"
                     )
+                    estado = res.get('Estado','') or 'N/A'
+                    estado_caso = res.get('Estado_Caso','') or 'N/A'
+                    turno = res.get('Turno','') or 'N/A'
+                    turno_line = f"**Turno:** {turno}"
+                    tipo_envio = str(res.get('Tipo_Envio','')).strip()
+                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                        tipo_orig = res.get('Tipo_Envio_Original','') or 'N/A'
+                        turno_line += f" | **Tipo Envío Original:** {tipo_orig}"
                     st.markdown(
-                        f"**Estado:** {res.get('Estado','') or 'N/A'}  |  **Estado del Caso:** {res.get('Estado_Caso','') or 'N/A'}  |  **Turno:** {res.get('Turno','') or 'N/A'}"
+                        f"**Estado:** {estado}  |  **Estado del Caso:** {estado_caso}  |  {turno_line}"
                     )
                     st.markdown(f"**📌 Seguimiento:** {res.get('Seguimiento','N/A')}")
 
