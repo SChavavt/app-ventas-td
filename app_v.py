@@ -1873,7 +1873,7 @@ with tab4:
             st.dataframe(df_casos[columnas_mostrar], use_container_width=True, hide_index=True)
 
             df_casos["display_label"] = df_casos.apply(
-                lambda r: f"{r.name} - {r['Estado']} - {r['Cliente']} ({r['Tipo_Envio']})", axis=1
+                lambda r: f"{r['Estado']} - {r['Cliente']} ({r['Tipo_Envio']})", axis=1
             )
             selected_case = st.selectbox(
                 "📂 Selecciona un caso para ver detalles",
