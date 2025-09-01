@@ -950,23 +950,6 @@ with tab2:
         st.session_state["_lastgood_confirmados"] = (df.copy(), headers[:])
         return df, headers
 
-    # Métricas rápidas (usa df_pedidos en memoria si existe)
-    if ('df_pedidos' in locals() or 'df_pedidos' in globals()) and not df_pedidos.empty:
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Pedidos", len(df_pedidos))
-        with col2:
-            pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Pedidos Pagados", len(pagados))
-        with col3:
-            confirmados = df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí'] if 'Comprobante_Confirmado' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Comprobantes Confirmados", len(confirmados))
-        with col4:
-            pendientes = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
-            st.metric("Pendientes Confirmación", pendientes)
-
-    st.markdown("---")
-
     # 📄 Cargar hoja 'pedidos_confirmados' con fallback a snapshot si la API falla
     try:
         df_confirmados_guardados, headers_confirmados = cargar_confirmados_guardados_cached(
@@ -984,6 +967,22 @@ with tab2:
         else:
             st.error(f"❌ No se pudo leer 'pedidos_confirmados'. Detalle: {e}")
             df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
+
+    # Métricas rápidas (usa df_pedidos en memoria si existe)
+    if ('df_pedidos' in locals() or 'df_pedidos' in globals()) and not df_pedidos.empty:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Pedidos", len(df_pedidos))
+        with col2:
+            pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
+            st.metric("Pedidos Pagados", len(pagados))
+        with col3:
+            st.metric("Comprobantes Confirmados", len(df_confirmados_guardados))
+        with col4:
+            pendientes = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
+            st.metric("Pendientes Confirmación", pendientes)
+
+    st.markdown("---")
 
     # 🔁 Botón único: Actualizar Enlaces (agregar nuevos) + Recargar tabla
     tab2_alert = st.empty()
@@ -1100,29 +1099,29 @@ with tab2:
         st.info("ℹ️ No hay registros en la hoja 'pedidos_confirmados'.")
     else:
         # 🔽 Ordenar para mostrar lo más reciente primero
-        df_view = df_confirmados_guardados.copy()
+        df_confirmados_guardados = df_confirmados_guardados.copy()
 
         def _to_dt(s):
             return pd.to_datetime(s, errors='coerce', dayfirst=True, infer_datetime_format=True)
 
-        if "Fecha_Pago_Comprobante" in df_view.columns:
-            dt = _to_dt(df_view["Fecha_Pago_Comprobante"])
+        if "Fecha_Pago_Comprobante" in df_confirmados_guardados.columns:
+            dt = _to_dt(df_confirmados_guardados["Fecha_Pago_Comprobante"])
             if dt.notna().any():
-                df_view = df_view.assign(_dt=dt).sort_values("_dt", ascending=False, na_position='last').drop(columns="_dt")
-            elif "Fecha_Entrega" in df_view.columns:
-                dt2 = _to_dt(df_view["Fecha_Entrega"])
-                df_view = df_view.assign(_dt=dt2).sort_values("_dt", ascending=False, na_position='last').drop(columns="_dt")
+                df_confirmados_guardados = df_confirmados_guardados.assign(_dt=dt).sort_values("_dt", ascending=False, na_position='last').drop(columns="_dt")
+            elif "Fecha_Entrega" in df_confirmados_guardados.columns:
+                dt2 = _to_dt(df_confirmados_guardados["Fecha_Entrega"])
+                df_confirmados_guardados = df_confirmados_guardados.assign(_dt=dt2).sort_values("_dt", ascending=False, na_position='last').drop(columns="_dt")
             else:
-                df_view = df_view.iloc[::-1].reset_index(drop=True)
-        elif "Fecha_Entrega" in df_view.columns:
-            dt2 = _to_dt(df_view["Fecha_Entrega"])
-            df_view = df_view.assign(_dt=dt2).sort_values("_dt", ascending=False, na_position='last').drop(columns="_dt")
+                df_confirmados_guardados = df_confirmados_guardados.iloc[::-1].reset_index(drop=True)
+        elif "Fecha_Entrega" in df_confirmados_guardados.columns:
+            dt2 = _to_dt(df_confirmados_guardados["Fecha_Entrega"])
+            df_confirmados_guardados = df_confirmados_guardados.assign(_dt=dt2).sort_values("_dt", ascending=False, na_position='last').drop(columns="_dt")
         else:
-            df_view = df_view.iloc[::-1].reset_index(drop=True)
+            df_confirmados_guardados = df_confirmados_guardados.iloc[::-1].reset_index(drop=True)
 
-        st.success(f"✅ {len(df_view)} pedidos confirmados (últimos primero).")
+        st.success(f"✅ {len(df_confirmados_guardados)} pedidos confirmados (últimos primero).")
 
-        columnas_para_tabla = [col for col in df_view.columns if col.startswith("Link_") or col in [
+        columnas_para_tabla = [col for col in df_confirmados_guardados.columns if col.startswith("Link_") or col in [
             'Folio_Factura', 'Folio_Factura_Refacturada', 'Cliente', 'Vendedor_Registro',
             'Tipo_Envio', 'Fecha_Entrega', 'Estado', 'Estado_Pago', 'Refacturacion_Tipo',
             'Refacturacion_Subtipo', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
@@ -1130,14 +1129,14 @@ with tab2:
         ]]
 
         st.dataframe(
-            df_view[columnas_para_tabla] if columnas_para_tabla else df_view,
+            df_confirmados_guardados[columnas_para_tabla] if columnas_para_tabla else df_confirmados_guardados,
             use_container_width=True, hide_index=True
         )
 
         # Descargar Excel (desde el DF ya ordenado)
         output_confirmados = BytesIO()
         with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-            df_view.to_excel(writer, index=False, sheet_name='Confirmados')
+            df_confirmados_guardados.to_excel(writer, index=False, sheet_name='Confirmados')
         data_xlsx = output_confirmados.getvalue()
 
         st.download_button(
