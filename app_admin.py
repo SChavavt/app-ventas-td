@@ -79,12 +79,6 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
 
-
-def rerun_current_tab():
-    """Rerun Streamlit keeping the current tab in query params."""
-    st.query_params["tab"] = st.session_state.get("current_tab", "0")
-    st.experimental_rerun()
-
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
     return safe_open_worksheet(GOOGLE_SHEET_ID, "datos_pedidos")
@@ -405,7 +399,8 @@ with tab1:
             cargar_pedidos_desde_google_sheet.clear()
             get_google_sheets_client.clear()
             st.toast("Pedidos recargados", icon="🔄")
-            rerun_current_tab()
+            st.query_params["tab"] = st.session_state.get("current_tab", "0")
+            st.rerun()
 
     if df_pedidos.empty:
         st.info("ℹ️ No hay pedidos cargados en este momento.")
@@ -540,7 +535,8 @@ with tab1:
                                 st.balloons()
                                 time.sleep(2)
                                 cargar_pedidos_desde_google_sheet.clear()
-                                rerun_current_tab()
+                                st.query_params["tab"] = st.session_state.get("current_tab", "0")
+                                st.rerun()
 
                             except Exception as e:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
@@ -685,7 +681,8 @@ with tab1:
                         st.balloons()
                         time.sleep(2)
                         cargar_pedidos_desde_google_sheet.clear()
-                        rerun_current_tab()
+                        st.query_params["tab"] = st.session_state.get("current_tab", "0")
+                        st.rerun()
 
                     except Exception as e:
                         st.error(f"❌ Error al guardar el comprobante: {e}")
@@ -897,7 +894,8 @@ with tab1:
                                 st.balloons()
                                 time.sleep(3)
                                 cargar_pedidos_desde_google_sheet.clear()
-                                rerun_current_tab()
+                                st.query_params["tab"] = st.session_state.get("current_tab", "0")
+                                st.rerun()
 
                             except Exception as e:
                                 st.error(f"❌ Error al confirmar comprobante: {e}")
@@ -1088,7 +1086,8 @@ with tab2:
                 st.session_state["tab2_reload_nonce"] += 1
                 cargar_confirmados_guardados_cached.clear()
                 st.toast("Datos recargados", icon="🔄")
-                rerun_current_tab()
+                st.query_params["tab"] = st.session_state.get("current_tab", "0")
+                st.rerun()
 
             except gspread.exceptions.APIError as e:
                 tab2_alert.error(f"❌ Error de Google API al actualizar/recargar: {e}")
@@ -1206,7 +1205,8 @@ with tab3, suppress(StopException):
             st.session_state["tab3_reload_nonce"] += 1
             get_raw_sheet_data_cached.clear()
             st.toast("Casos recargados", icon="🔄")
-            rerun_current_tab()
+            st.query_params["tab"] = st.session_state.get("current_tab", "0")
+            st.rerun()
 
         if st.button(
             "🔄 Recargar casos",
@@ -1482,7 +1482,8 @@ with tab3, suppress(StopException):
 
     def _keep_tab3():
         st.toast("Actualizando caso", icon="🔄")
-        rerun_current_tab()
+        st.query_params["tab"] = st.session_state.get("current_tab", "0")
+        st.rerun()
 
     selected = st.selectbox(
         "📋 Selecciona un caso",
@@ -1685,7 +1686,8 @@ with tab3, suppress(StopException):
             st.session_state["tab3_reload_nonce"] += 1
             get_raw_sheet_data_cached.clear()
             st.toast("Confirmación guardada", icon="✅")
-            rerun_current_tab()
+            st.query_params["tab"] = st.session_state.get("current_tab", "0")
+            st.rerun()
         else:
             tab3_alert.error("❌ Ocurrió un problema al guardar.")
 
@@ -1731,7 +1733,6 @@ with tab4:
                 st.session_state["tab4_reload_nonce"] += 1
                 cargar_casos_especiales_cached.clear()
                 st.toast("♻️ Casos recargados.", icon="♻️")
-                rerun_current_tab()
 
     # leer hoja
     try:
