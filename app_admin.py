@@ -377,9 +377,19 @@ except Exception:
 # mantener en session_state la pestaña activa
 st.session_state.setdefault("current_tab", str(_default_tab))
 
-# Renderizar las pestañas respetando el índice de la URL
-tabs = st.tabs(tab_names, key="admin_tabs", default_index=_default_tab)
+tabs = st.tabs(tab_names)
 tab1, tab2, tab3, tab4 = tabs
+
+# forza la pestaña almacenada al recargar
+st.markdown(
+    f"""
+    <script>
+        const tabs = window.parent.document.querySelectorAll('div[data-baseweb="tab-list"] button');
+        if (tabs.length > {_default_tab}) {{ tabs[{_default_tab}].click(); }}
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # --- INTERFAZ PRINCIPAL ---
