@@ -1209,12 +1209,12 @@ with tab3, suppress(StopException):
             st.query_params["tab"] = st.session_state.get("current_tab", "0")
             st.rerun()
 
-        st.button(
+        if st.button(
             "🔄 Recargar casos",
             type="secondary",
             key="tab3_reload_btn",
-            on_click=_reload_tab3,
-        )
+        ):
+            _reload_tab3()
 
     # Carga principal
     try:
