@@ -83,7 +83,7 @@ st.set_page_config(page_title="App Admin TD", layout="wide")
 def rerun_current_tab():
     """Rerun Streamlit keeping the current tab in query params."""
     st.query_params["tab"] = st.session_state.get("current_tab", "0")
-    st.experimental_rerun()
+    st.rerun()
 
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
