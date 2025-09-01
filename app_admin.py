@@ -1566,9 +1566,17 @@ with tab3, suppress(StopException):
             type=["pdf","jpg","jpeg","png"],
             key=f"doc_extra_{row.get('ID_Pedido','')}"
         )
+        comentario_existente = row.get(
+            "Comentarios_Admin_Devolucion" if is_dev else "Comentarios_Admin_Garantia",
+            ""
+        )
+        comment_key = f"comentario_admin_{row.get('ID_Pedido','')}"
+        if comment_key not in st.session_state:
+            st.session_state[comment_key] = comentario_existente
         comentario_admin = st.text_area(
             "📝 Comentario administrativo final",
-            key=f"comentario_admin_{row.get('ID_Pedido','')}"
+            key=comment_key,
+            value=st.session_state[comment_key]
         )
         submitted = st.form_submit_button("💾 Guardar Confirmación", use_container_width=True)
 
