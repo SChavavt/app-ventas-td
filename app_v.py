@@ -21,10 +21,18 @@ import boto3
 # --- STREAMLIT CONFIGURATION ---
 st.set_page_config(page_title="App Vendedores TD", layout="wide")
 
-if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
-    st.cache_data.clear()
-    st.cache_resource.clear()
-    st.rerun()
+REFRESH_COOLDOWN = 60
+
+
+def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
+    """Rate-limit manual reloads to avoid hitting services too often."""
+    now = time.time()
+    last = st.session_state.get(key)
+    if last and now - last < cooldown:
+        container.warning("⚠️ Se recargó recientemente. Espera unos segundos.")
+        return False
+    st.session_state[key] = now
+    return True
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
@@ -100,15 +108,12 @@ except KeyError as e:
     st.stop()
 
 
-st.title("🛒 App de Vendedores TD")
-st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
+  # --- AUTHENTICATION AND CLIENT FUNCTIONS ---
 
-# --- AUTHENTICATION AND CLIENT FUNCTIONS ---
+  # Removed the old load_credentials_from_file and get_gspread_client functions
+  # as they are replaced by get_google_sheets_client()
 
-# Removed the old load_credentials_from_file and get_gspread_client functions
-# as they are replaced by get_google_sheets_client()
-
-# NEW: Build S3 client
+  # NEW: Build S3 client
 @st.cache_resource
 def get_s3_client():
     """Initializes and returns an S3 client."""
@@ -165,6 +170,17 @@ def cargar_pedidos():
     sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet("datos_pedidos")
     data = sheet.get_all_records()
     return pd.DataFrame(data)
+
+if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
+    if allow_refresh("main_last_refresh"):
+        cargar_pedidos.clear()
+        get_google_sheets_client.clear()
+        get_worksheet.clear()
+        get_s3_client.clear()
+        st.rerun()
+
+st.title("🛒 App de Vendedores TD")
+st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
 
 def normalizar(texto):
     return unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()

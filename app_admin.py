@@ -16,6 +16,19 @@ from streamlit.runtime.scriptrunner import StopException
 # Reintentos robustos para Google Sheets
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
 
+REFRESH_COOLDOWN = 60
+
+
+def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
+    """Rate-limit manual reloads to avoid hitting Google Sheets too often."""
+    now = time.time()
+    last = st.session_state.get(key)
+    if last and now - last < cooldown:
+        container.warning("⚠️ Se recargó recientemente. Espera unos segundos.")
+        return False
+    st.session_state[key] = now
+    return True
+
 def _err_signature(e) -> tuple[int|None, str]:
     """Extrae status y texto para decidir si reintentar."""
     status = getattr(getattr(e, "response", None), "status_code", None)
@@ -382,11 +395,12 @@ with tab1:
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
     if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        st.toast("Pedidos recargados", icon="🔄")
-        st.query_params["tab"] = st.session_state.get("current_tab", "0")
-        st.rerun()
+        if allow_refresh("pedidos_last_refresh"):
+            cargar_pedidos_desde_google_sheet.clear()
+            get_google_sheets_client.clear()
+            st.toast("Pedidos recargados", icon="🔄")
+            st.query_params["tab"] = st.session_state.get("current_tab", "0")
+            st.rerun()
 
     if df_pedidos.empty:
         st.info("ℹ️ No hay pedidos cargados en este momento.")
@@ -520,7 +534,7 @@ with tab1:
                                 st.success("✅ Confirmación de crédito guardada exitosamente.")
                                 st.balloons()
                                 time.sleep(2)
-                                st.cache_data.clear()
+                                cargar_pedidos_desde_google_sheet.clear()
                                 st.query_params["tab"] = st.session_state.get("current_tab", "0")
                                 st.rerun()
 
@@ -666,7 +680,7 @@ with tab1:
                         st.success("✅ Comprobante y datos de pago guardados exitosamente.")
                         st.balloons()
                         time.sleep(2)
-                        st.cache_data.clear()
+                        cargar_pedidos_desde_google_sheet.clear()
                         st.query_params["tab"] = st.session_state.get("current_tab", "0")
                         st.rerun()
 
@@ -879,7 +893,7 @@ with tab1:
                                 st.success("🎉 Comprobante confirmado exitosamente.")
                                 st.balloons()
                                 time.sleep(3)
-                                st.cache_data.clear()
+                                cargar_pedidos_desde_google_sheet.clear()
                                 st.query_params["tab"] = st.session_state.get("current_tab", "0")
                                 st.rerun()
 
@@ -973,109 +987,113 @@ with tab2:
 
     # 🔁 Botón único: Actualizar Enlaces (agregar nuevos) + Recargar tabla
     tab2_alert = st.empty()
-    if st.button("🔁 Actualizar Enlaces y Recargar Confirmados", type="primary",
-                 help="Agrega confirmados nuevos con enlaces y refresca la tabla"):
-        try:
-            # Detectar nuevos confirmados no guardados aún en la hoja
-            ids_existentes = set(df_confirmados_guardados["ID_Pedido"].astype(str)) if not df_confirmados_guardados.empty else set()
-            df_nuevos = df_pedidos[
-                (df_pedidos.get('Comprobante_Confirmado') == 'Sí') &
-                (~df_pedidos['ID_Pedido'].astype(str).isin(ids_existentes))
-            ].copy()
+    if st.button(
+        "🔁 Actualizar Enlaces y Recargar Confirmados",
+        type="primary",
+        help="Agrega confirmados nuevos con enlaces y refresca la tabla",
+    ):
+        if allow_refresh("tab2_last_refresh", tab2_alert):
+            try:
+                # Detectar nuevos confirmados no guardados aún en la hoja
+                ids_existentes = set(df_confirmados_guardados["ID_Pedido"].astype(str)) if not df_confirmados_guardados.empty else set()
+                df_nuevos = df_pedidos[
+                    (df_pedidos.get('Comprobante_Confirmado') == 'Sí') &
+                    (~df_pedidos['ID_Pedido'].astype(str).isin(ids_existentes))
+                ].copy()
 
-            if df_nuevos.empty:
-                tab2_alert.info("✅ No hay pedidos confirmados nuevos por registrar. Se recargará la tabla igualmente…")
-            else:
-                df_nuevos = df_nuevos.sort_values(by='Fecha_Pago_Comprobante', ascending=False, na_position='last')
+                if df_nuevos.empty:
+                    tab2_alert.info("✅ No hay pedidos confirmados nuevos por registrar. Se recargará la tabla igualmente…")
+                else:
+                    df_nuevos = df_nuevos.sort_values(by='Fecha_Pago_Comprobante', ascending=False, na_position='last')
 
-                columnas_guardar = [
-                    'ID_Pedido', 'Folio_Factura', 'Folio_Factura_Refacturada',
-                    'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-                    'Estado', 'Estado_Pago', 'Comprobante_Confirmado',
-                    'Refacturacion_Tipo', 'Refacturacion_Subtipo',
-                    'Forma_Pago_Comprobante', 'Monto_Comprobante',
-                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-                    'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
-                ]
+                    columnas_guardar = [
+                        'ID_Pedido', 'Folio_Factura', 'Folio_Factura_Refacturada',
+                        'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+                        'Estado', 'Estado_Pago', 'Comprobante_Confirmado',
+                        'Refacturacion_Tipo', 'Refacturacion_Subtipo',
+                        'Forma_Pago_Comprobante', 'Monto_Comprobante',
+                        'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
+                        'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
+                    ]
 
-                link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
+                    link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
 
-                for _, row in df_nuevos.iterrows():
-                    pedido_id = row.get("ID_Pedido")
-                    tipo_envio = "foráneo" if "foráneo" in str(row.get("Tipo_Envio", "")).lower() else "local"
-                    comprobante_url = factura_url = guia_url = refact_url = ""
+                    for _, row in df_nuevos.iterrows():
+                        pedido_id = row.get("ID_Pedido")
+                        tipo_envio = "foráneo" if "foráneo" in str(row.get("Tipo_Envio", "")).lower() else "local"
+                        comprobante_url = factura_url = guia_url = refact_url = ""
 
-                    if pedido_id and s3_client:
-                        prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
-                        files = get_files_in_s3_prefix(s3_client, prefix)
-                        if not files:
-                            prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
-                            files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
+                        if pedido_id and s3_client:
+                            prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
+                            files = get_files_in_s3_prefix(s3_client, prefix)
+                            if not files:
+                                prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
+                                files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
 
-                        # Comprobante
-                        comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
-                        if comprobantes:
-                            comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
+                            # Comprobante
+                            comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
+                            if comprobantes:
+                                comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
 
-                        # Factura
-                        facturas = [f for f in files if "factura" in f["title"].lower()]
-                        if facturas:
-                            factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
+                            # Factura
+                            facturas = [f for f in files if "factura" in f["title"].lower()]
+                            if facturas:
+                                factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
 
-                        # Guía
-                        if tipo_envio == "foráneo":
-                            guias_filtradas = [f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())]
-                        else:
-                            guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
-                        if guias_filtradas:
-                            guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
-                            guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
-                            guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
+                            # Guía
+                            if tipo_envio == "foráneo":
+                                guias_filtradas = [f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())]
+                            else:
+                                guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
+                            if guias_filtradas:
+                                guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
+                                guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
+                                guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
 
-                        # Refacturación
-                        refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
-                        if refacturas:
-                            refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
+                            # Refacturación
+                            refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
+                            if refacturas:
+                                refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
 
-                    link_comprobantes.append(comprobante_url)
-                    link_facturas.append(factura_url)
-                    link_guias.append(guia_url)
-                    link_refacturaciones.append(refact_url)
+                        link_comprobantes.append(comprobante_url)
+                        link_facturas.append(factura_url)
+                        link_guias.append(guia_url)
+                        link_refacturaciones.append(refact_url)
 
-                df_nuevos["Link_Comprobante"] = link_comprobantes
-                df_nuevos["Link_Factura"] = link_facturas
-                df_nuevos["Link_Guia"] = link_guias
-                df_nuevos["Link_Refacturacion"] = link_refacturaciones
+                    df_nuevos["Link_Comprobante"] = link_comprobantes
+                    df_nuevos["Link_Factura"] = link_facturas
+                    df_nuevos["Link_Guia"] = link_guias
+                    df_nuevos["Link_Refacturacion"] = link_refacturaciones
 
-                df_nuevos = df_nuevos[[col for col in columnas_guardar if col in df_nuevos.columns]].fillna("").astype(str)
+                    df_nuevos = df_nuevos[[col for col in columnas_guardar if col in df_nuevos.columns]].fillna("").astype(str)
 
-                # Escribir en la hoja
-                spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
-                try:
-                    hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
-                except gspread.exceptions.WorksheetNotFound:
-                    hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
+                    # Escribir en la hoja
+                    spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
+                    try:
+                        hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
+                    except gspread.exceptions.WorksheetNotFound:
+                        hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
 
-                datos_existentes = hoja_confirmados.get_all_values()
-                if not datos_existentes:
-                    hoja_confirmados.append_row(columnas_guardar, value_input_option="USER_ENTERED")
+                    datos_existentes = hoja_confirmados.get_all_values()
+                    if not datos_existentes:
+                        hoja_confirmados.append_row(columnas_guardar, value_input_option="USER_ENTERED")
 
-                filas_nuevas = df_nuevos[columnas_guardar].values.tolist()
-                hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
+                    filas_nuevas = df_nuevos[columnas_guardar].values.tolist()
+                    hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
-            tab2_alert.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados agregados a la hoja.")
+                tab2_alert.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados agregados a la hoja.")
 
-            # Recargar
-            st.session_state["tab2_reload_nonce"] += 1
-            st.cache_data.clear()
-            st.toast("Datos recargados", icon="🔄")
-            st.query_params["tab"] = st.session_state.get("current_tab", "0")
-            st.rerun()
+                # Recargar
+                st.session_state["tab2_reload_nonce"] += 1
+                cargar_confirmados_guardados_cached.clear()
+                st.toast("Datos recargados", icon="🔄")
+                st.query_params["tab"] = st.session_state.get("current_tab", "0")
+                st.rerun()
 
-        except gspread.exceptions.APIError as e:
-            tab2_alert.error(f"❌ Error de Google API al actualizar/recargar: {e}")
-        except Exception as e:
-            tab2_alert.error(f"❌ Ocurrió un error al actualizar/recargar: {e}")
+            except gspread.exceptions.APIError as e:
+                tab2_alert.error(f"❌ Error de Google API al actualizar/recargar: {e}")
+            except Exception as e:
+                tab2_alert.error(f"❌ Ocurrió un error al actualizar/recargar: {e}")
 
     # ---------- Vista de confirmados ----------
     if df_confirmados_guardados.empty:
@@ -1183,8 +1201,10 @@ with tab3, suppress(StopException):
     col_recargar, _ = st.columns([1, 5])
     with col_recargar:
         def _reload_tab3():
+            if not allow_refresh("tab3_last_refresh", tab3_alert):
+                return
             st.session_state["tab3_reload_nonce"] += 1
-            st.cache_data.clear()
+            get_raw_sheet_data_cached.clear()
             st.toast("Casos recargados", icon="🔄")
             st.query_params["tab"] = st.session_state.get("current_tab", "0")
             st.rerun()
@@ -1665,7 +1685,7 @@ with tab3, suppress(StopException):
         if ok_all:
             tab3_alert.success("✅ Confirmación guardada.")
             st.session_state["tab3_reload_nonce"] += 1
-            st.cache_data.clear()
+            get_raw_sheet_data_cached.clear()
             st.toast("Confirmación guardada", icon="✅")
             st.query_params["tab"] = st.session_state.get("current_tab", "0")
             st.rerun()
@@ -1710,9 +1730,10 @@ with tab4:
     col_a, col_b = st.columns([1, 5])
     with col_a:
         if st.button("🔄 Recargar Casos", type="secondary", key="tab4_reload_btn"):
-            st.session_state["tab4_reload_nonce"] += 1
-            st.cache_data.clear()
-            st.toast("♻️ Casos recargados.", icon="♻️")
+            if allow_refresh("tab4_last_refresh"):
+                st.session_state["tab4_reload_nonce"] += 1
+                cargar_casos_especiales_cached.clear()
+                st.toast("♻️ Casos recargados.", icon="♻️")
 
     # leer hoja
     try:
