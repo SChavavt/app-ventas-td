@@ -355,6 +355,9 @@ try:
 except Exception:
     _default_tab = 0
 
+# mantener en session_state la pestaña activa
+st.session_state.setdefault("current_tab", str(_default_tab))
+
 tabs = st.tabs(tab_names)
 tab1, tab2, tab3, tab4 = tabs
 
@@ -372,12 +375,15 @@ st.markdown(
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
+    st.session_state["current_tab"] = "0"
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
     if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
         st.cache_data.clear()
         st.cache_resource.clear()
+        st.toast("Pedidos recargados", icon="🔄")
+        st.query_params["tab"] = st.session_state.get("current_tab", "0")
         st.rerun()
 
     if df_pedidos.empty:
@@ -513,6 +519,7 @@ with tab1:
                                 st.balloons()
                                 time.sleep(2)
                                 st.cache_data.clear()
+                                st.query_params["tab"] = st.session_state.get("current_tab", "0")
                                 st.rerun()
 
                             except Exception as e:
@@ -658,6 +665,7 @@ with tab1:
                         st.balloons()
                         time.sleep(2)
                         st.cache_data.clear()
+                        st.query_params["tab"] = st.session_state.get("current_tab", "0")
                         st.rerun()
 
                     except Exception as e:
@@ -870,6 +878,7 @@ with tab1:
                                 st.balloons()
                                 time.sleep(3)
                                 st.cache_data.clear()
+                                st.query_params["tab"] = st.session_state.get("current_tab", "0")
                                 st.rerun()
 
                             except Exception as e:
@@ -881,6 +890,7 @@ with tab1:
                             st.warning("Funcionalidad pendiente.")
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
+    st.session_state["current_tab"] = "1"
     st.header("📥 Pedidos Confirmados")
 
     # Imports usados en este bloque
@@ -1049,11 +1059,13 @@ with tab2:
                 filas_nuevas = df_nuevos[columnas_guardar].values.tolist()
                 hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
 
-                tab2_alert.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados agregados a la hoja.")
+            tab2_alert.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados agregados a la hoja.")
 
             # Recargar
             st.session_state["tab2_reload_nonce"] += 1
             st.cache_data.clear()
+            st.toast("Datos recargados", icon="🔄")
+            st.query_params["tab"] = st.session_state.get("current_tab", "0")
             st.rerun()
 
         except gspread.exceptions.APIError as e:
@@ -1114,6 +1126,7 @@ with tab2:
         )
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
+    st.session_state["current_tab"] = "2"
     st.header("📦 Confirmación de Casos (Devoluciones + Garantías)")
 
     from datetime import datetime
@@ -1166,7 +1179,8 @@ with tab3, suppress(StopException):
         def _reload_tab3():
             st.session_state["tab3_reload_nonce"] += 1
             st.cache_data.clear()
-            st.query_params["tab"] = "2"
+            st.toast("Casos recargados", icon="🔄")
+            st.query_params["tab"] = st.session_state.get("current_tab", "0")
             st.rerun()
 
         st.button(
@@ -1442,7 +1456,8 @@ with tab3, suppress(StopException):
         st.session_state["tab3_selected_idx"] = 0
 
     def _keep_tab3():
-        st.query_params["tab"] = "2"
+        st.toast("Actualizando caso", icon="🔄")
+        st.query_params["tab"] = st.session_state.get("current_tab", "0")
         st.rerun()
 
     selected = st.selectbox(
@@ -1637,7 +1652,8 @@ with tab3, suppress(StopException):
             tab3_alert.success("✅ Confirmación guardada.")
             st.session_state["tab3_reload_nonce"] += 1
             st.cache_data.clear()
-            st.query_params["tab"] = "2"
+            st.toast("Confirmación guardada", icon="✅")
+            st.query_params["tab"] = st.session_state.get("current_tab", "0")
             st.rerun()
         else:
             tab3_alert.error("❌ Ocurrió un problema al guardar.")
@@ -1646,6 +1662,7 @@ with tab3, suppress(StopException):
 
 # --- TAB 4: CASOS ESPECIALES (Descarga Devoluciones/Garantías) ---
 with tab4:
+    st.session_state["current_tab"] = "3"
     st.header("📥 Casos Especiales (Devoluciones/Garantías)")
 
     from io import BytesIO
