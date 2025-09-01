@@ -1475,16 +1475,56 @@ with tab3, suppress(StopException):
 
     # ===== FORMULARIO (ajusta columnas según tipo detectado) =====
     with st.form(key="tab3_confirm_form", clear_on_submit=False):
+        fecha_key = f"fecha_recepcion_{'devolucion' if is_dev else 'garantia'}"
+        estado_key = f"estado_recepcion_{'devolucion' if is_dev else 'garantia'}"
+        seg_key = f"seguimiento_{row.get('ID_Pedido','')}"
+
+        _fecha_raw = str(
+            row.get(
+                "Fecha_Recepcion_Devolucion" if is_dev else "Fecha_Recepcion_Garantia",
+                "",
+            )
+        ).strip()
+        _fecha_val = (
+            pd.to_datetime(_fecha_raw, errors="coerce").date() if _fecha_raw else None
+        )
+        _estado_raw = str(row.get("Estado_Recepcion", "")).strip()
+        _estado_val = (
+            "Sí, completo" if _estado_raw == "Todo correcto" else (
+                "Faltan artículos" if _estado_raw else None
+            )
+        )
+        _segui_val = str(row.get("Seguimiento", "")).strip()
+
+        if (
+            fecha_key not in st.session_state
+            or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
+        ):
+            st.session_state[fecha_key] = _fecha_val
+        if (
+            estado_key not in st.session_state
+            or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
+        ):
+            st.session_state[estado_key] = _estado_val
+        if (
+            seg_key not in st.session_state
+            or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
+        ):
+            st.session_state[seg_key] = _segui_val
+        st.session_state["tab3_last_case_id"] = row.get("ID_Pedido")
+
         fecha_recepcion = st.date_input(
             f"📅 Fecha de recepción ({'devolución' if is_dev else 'garantía'})",
-            key=f"fecha_recepcion_{'devolucion' if is_dev else 'garantia'}"
+            value=st.session_state[fecha_key],
+            key=fecha_key,
         )
+        estado_opts = ["Sí, completo", "Faltan artículos"]
         estado_recepcion = st.selectbox(
             "📦 ¿Todo llegó correctamente?",
-            options=["Sí, completo","Faltan artículos"],
-            index=None,
+            options=estado_opts,
+            index=estado_opts.index(st.session_state[estado_key]) if st.session_state.get(estado_key) in estado_opts else None,
             placeholder="Selecciona el estado de recepción",
-            key=f"estado_recepcion_{'devolucion' if is_dev else 'garantia'}"
+            key=estado_key,
         )
         seguimiento_opts = [
             "En revisión de paquete",
@@ -1494,14 +1534,6 @@ with tab3, suppress(StopException):
             "Pendiente Transferencia",
             "Cerrado",
         ]
-        seg_key = f"seguimiento_{row.get('ID_Pedido','')}"
-        _segui_val = str(row.get("Seguimiento", "")).strip()
-        if (
-            seg_key not in st.session_state
-            or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
-        ):
-            st.session_state[seg_key] = _segui_val
-        st.session_state["tab3_last_case_id"] = row.get("ID_Pedido")
 
         seguimiento_sel = st.selectbox(
             "🔄 Seguimiento",
