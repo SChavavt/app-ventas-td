@@ -91,6 +91,15 @@ def get_worksheet_casos_especiales():
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
     return spreadsheet.worksheet("casos_especiales")
 
+@st.cache_data(ttl=300)
+def get_sheet_headers(sheet_name: str):
+    """Obtiene y cachea los encabezados de la hoja especificada."""
+    if sheet_name == "casos_especiales":
+        ws = get_worksheet_casos_especiales()
+    else:
+        ws = get_worksheet()
+    return ws.row_values(1)
+
 
 # ✅ Cliente listo para usar en cualquier parte
 g_spread_client = get_google_sheets_client()
@@ -844,14 +853,14 @@ with tab1:
             try:
                 if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
                     worksheet = get_worksheet_casos_especiales()
+                    headers = get_sheet_headers("casos_especiales")
                 else:
                     worksheet = get_worksheet()
+                    headers = get_sheet_headers("datos_pedidos")
 
-                all_data = worksheet.get_all_values()
-                if not all_data:
+                if not headers:
                     st.error("❌ La hoja de cálculo está vacía.")
                     st.stop()
-                headers = all_data[0]
 
                 # Hora local de CDMX para ID y Hora_Registro
                 zona_mexico = timezone("America/Mexico_City")
