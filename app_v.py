@@ -1042,14 +1042,29 @@ with tab1:
                 else:
                     values.append("")
 
-            worksheet.append_row(values)
-
-            # ✅ Mensajes de éxito y limpieza
-            st.session_state["success_pedido_registrado"] = id_pedido
-            st.session_state["success_adjuntos"] = adjuntos_urls
-            st.query_params.clear()
-            st.query_params.update({"tab": "0"})
-            st.rerun()
+            exito = False
+            for intento in range(3):
+                try:
+                    worksheet.append_row(values)
+                    exito = True
+                    break
+                except gspread.exceptions.APIError as e:
+                    if "RESOURCE_EXHAUSTED" in str(e) or (
+                        hasattr(e, "response") and getattr(e.response, "status_code", None) == 429
+                    ):
+                        time.sleep(2 ** intento)
+                    else:
+                        st.error(f"❌ Error al registrar el pedido: {e}")
+                        break
+            if exito:
+                # ✅ Mensajes de éxito y limpieza
+                st.session_state["success_pedido_registrado"] = id_pedido
+                st.session_state["success_adjuntos"] = adjuntos_urls
+                st.query_params.clear()
+                st.query_params.update({"tab": "0"})
+                st.rerun()
+            else:
+                st.error("❌ No se pudo registrar el pedido después de varios intentos.")
 
         except Exception as e:
             st.error(f"❌ Error inesperado al registrar el pedido: {e}")
