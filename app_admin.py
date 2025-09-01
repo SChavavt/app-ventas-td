@@ -950,23 +950,6 @@ with tab2:
         st.session_state["_lastgood_confirmados"] = (df.copy(), headers[:])
         return df, headers
 
-    # Métricas rápidas (usa df_pedidos en memoria si existe)
-    if ('df_pedidos' in locals() or 'df_pedidos' in globals()) and not df_pedidos.empty:
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Pedidos", len(df_pedidos))
-        with col2:
-            pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Pedidos Pagados", len(pagados))
-        with col3:
-            confirmados = df_pedidos[df_pedidos.get('Comprobante_Confirmado') == 'Sí'] if 'Comprobante_Confirmado' in df_pedidos.columns else pd.DataFrame()
-            st.metric("Comprobantes Confirmados", len(confirmados))
-        with col4:
-            pendientes = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
-            st.metric("Pendientes Confirmación", pendientes)
-
-    st.markdown("---")
-
     # 📄 Cargar hoja 'pedidos_confirmados' con fallback a snapshot si la API falla
     try:
         df_confirmados_guardados, headers_confirmados = cargar_confirmados_guardados_cached(
@@ -984,6 +967,26 @@ with tab2:
         else:
             st.error(f"❌ No se pudo leer 'pedidos_confirmados'. Detalle: {e}")
             df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
+
+    # Opcional: deduplicar por ID_Pedido para evitar conteos inflados
+    if not df_confirmados_guardados.empty and "ID_Pedido" in df_confirmados_guardados.columns:
+        df_confirmados_guardados = df_confirmados_guardados.drop_duplicates(subset="ID_Pedido", keep="last")
+
+    # Métricas rápidas (usa df_pedidos y confirmados guardados)
+    if ('df_pedidos' in locals() or 'df_pedidos' in globals()) and not df_pedidos.empty:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Pedidos", len(df_pedidos))
+        with col2:
+            pagados = df_pedidos[df_pedidos.get('Estado_Pago') == '✅ Pagado'] if 'Estado_Pago' in df_pedidos.columns else pd.DataFrame()
+            st.metric("Pedidos Pagados", len(pagados))
+        with col3:
+            st.metric("Comprobantes Confirmados", len(df_confirmados_guardados))
+        with col4:
+            pendientes = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
+            st.metric("Pendientes Confirmación", pendientes)
+
+    st.markdown("---")
 
     # 🔁 Botón único: Actualizar Enlaces (agregar nuevos) + Recargar tabla
     tab2_alert = st.empty()
