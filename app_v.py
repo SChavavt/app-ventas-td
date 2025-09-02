@@ -1684,28 +1684,6 @@ with tab3:
             filtered_pedidos_comprobante['Folio_Factura'].astype(str).str.strip().ne('')
         ]
 
-        # --- Aviso: pedidos con Modificación de Surtido pendiente ---
-        pedidos_mod_surtido = pd.DataFrame()
-        if 'Modificacion_Surtido' in filtered_pedidos_comprobante.columns:
-            pedidos_mod_surtido = filtered_pedidos_comprobante[
-                filtered_pedidos_comprobante['Modificacion_Surtido'].astype(str).str.strip().ne('') &
-                ~filtered_pedidos_comprobante['Modificacion_Surtido'].str.contains(r'\[✔CONFIRMADO\]', na=False)
-            ].copy()
-
-        if not pedidos_mod_surtido.empty:
-            st.warning(f"⚠️ Hay {len(pedidos_mod_surtido)} pedido(s) con Modificación de Surtido.")
-            columnas_mod = [
-                'ID_Pedido', 'Cliente', 'Folio_Factura', 'Vendedor_Registro', 'Tipo_Envio', 'Turno',
-                'Fecha_Entrega', 'Estado', 'Estado_Pago', 'Comentario', 'Modificacion_Surtido'
-            ]
-            columnas_mod = [c for c in columnas_mod if c in pedidos_mod_surtido.columns]
-            st.dataframe(
-                pedidos_mod_surtido[columnas_mod].sort_values(by='Fecha_Entrega'),
-                use_container_width=True,
-                hide_index=True
-            )
-            st.markdown('---')
-
         if 'Estado_Pago' in filtered_pedidos_comprobante.columns and 'Adjuntos' in filtered_pedidos_comprobante.columns:
             pedidos_sin_comprobante = filtered_pedidos_comprobante[
                 (filtered_pedidos_comprobante['Estado_Pago'] == '🔴 No Pagado') &
