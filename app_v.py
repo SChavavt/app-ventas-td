@@ -48,6 +48,8 @@ def build_gspread_client():
     return gspread.authorize(creds)
 
 _gsheets_client = None
+
+
 @st.cache_resource
 def get_google_sheets_client():
     def try_get_client():
@@ -59,30 +61,34 @@ def get_google_sheets_client():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
 
-    try:
-        client = try_get_client()
-        _ = client.open_by_key(GOOGLE_SHEET_ID)
-        return client
-    except gspread.exceptions.APIError as e:
-        if "RESOURCE_EXHAUSTED" in str(e) or "expired" in str(e).lower():
-            st.warning("🔁 Token expirado o cuota alcanzada. Reintentando con nuevo cliente...")
-            st.cache_resource.clear()
-            time.sleep(2)
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        try:
+            client = try_get_client()
+            _ = client.open_by_key(GOOGLE_SHEET_ID)
+            st.session_state.pop("gsheet_error", None)
+            return client
+        except gspread.exceptions.APIError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 429 or "RESOURCE_EXHAUSTED" in str(e):
+                time.sleep(2 ** attempt)
+                continue
+            st.session_state["gsheet_error"] = f"❌ Error al conectar con Google Sheets: {e}"
+            return None
+        except Exception as e:
+            st.session_state["gsheet_error"] = f"❌ Error al conectar con Google Sheets: {e}"
+            return None
 
-            try:
-                client = try_get_client()
-                _ = client.open_by_key(GOOGLE_SHEET_ID)
-                return client
-            except Exception as e2:
-                st.error(f"❌ Falló la reconexión con Google Sheets: {e2}")
-                st.stop()
-        else:
-            st.error(f"❌ Error al conectar con Google Sheets: {e}")
-            st.stop()
+    st.session_state["gsheet_error"] = st.session_state.get(
+        "gsheet_error", "❌ No se pudo conectar con Google Sheets."
+    )
+    return None
 
 @st.cache_resource
 def get_worksheet():
     client = get_google_sheets_client()
+    if client is None:
+        return None
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
     return spreadsheet.worksheet("datos_pedidos")
 
@@ -98,11 +104,20 @@ def get_sheet_headers(sheet_name: str):
         ws = get_worksheet_casos_especiales()
     else:
         ws = get_worksheet()
-    return ws.row_values(1)
+    return ws.row_values(1) if ws else []
 
 
 # ✅ Cliente listo para usar en cualquier parte
 g_spread_client = get_google_sheets_client()
+if g_spread_client is None:
+    st.warning(st.session_state.get("gsheet_error", "No se pudo conectar a Google Sheets."))
+    if st.button("Reintentar conexión"):
+        get_google_sheets_client.clear()
+        g_spread_client = get_google_sheets_client()
+        if g_spread_client is None:
+            st.stop()
+    else:
+        st.stop()
 
 
 # --- AWS S3 CONFIGURATION (NEW) ---
@@ -408,9 +423,7 @@ def render_caso_especial(row):
     st.markdown("---")
 
 # --- Initialize Gspread Client and S3 Client ---
-# NEW: Initialize gspread client using the new function
-g_spread_client = get_google_sheets_client()
-s3_client = get_s3_client() # Initialize S3 client
+s3_client = get_s3_client()  # Initialize S3 client
 
 # Removed the old try-except block for client initialization
 
