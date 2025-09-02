@@ -1809,22 +1809,35 @@ with tab3:
                         else:
                             st.warning("⚠️ Por favor, sube al menos un archivo.")
 
-                if st.button("✅ Marcar como Pagado sin Comprobante", key=f"btn_sin_cp_{selected_pending_order_id}"):
-                    try:
-                        headers = worksheet.row_values(1)
-                        df_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
-                        sheet_row = df_index + 2
+                confirm_key = f"confirm_sin_cp_{selected_pending_order_id}"
+                if st.session_state.get(confirm_key):
+                    col_confirm, col_cancel = st.columns(2)
+                    with col_confirm:
+                        if st.button("✅ Confirmar", key=f"{confirm_key}_yes"):
+                            try:
+                                headers = worksheet.row_values(1)
+                                df_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
+                                sheet_row = df_index + 2
 
-                        worksheet.update_cell(sheet_row, headers.index('Estado_Pago') + 1, "✅ Pagado")
+                                worksheet.update_cell(sheet_row, headers.index('Estado_Pago') + 1, "✅ Pagado")
 
-                        if 'Fecha_Pago_Comprobante' in headers:
-                            worksheet.update_cell(sheet_row, headers.index('Fecha_Pago_Comprobante') + 1, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
+                                if 'Fecha_Pago_Comprobante' in headers:
+                                    worksheet.update_cell(sheet_row, headers.index('Fecha_Pago_Comprobante') + 1, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
 
-                        st.success("✅ Pedido marcado como pagado sin comprobante.")
-                        st.balloons()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
+                                st.success("✅ Pedido marcado como pagado sin comprobante.")
+                                st.balloons()
+                                st.session_state.pop(confirm_key, None)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
+                                st.session_state.pop(confirm_key, None)
+                    with col_cancel:
+                        if st.button("❌ Cancelar", key=f"{confirm_key}_no"):
+                            st.session_state.pop(confirm_key, None)
+                            st.info("✅ Acción cancelada.")
+                else:
+                    if st.button("✅ Marcar como Pagado sin Comprobante", key=f"btn_sin_cp_{selected_pending_order_id}"):
+                        st.session_state[confirm_key] = True
 
 # ----------------- HELPERS FALTANTES -----------------
 
