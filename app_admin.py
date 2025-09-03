@@ -203,13 +203,22 @@ def get_google_sheets_client():
                 st.stop()
 
 
-df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
-# Excluir pedidos de cursos y eventos para que no aparezcan en ningún flujo
-if 'Tipo_Envio' in df_pedidos.columns:
-    df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
-if df_pedidos.empty:
-    st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
-    # No st.stop(): deja que otras pestañas/partes sigan funcionando
+if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
+    df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
+    # Excluir pedidos de cursos y eventos para que no aparezcan en ningún flujo
+    if 'Tipo_Envio' in df_pedidos.columns:
+        df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
+    if df_pedidos.empty:
+        st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
+        # No st.stop(): deja que otras pestañas/partes sigan funcionando
+    st.session_state.df_pedidos = df_pedidos
+    st.session_state.headers = headers
+    if 'Comprobante_Confirmado' in df_pedidos.columns:
+        st.session_state.pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
+
+df_pedidos = st.session_state.df_pedidos
+headers = st.session_state.headers
+pedidos_pagados_no_confirmados = st.session_state.get('pedidos_pagados_no_confirmados', pd.DataFrame())
 
 df_casos, headers_casos = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "casos_especiales")
 
@@ -369,10 +378,7 @@ except Exception as e:
     st.stop()
 
 # Calcular pedidos pendientes para usar en ambos tabs
-if 'Comprobante_Confirmado' in df_pedidos.columns:
-    pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
-else:
-    pedidos_pagados_no_confirmados = pd.DataFrame()
+pedidos_pagados_no_confirmados = st.session_state.get('pedidos_pagados_no_confirmados', pd.DataFrame())
 
 # ---- TABS ADMIN ----
 # Mantiene la pestaña activa usando los query params de Streamlit
@@ -420,6 +426,9 @@ with tab1:
         if allow_refresh("pedidos_last_refresh"):
             cargar_pedidos_desde_google_sheet.clear()
             get_google_sheets_client.clear()
+            st.session_state.pop("df_pedidos", None)
+            st.session_state.pop("headers", None)
+            st.session_state.pop("pedidos_pagados_no_confirmados", None)
             st.toast("Pedidos recargados", icon="🔄")
             rerun_current_tab()
 
@@ -572,11 +581,19 @@ with tab1:
                                 if updates:
                                     safe_batch_update(worksheet, updates)
 
+                                df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index
+                                if len(df_idx) > 0:
+                                    df_idx = df_idx[0]
+                                    for col, val in updates.items():
+                                        if col in df_pedidos.columns:
+                                            df_pedidos.at[df_idx, col] = val
+                                pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_data["ID_Pedido"]]
+                                st.session_state.df_pedidos = df_pedidos
+                                st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+
                                 st.success("✅ Confirmación de crédito guardada exitosamente.")
                                 st.balloons()
                                 time.sleep(2)
-                                cargar_pedidos_desde_google_sheet.clear()
-                                rerun_current_tab()
 
                             except Exception as e:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
@@ -707,6 +724,7 @@ with tab1:
                         worksheet = _get_ws_datos()
 
                         cell_updates = []
+                        nuevo_valor_adjuntos = None
 
                         # Escribir columnas principales
                         for col, val in updates.items():
@@ -731,15 +749,25 @@ with tab1:
                                 "values": [[nuevo_valor_adjuntos]],
                             })
 
-        
+
                         if cell_updates:
                             safe_batch_update(worksheet, cell_updates)
+
+                        df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index
+                        if len(df_idx) > 0:
+                            df_idx = df_idx[0]
+                            for col, val in updates.items():
+                                if col in df_pedidos.columns:
+                                    df_pedidos.at[df_idx, col] = val
+                            if nuevo_valor_adjuntos and 'Adjuntos' in df_pedidos.columns:
+                                df_pedidos.at[df_idx, 'Adjuntos'] = nuevo_valor_adjuntos
+                        pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_data["ID_Pedido"]]
+                        st.session_state.df_pedidos = df_pedidos
+                        st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
 
                         st.success("✅ Comprobante y datos de pago guardados exitosamente.")
                         st.balloons()
                         time.sleep(2)
-                        cargar_pedidos_desde_google_sheet.clear()
-                        rerun_current_tab()
 
                     except Exception as e:
                         st.error(f"❌ Error al guardar el comprobante: {e}")
@@ -955,11 +983,19 @@ with tab1:
                                 if cell_updates:
                                     safe_batch_update(worksheet, cell_updates)
 
+                                df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index
+                                if len(df_idx) > 0:
+                                    df_idx = df_idx[0]
+                                    for col, val in updates.items():
+                                        if col in df_pedidos.columns:
+                                            df_pedidos.at[df_idx, col] = val
+                                pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search]
+                                st.session_state.df_pedidos = df_pedidos
+                                st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+
                                 st.success("🎉 Comprobante confirmado exitosamente.")
                                 st.balloons()
                                 time.sleep(3)
-                                cargar_pedidos_desde_google_sheet.clear()
-                                rerun_current_tab()
 
                             except Exception as e:
                                 st.error(f"❌ Error al confirmar comprobante: {e}")
