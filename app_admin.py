@@ -5,6 +5,8 @@ import time
 import pandas as pd
 import boto3
 import gspread
+from gspread.exceptions import APIError
+from gspread.utils import rowcol_to_a1
 from google.oauth2.service_account import Credentials as GoogleCredentials
 from io import BytesIO
 from datetime import datetime, date
@@ -88,6 +90,20 @@ def rerun_current_tab():
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
     return safe_open_worksheet(GOOGLE_SHEET_ID, "datos_pedidos")
+
+
+def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
+    """Realiza ``batch_update`` con reintentos exponenciales ante errores 429."""
+    for attempt in range(retries):
+        try:
+            worksheet.batch_update(data)
+            return
+        except APIError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 429 and attempt < retries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+            else:
+                raise
 
 
 # --- GOOGLE SHEETS CONFIGURATION ---
@@ -527,14 +543,34 @@ with tab1:
                                 worksheet = _get_ws_datos()
 
                                 # Actualizaciones
+                                updates = []
                                 if "Comprobante_Confirmado" in headers:
-                                    worksheet.update_cell(gsheet_row_index, headers.index("Comprobante_Confirmado") + 1, confirmacion_credito)
+                                    updates.append({
+                                        "range": rowcol_to_a1(
+                                            gsheet_row_index,
+                                            headers.index("Comprobante_Confirmado") + 1,
+                                        ),
+                                        "values": [[confirmacion_credito]],
+                                    })
 
                                 if "Comentario" in headers:
                                     comentario_existente = selected_pedido_data.get("Comentario", "")
                                     nuevo_comentario = f"Comentario de CREDITO: {comentario_credito.strip()}"
-                                    comentario_final = f"{comentario_existente}\n{nuevo_comentario}" if comentario_existente else nuevo_comentario
-                                    worksheet.update_cell(gsheet_row_index, headers.index("Comentario") + 1, comentario_final)
+                                    comentario_final = (
+                                        f"{comentario_existente}\n{nuevo_comentario}"
+                                        if comentario_existente
+                                        else nuevo_comentario
+                                    )
+                                    updates.append({
+                                        "range": rowcol_to_a1(
+                                            gsheet_row_index,
+                                            headers.index("Comentario") + 1,
+                                        ),
+                                        "values": [[comentario_final]],
+                                    })
+
+                                if updates:
+                                    safe_batch_update(worksheet, updates)
 
                                 st.success("✅ Confirmación de crédito guardada exitosamente.")
                                 st.balloons()
@@ -670,16 +706,34 @@ with tab1:
                         # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                         worksheet = _get_ws_datos()
 
+                        cell_updates = []
+
                         # Escribir columnas principales
                         for col, val in updates.items():
                             if col in headers:
-                                worksheet.update_cell(gsheet_row_index, headers.index(col) + 1, val)
+                                cell_updates.append({
+                                    "range": rowcol_to_a1(
+                                        gsheet_row_index, headers.index(col) + 1
+                                    ),
+                                    "values": [[val]],
+                                })
 
                         # Concatenar nuevos adjuntos al campo "Adjuntos"
                         if adjuntos_urls and "Adjuntos" in headers:
                             adjuntos_actuales = selected_pedido_data.get("Adjuntos", "")
-                            nuevo_valor_adjuntos = ", ".join(filter(None, [adjuntos_actuales] + adjuntos_urls))
-                            worksheet.update_cell(gsheet_row_index, headers.index("Adjuntos") + 1, nuevo_valor_adjuntos)
+                            nuevo_valor_adjuntos = ", ".join(
+                                filter(None, [adjuntos_actuales] + adjuntos_urls)
+                            )
+                            cell_updates.append({
+                                "range": rowcol_to_a1(
+                                    gsheet_row_index, headers.index("Adjuntos") + 1
+                                ),
+                                "values": [[nuevo_valor_adjuntos]],
+                            })
+
+        
+                        if cell_updates:
+                            safe_batch_update(worksheet, cell_updates)
 
                         st.success("✅ Comprobante y datos de pago guardados exitosamente.")
                         st.balloons()
@@ -889,9 +943,17 @@ with tab1:
                                 # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                                 worksheet = _get_ws_datos()
 
+                                cell_updates = []
                                 for col, val in updates.items():
                                     if col in headers:
-                                        worksheet.update_cell(gsheet_row_index, headers.index(col)+1, val)
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index, headers.index(col) + 1
+                                            ),
+                                            "values": [[val]],
+                                        })
+                                if cell_updates:
+                                    safe_batch_update(worksheet, cell_updates)
 
                                 st.success("🎉 Comprobante confirmado exitosamente.")
                                 st.balloons()
@@ -1605,20 +1667,29 @@ with tab3, suppress(StopException):
         submitted = st.form_submit_button("💾 Guardar Confirmación", use_container_width=True)
 
     # Helper actualización
-    def update_gsheet_cell(worksheet, headers, row_idx, col_name, value, retries: int = 2):
+    def update_gsheet_cell(
+        worksheet, headers, row_idx, col_name, value, retries: int = 2
+    ):
         try:
             col_idx = headers.index(col_name) + 1
         except ValueError:
             return False
+
+        base_delay = 0.6
         for i in range(retries + 1):
             try:
                 worksheet.update_cell(row_idx, col_idx, value)
                 return True
+            except APIError as e:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 429 and i < retries:
+                    time.sleep(base_delay * (2 ** i))
+                    continue
+                tab3_alert.error(f"❌ Error al actualizar '{col_name}': {e}")
+                return False
             except Exception as e:
-                if i == retries:
-                    tab3_alert.error(f"❌ Error al actualizar '{col_name}': {e}")
-                    return False
-                time.sleep(0.6 * (i + 1))
+                tab3_alert.error(f"❌ Error al actualizar '{col_name}': {e}")
+                return False
 
     # Guardado
     if submitted:
