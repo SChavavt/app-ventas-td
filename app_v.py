@@ -581,7 +581,8 @@ with tab1:
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
             fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", datetime.now().date())
-            comentario = st.text_area("💬 Comentario / Descripción Detallada")
+
+        comentario = st.text_area("💬 Comentario / Descripción Detallada")
 
         # --- Campos adicionales para Devolución ---
         if tipo_envio == "🔁 Devolución":
@@ -962,10 +963,7 @@ with tab1:
                     else:
                         values.append(fecha_entrega.strftime('%Y-%m-%d'))
                 elif header == "Comentario":
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        values.append("")
-                    else:
-                        values.append(comentario)
+                    values.append(comentario)
                 elif header == "Adjuntos":
                     values.append(adjuntos_str)
                 elif header == "Adjuntos_Surtido":
