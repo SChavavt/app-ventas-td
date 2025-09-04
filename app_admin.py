@@ -84,16 +84,8 @@ st.set_page_config(page_title="App Admin TD", layout="wide")
 
 def rerun_current_tab():
     """Rerun Streamlit keeping the current tab in query params."""
-    st.experimental_set_query_params(tab=st.session_state.get("current_tab", "0"))
+    st.query_params["tab"] = st.session_state.get("current_tab", "0")
     st.rerun()
-
-
-def set_active_tab(index: int) -> None:
-    """Centraliza el control de la pestaña activa y sincroniza los query params."""
-    idx = str(index)
-    if st.session_state.get("current_tab") != idx:
-        st.session_state["current_tab"] = idx
-        st.experimental_set_query_params(tab=idx)
 
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
@@ -389,7 +381,7 @@ except Exception as e:
 pedidos_pagados_no_confirmados = st.session_state.get('pedidos_pagados_no_confirmados', pd.DataFrame())
 
 # ---- TABS ADMIN ----
-# Mantiene la pestaña activa usando session_state
+# Mantiene la pestaña activa usando los query params de Streamlit
 tab_names = [
     "💳 Pendientes de Confirmar",
     "📥 Confirmados",
@@ -397,13 +389,20 @@ tab_names = [
     "🗂️ Data Especiales",
 ]
 
-_default_tab = int(st.session_state.get("current_tab", "0"))
+# índice de pestaña activo desde la URL (por defecto 0)
+_tab_param = st.query_params.get("tab", ["0"])[0]
+try:
+    _default_tab = int(_tab_param)
+except Exception:
+    _default_tab = 0
+
+# mantener en session_state la pestaña activa
 st.session_state.setdefault("current_tab", str(_default_tab))
 
 tabs = st.tabs(tab_names)
 tab1, tab2, tab3, tab4 = tabs
 
-# fuerza la pestaña almacenada al recargar
+# forza la pestaña almacenada al recargar
 st.markdown(
     f"""
     <script>
@@ -417,7 +416,9 @@ st.markdown(
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
-    set_active_tab(0)
+    if st.query_params.get("tab", ["0"])[0] != "0":
+        st.query_params["tab"] = "0"
+    st.session_state["current_tab"] = "0"
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
@@ -1005,7 +1006,9 @@ with tab1:
                             st.warning("Funcionalidad pendiente.")
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
-    set_active_tab(1)
+    if st.query_params.get("tab", ["0"])[0] != "1":
+        st.query_params["tab"] = "1"
+    st.session_state["current_tab"] = "1"
     st.header("📥 Pedidos Confirmados")
 
     # Imports usados en este bloque
@@ -1243,7 +1246,9 @@ with tab2:
         )
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
-    set_active_tab(2)
+    if st.query_params.get("tab", ["0"])[0] != "2":
+        st.query_params["tab"] = "2"
+    st.session_state["current_tab"] = "2"
     st.header("📦 Confirmación de Casos (Devoluciones + Garantías)")
 
     from datetime import datetime
@@ -1795,7 +1800,9 @@ with tab3, suppress(StopException):
 
 # --- TAB 4: CASOS ESPECIALES (Descarga Devoluciones/Garantías) ---
 with tab4:
-    set_active_tab(3)
+    if st.query_params.get("tab", ["0"])[0] != "3":
+        st.query_params["tab"] = "3"
+    st.session_state["current_tab"] = "3"
     st.header("📥 Casos Especiales (Devoluciones/Garantías)")
 
     from io import BytesIO
