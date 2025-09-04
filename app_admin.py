@@ -1578,16 +1578,11 @@ with tab3, suppress(StopException):
     if st.session_state["tab3_selected_idx"] >= len(options):
         st.session_state["tab3_selected_idx"] = 0
 
-    def _keep_tab3():
-        st.toast("Actualizando caso", icon="🔄")
-        rerun_current_tab()
-
     selected = st.selectbox(
         "📋 Selecciona un caso",
         options,
         index=st.session_state["tab3_selected_idx"],
         key="tab3_selectbox",
-        on_change=_keep_tab3,
     )
     st.session_state["tab3_selected_idx"] = options.index(selected) if selected in options else 0
     row = df_pendientes[df_pendientes["__display__"] == selected].iloc[0]
