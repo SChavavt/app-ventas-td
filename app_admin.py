@@ -14,6 +14,7 @@ import os
 import uuid
 from contextlib import suppress
 from streamlit.runtime.scriptrunner import StopException
+from streamlit.components.v1 import html
 
 # Reintentos robustos para Google Sheets
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
@@ -81,10 +82,77 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
 
 st.set_page_config(page_title="App Admin TD", layout="wide")
 
+if "active_main_tab_index" not in st.session_state:
+    try:
+        st.session_state["active_main_tab_index"] = int(st.query_params.get("tab", ["0"])[0])
+    except Exception:
+        st.session_state["active_main_tab_index"] = 0
+
+
+def set_active_tab(index: int, state_key: str, param_key: str | None = None) -> None:
+    """Helper para actualizar estado y parámetros de URL."""
+    st.session_state[state_key] = index
+    if param_key:
+        st.query_params[param_key] = str(index)
+
+
+def set_active_main_tab(index: int) -> None:
+    """Establece la pestaña principal activa y actualiza la URL."""
+    set_active_tab(index, "active_main_tab_index", "tab")
+
+
+def set_active_sub_tab(index: int, key: str = "active_sub_tab_index") -> None:
+    """Establece una pestaña secundaria activa."""
+    set_active_tab(index, key)
+
+
+def preserve_tab_state() -> None:
+    """Guarda el estado de las pestañas antes de un rerun."""
+    set_active_main_tab(st.session_state.get("active_main_tab_index", 0))
+    for key in [k for k in st.session_state if k.startswith("active_sub_tab_index")]:
+        st.session_state[key] = st.session_state.get(key, 0)
+
+
+def create_tabs_with_state(tab_names, state_key, param_key=None):
+    """Crea pestañas que preservan su estado e índices."""
+    group_idx = st.session_state.get("_tab_group_counter", 0)
+    st.session_state["_tab_group_counter"] = group_idx + 1
+
+    if state_key not in st.session_state:
+        if param_key and param_key in st.query_params:
+            try:
+                st.session_state[state_key] = int(st.query_params[param_key][0])
+            except Exception:
+                st.session_state[state_key] = 0
+        else:
+            st.session_state[state_key] = 0
+
+    tabs = st.tabs(tab_names)
+
+    selected = html(
+        f"""
+        <script>
+        const tabLists = window.parent.document.querySelectorAll('div[data-baseweb="tab-list"]');
+        const tabs = tabLists[{group_idx}].querySelectorAll('button');
+        const activeIndex = {st.session_state[state_key]};
+        if (tabs.length > activeIndex) {{ tabs[activeIndex].click(); }}
+        tabs.forEach((tab, i) => {{
+            tab.addEventListener('click', () => Streamlit.setComponentValue(i));
+        }});
+        </script>
+        """,
+        height=0,
+        key=f"{state_key}_script",
+    )
+
+    if selected is not None:
+        set_active_tab(int(selected), state_key, param_key)
+
+    return tabs
+
 
 def rerun_current_tab():
-    """Rerun Streamlit keeping the current tab in query params."""
-    st.query_params["tab"] = st.session_state.get("current_tab", "0")
+    """Rerun Streamlit."""
     st.rerun()
 
 def _get_ws_datos():
@@ -389,36 +457,13 @@ tab_names = [
     "🗂️ Data Especiales",
 ]
 
-# índice de pestaña activo desde la URL (por defecto 0)
-_tab_param = st.query_params.get("tab", ["0"])[0]
-try:
-    _default_tab = int(_tab_param)
-except Exception:
-    _default_tab = 0
-
-# mantener en session_state la pestaña activa
-st.session_state.setdefault("current_tab", str(_default_tab))
-
-tabs = st.tabs(tab_names)
+# Crear pestañas principales preservando el estado
+tabs = create_tabs_with_state(tab_names, "active_main_tab_index", "tab")
 tab1, tab2, tab3, tab4 = tabs
-
-# forza la pestaña almacenada al recargar
-st.markdown(
-    f"""
-    <script>
-        const tabs = window.parent.document.querySelectorAll('div[data-baseweb="tab-list"] button');
-        if (tabs.length > {_default_tab}) {{ tabs[{_default_tab}].click(); }}
-    </script>
-    """,
-    unsafe_allow_html=True,
-)
-
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
-    if st.query_params.get("tab", ["0"])[0] != "0":
-        st.query_params["tab"] = "0"
-    st.session_state["current_tab"] = "0"
+    set_active_main_tab(0)
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
@@ -430,6 +475,7 @@ with tab1:
             st.session_state.pop("headers", None)
             st.session_state.pop("pedidos_pagados_no_confirmados", None)
             st.toast("Pedidos recargados", icon="🔄")
+            preserve_tab_state()
             rerun_current_tab()
 
     if df_pedidos.empty:
@@ -1006,9 +1052,7 @@ with tab1:
                             st.warning("Funcionalidad pendiente.")
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
-    if st.query_params.get("tab", ["0"])[0] != "1":
-        st.query_params["tab"] = "1"
-    st.session_state["current_tab"] = "1"
+    set_active_main_tab(1)
     st.header("📥 Pedidos Confirmados")
 
     # Imports usados en este bloque
@@ -1186,6 +1230,7 @@ with tab2:
                 st.session_state["tab2_reload_nonce"] += 1
                 cargar_confirmados_guardados_cached.clear()
                 st.toast("Datos recargados", icon="🔄")
+                preserve_tab_state()
                 rerun_current_tab()
 
             except gspread.exceptions.APIError as e:
@@ -1246,9 +1291,7 @@ with tab2:
         )
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
-    if st.query_params.get("tab", ["0"])[0] != "2":
-        st.query_params["tab"] = "2"
-    st.session_state["current_tab"] = "2"
+    set_active_main_tab(2)
     st.header("📦 Confirmación de Casos (Devoluciones + Garantías)")
 
     from datetime import datetime
@@ -1304,6 +1347,7 @@ with tab3, suppress(StopException):
             st.session_state["tab3_reload_nonce"] += 1
             get_raw_sheet_data_cached.clear()
             st.toast("Casos recargados", icon="🔄")
+            preserve_tab_state()
             rerun_current_tab()
 
         if st.button(
@@ -1580,6 +1624,7 @@ with tab3, suppress(StopException):
 
     def _keep_tab3():
         st.toast("Actualizando caso", icon="🔄")
+        preserve_tab_state()
         rerun_current_tab()
 
     selected = st.selectbox(
@@ -1792,6 +1837,7 @@ with tab3, suppress(StopException):
             st.session_state["tab3_reload_nonce"] += 1
             get_raw_sheet_data_cached.clear()
             st.toast("Confirmación guardada", icon="✅")
+            preserve_tab_state()
             rerun_current_tab()
         else:
             tab3_alert.error("❌ Ocurrió un problema al guardar.")
@@ -1800,9 +1846,7 @@ with tab3, suppress(StopException):
 
 # --- TAB 4: CASOS ESPECIALES (Descarga Devoluciones/Garantías) ---
 with tab4:
-    if st.query_params.get("tab", ["0"])[0] != "3":
-        st.query_params["tab"] = "3"
-    st.session_state["current_tab"] = "3"
+    set_active_main_tab(3)
     st.header("📥 Casos Especiales (Devoluciones/Garantías)")
 
     from io import BytesIO
@@ -1838,6 +1882,7 @@ with tab4:
                 st.session_state["tab4_reload_nonce"] += 1
                 cargar_casos_especiales_cached.clear()
                 st.toast("♻️ Casos recargados.", icon="♻️")
+                preserve_tab_state()
                 rerun_current_tab()
 
     # leer hoja
