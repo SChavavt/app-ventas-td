@@ -1702,30 +1702,14 @@ with tab3, suppress(StopException):
         )
         submitted = st.form_submit_button("💾 Guardar Confirmación", use_container_width=True)
 
-    # Helper actualización
-    def update_gsheet_cell(
-        worksheet, headers, row_idx, col_name, value, retries: int = 2
-    ):
+    # Helper para construir updates
+    def update_gsheet_cell(headers, row_idx, col_name, value):
         try:
             col_idx = headers.index(col_name) + 1
         except ValueError:
-            return False
-
-        base_delay = 0.6
-        for i in range(retries + 1):
-            try:
-                worksheet.update_cell(row_idx, col_idx, value)
-                return True
-            except APIError as e:
-                status = getattr(getattr(e, "response", None), "status_code", None)
-                if status == 429 and i < retries:
-                    time.sleep(base_delay * (2 ** i))
-                    continue
-                tab3_alert.error(f"❌ Error al actualizar '{col_name}': {e}")
-                return False
-            except Exception as e:
-                tab3_alert.error(f"❌ Error al actualizar '{col_name}': {e}")
-                return False
+            return None
+        cell = rowcol_to_a1(row_idx, col_idx)
+        return {"range": cell, "values": [[value]]}
 
     # Guardado
     if submitted:
@@ -1784,8 +1768,17 @@ with tab3, suppress(StopException):
 
         ok_all = True
         with st.spinner("Guardando confirmación..."):
+            requests = []
             for col, val in updates.items():
-                ok_all &= update_gsheet_cell(worksheet_casos, headers_casos, gsheet_row_idx, col, val)
+                upd = update_gsheet_cell(headers_casos, gsheet_row_idx, col, val)
+                if upd:
+                    requests.append(upd)
+            try:
+                if requests:
+                    safe_batch_update(worksheet_casos, requests)
+            except Exception as e:
+                tab3_alert.error(f"❌ Error al actualizar: {e}")
+                ok_all = False
 
         if ok_all:
             tab3_alert.success("✅ Confirmación guardada.")
@@ -1815,15 +1808,14 @@ with tab4:
         st.session_state["tab4_reload_nonce"] = 0
 
     # ✅ lector robusto con caché
-    @st.cache_data(show_spinner=False, ttl=0)
+    @st.cache_data(show_spinner=False, ttl=300)
     def cargar_casos_especiales_cached(sheet_id: str, ws_name: str, _nonce: int):
-        ws = safe_open_worksheet(sheet_id, ws_name)  # usa tu helper existente
-        vals = ws.get_values("A1:ZZ", value_render_option="UNFORMATTED_VALUE")
+        ws = safe_open_worksheet(sheet_id, ws_name)
+        vals = ws.get_values("A1:AN", value_render_option="UNFORMATTED_VALUE")
         if not vals:
             return pd.DataFrame(), [], None
         headers = vals[0]
         df = pd.DataFrame(vals[1:], columns=headers)
-        # limpieza básica
         df = df.dropna(how="all")
         for c in ["ID_Pedido", "Cliente", "Folio_Factura", "Tipo_Envio", "Hora_Registro"]:
             if c not in df.columns:
@@ -1836,21 +1828,33 @@ with tab4:
         if st.button("🔄 Recargar Casos", type="secondary", key="tab4_reload_btn"):
             if allow_refresh("tab4_last_refresh"):
                 st.session_state["tab4_reload_nonce"] += 1
-                cargar_casos_especiales_cached.clear()
                 st.toast("♻️ Casos recargados.", icon="♻️")
                 rerun_current_tab()
 
     # leer hoja
+    prev_nonce = st.session_state["tab4_reload_nonce"]
     try:
         df_ce, headers_ce, ws_casos = cargar_casos_especiales_cached(
-            GOOGLE_SHEET_ID, "casos_especiales", st.session_state["tab4_reload_nonce"]
+            GOOGLE_SHEET_ID, "casos_especiales", prev_nonce
+        )
+        st.session_state["_lastgood_casos_especiales"] = (
+            df_ce.copy(), headers_ce
         )
     except gspread.exceptions.WorksheetNotFound:
         st.error("❌ No existe la hoja 'casos_especiales'.")
         df_ce, headers_ce, ws_casos = pd.DataFrame(), [], None
     except gspread.exceptions.APIError as e:
-        st.error(f"❌ Error al leer 'casos_especiales': {e}")
-        df_ce, headers_ce, ws_casos = pd.DataFrame(), [], None
+        st.session_state["tab4_reload_nonce"] = max(0, prev_nonce - 1)
+        snap = st.session_state.get("_lastgood_casos_especiales")
+        if snap:
+            st.warning(
+                "♻️ Google Sheets dio un error temporal al leer 'casos_especiales'. Mostrando el último dato bueno en caché."
+            )
+            df_ce, headers_ce = snap
+            ws_casos = None
+        else:
+            st.error(f"❌ Error al leer 'casos_especiales': {e}")
+            df_ce, headers_ce, ws_casos = pd.DataFrame(), [], None
 
     if df_ce.empty:
         st.info("ℹ️ No hay registros en 'casos_especiales'.")
