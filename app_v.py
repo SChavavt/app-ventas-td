@@ -1106,7 +1106,7 @@ with tab1:
                     st.session_state.pop(key, None)
                 st.query_params.clear()
                 st.query_params.update({"tab": "0"})
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("❌ No se pudo registrar el pedido después de varios intentos.")
 
