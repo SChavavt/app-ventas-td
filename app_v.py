@@ -540,7 +540,7 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
-    with st.form(key="new_pedido_form", clear_on_submit=True):
+    with st.form(key="new_pedido_form"):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
@@ -553,11 +553,11 @@ with tab1:
         if vendedor != st.session_state.get("last_selected_vendedor", None):
             st.session_state.last_selected_vendedor = vendedor
 
-        registro_cliente = st.text_input("🤝 Cliente")
+        registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
 
         # Número de cliente / RFC para Casos Especiales (Devolución y Garantía)
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-            numero_cliente_rfc = st.text_input("🆔 Número de Cliente o RFC (opcional)")
+            numero_cliente_rfc = st.text_input("🆔 Número de Cliente o RFC (opcional)", key="numero_cliente_rfc")
 
         # Tipo de Envío Original (solo Devolución)
         if tipo_envio == "🔁 Devolución":
@@ -1080,9 +1080,33 @@ with tab1:
                 # ✅ Mensajes de éxito y limpieza
                 st.session_state["success_pedido_registrado"] = id_pedido
                 st.session_state["success_adjuntos"] = adjuntos_urls
+                # Limpiar campos del formulario manualmente
+                keys_to_clear = [
+                    "registro_cliente",
+                    "numero_cliente_rfc",
+                    "folio_factura_error_input",
+                    "folio_factura_input",
+                    "resultado_esperado",
+                    "material_devuelto",
+                    "monto_devuelto",
+                    "area_responsable",
+                    "nombre_responsable",
+                    "motivo_detallado",
+                    "g_resultado_esperado",
+                    "g_descripcion_falla",
+                    "g_piezas_afectadas",
+                    "g_monto_estimado",
+                    "g_area_responsable",
+                    "g_nombre_responsable",
+                    "g_numero_serie",
+                    "g_fecha_compra",
+                    "comprobante_cliente",
+                ]
+                for key in keys_to_clear:
+                    st.session_state.pop(key, None)
                 st.query_params.clear()
                 st.query_params.update({"tab": "0"})
-                st.rerun()
+                st.experimental_rerun()
             else:
                 st.error("❌ No se pudo registrar el pedido después de varios intentos.")
 
