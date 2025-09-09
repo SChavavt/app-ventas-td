@@ -1080,30 +1080,15 @@ with tab1:
                 # ✅ Mensajes de éxito y limpieza
                 st.session_state["success_pedido_registrado"] = id_pedido
                 st.session_state["success_adjuntos"] = adjuntos_urls
-                # Limpiar campos del formulario manualmente
-                keys_to_clear = [
-                    "registro_cliente",
-                    "numero_cliente_rfc",
-                    "folio_factura_error_input",
-                    "folio_factura_input",
-                    "resultado_esperado",
-                    "material_devuelto",
-                    "monto_devuelto",
-                    "area_responsable",
-                    "nombre_responsable",
-                    "motivo_detallado",
-                    "g_resultado_esperado",
-                    "g_descripcion_falla",
-                    "g_piezas_afectadas",
-                    "g_monto_estimado",
-                    "g_area_responsable",
-                    "g_nombre_responsable",
-                    "g_numero_serie",
-                    "g_fecha_compra",
-                    "comprobante_cliente",
-                ]
-                for key in keys_to_clear:
-                    st.session_state.pop(key, None)
+                # Limpiar todo el estado excepto las claves necesarias
+                preserved = {
+                    "last_selected_vendedor",
+                    "success_pedido_registrado",
+                    "success_adjuntos",
+                }
+                for k in list(st.session_state.keys()):
+                    if k not in preserved:
+                        del st.session_state[k]
                 st.query_params.clear()
                 st.query_params.update({"tab": "0"})
                 st.rerun()
