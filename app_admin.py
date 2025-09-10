@@ -198,14 +198,36 @@ def get_google_sheets_client():
                 st.error(
                     f"❌ No se pudo autenticar con Google Sheets tras {max_retries} intentos: {e}"
                 )
-                st.stop()
+                class _FakeResp:
+                    def __init__(self, text):
+                        self.text = text
+
+                raise gspread.exceptions.APIError(_FakeResp(str(e)))
 
 
 @st.cache_resource
 def get_spreadsheet(sheet_id: str):
     """Abre un spreadsheet por ``sheet_id`` reutilizando instancias cacheadas."""
-    gc = get_google_sheets_client()
-    return gc.open_by_key(sheet_id)
+    try:
+        gc = get_google_sheets_client()
+    except gspread.exceptions.APIError as e:
+        snap = st.session_state.get("_last_spreadsheet")
+        if snap:
+            st.warning("♻️ No se pudo autenticar con Google Sheets. Usando snapshot en caché.")
+            return snap
+        st.error(f"❌ No se pudo autenticar con Google Sheets: {e}")
+        return None
+
+    try:
+        ss = gc.open_by_key(sheet_id)
+        st.session_state["_last_spreadsheet"] = ss
+        return ss
+    except gspread.exceptions.APIError as e:
+        snap = st.session_state.get("_last_spreadsheet")
+        if snap:
+            st.warning("♻️ Error al abrir el spreadsheet. Usando snapshot en caché.")
+            return snap
+        raise
 
 
 if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
@@ -215,6 +237,13 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
         df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
     if df_pedidos.empty:
         st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
+        if st.button("🔁 Reintentar conexión", key="retry_pedidos_inicial"):
+            if allow_refresh("pedidos_last_refresh"):
+                cargar_pedidos_desde_google_sheet.clear()
+                get_google_sheets_client.clear()
+                get_spreadsheet.clear()
+                st.toast("Reintentando...", icon="🔄")
+                rerun_current_tab()
         # No st.stop(): deja que otras pestañas/partes sigan funcionando
     st.session_state.df_pedidos = df_pedidos
     st.session_state.headers = headers
