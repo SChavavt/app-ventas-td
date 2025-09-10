@@ -43,14 +43,14 @@ def _err_signature(e) -> tuple[int|None, str]:
 def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
     """
     Abre una worksheet con reintentos automáticos en caso de errores temporales
-    utilizando backoff exponencial (1s, 2s, 4s).
+    utilizando backoff exponencial (1s, 2s, 4s). Usa instancias cacheadas para
+    evitar solicitudes repetidas al abrir el spreadsheet.
     """
     last_err = None
     delay = 1
     for attempt in range(retries):
         try:
-            gc = get_google_sheets_client()  # refresca el cliente en cada intento
-            ss = gc.open_by_key(sheet_id)
+            ss = get_spreadsheet(sheet_id)  # usa instancia cacheada del spreadsheet
             return ss.worksheet(worksheet_name)
         except gspread.exceptions.APIError as e:
             last_err = e
@@ -166,7 +166,7 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
 def get_google_sheets_client():
     """
     Crea el cliente de Google Sheets con google.oauth2 (no oauth2client).
-    No hace llamadas a la API aquí para evitar errores 429 al crear el cliente.
+    No abre ningún spreadsheet aquí para evitar errores 429 al crear el cliente.
     """
     max_retries = 3
     delay = 1
@@ -184,8 +184,6 @@ def get_google_sheets_client():
             ]
             creds = GoogleCredentials.from_service_account_info(creds_dict, scopes=scopes)
             client = gspread.authorize(creds)
-            # Verifica acceso inmediato
-            client.open_by_key(GOOGLE_SHEET_ID)
             return client
 
         except Exception as e:
@@ -201,6 +199,13 @@ def get_google_sheets_client():
                     f"❌ No se pudo autenticar con Google Sheets tras {max_retries} intentos: {e}"
                 )
                 st.stop()
+
+
+@st.cache_resource
+def get_spreadsheet(sheet_id: str):
+    """Abre un spreadsheet por ``sheet_id`` reutilizando instancias cacheadas."""
+    gc = get_google_sheets_client()
+    return gc.open_by_key(sheet_id)
 
 
 if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
@@ -423,14 +428,15 @@ with tab1:
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
     if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
-        if allow_refresh("pedidos_last_refresh"):
-            cargar_pedidos_desde_google_sheet.clear()
-            get_google_sheets_client.clear()
-            st.session_state.pop("df_pedidos", None)
-            st.session_state.pop("headers", None)
-            st.session_state.pop("pedidos_pagados_no_confirmados", None)
-            st.toast("Pedidos recargados", icon="🔄")
-            rerun_current_tab()
+          if allow_refresh("pedidos_last_refresh"):
+              cargar_pedidos_desde_google_sheet.clear()
+              get_google_sheets_client.clear()
+              get_spreadsheet.clear()
+              st.session_state.pop("df_pedidos", None)
+              st.session_state.pop("headers", None)
+              st.session_state.pop("pedidos_pagados_no_confirmados", None)
+              st.toast("Pedidos recargados", icon="🔄")
+              rerun_current_tab()
 
     if df_pedidos.empty:
         st.info("ℹ️ No hay pedidos cargados en este momento.")
@@ -1056,7 +1062,7 @@ with tab2:
             GOOGLE_SHEET_ID, "pedidos_confirmados", st.session_state["tab2_reload_nonce"]
         )
     except gspread.exceptions.WorksheetNotFound:
-        spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
+        spreadsheet = get_spreadsheet(GOOGLE_SHEET_ID)
         spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
         df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
     except gspread.exceptions.APIError as e:
@@ -1167,7 +1173,7 @@ with tab2:
                     df_nuevos = df_nuevos[[col for col in columnas_guardar if col in df_nuevos.columns]].fillna("").astype(str)
 
                     # Escribir en la hoja
-                    spreadsheet = get_google_sheets_client().open_by_key(GOOGLE_SHEET_ID)
+                    spreadsheet = get_spreadsheet(GOOGLE_SHEET_ID)
                     try:
                         hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
                     except gspread.exceptions.WorksheetNotFound:
@@ -1264,11 +1270,6 @@ with tab3, suppress(StopException):
     if "tab3_selected_idx" not in st.session_state:
         st.session_state["tab3_selected_idx"] = 0
 
-    # Cliente cacheado
-    @st.cache_resource
-    def get_sheets_client_cached():
-        return get_google_sheets_client()
-
     # Lectura con fallback
     @st.cache_data(show_spinner=False, ttl=0)
     def get_raw_sheet_data_cached(sheet_id, worksheet_name, _nonce: int):
@@ -1276,8 +1277,7 @@ with tab3, suppress(StopException):
             try:
                 ws = safe_open_worksheet(sheet_id, worksheet_name)
             except Exception:
-                gc = get_sheets_client_cached()
-                ws = gc.open_by_key(sheet_id).worksheet(worksheet_name)
+                ws = get_spreadsheet(sheet_id).worksheet(worksheet_name)
             vals = ws.get_all_values()
             # guarda snapshot "último bueno" para futuros fallbacks
             st.session_state["_tab3_lastgood"] = vals
