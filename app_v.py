@@ -540,7 +540,7 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
-    with st.form(key="new_pedido_form"):
+    with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
@@ -1076,19 +1076,11 @@ with tab1:
                         st.error(f"❌ Error al registrar el pedido: {e}")
                         break
             if exito:
-                # ✅ Mensajes de éxito y limpieza
-                st.session_state["success_pedido_registrado"] = id_pedido
-                st.session_state["success_adjuntos"] = adjuntos_urls
-                # Limpiar todo el estado excepto las claves necesarias
-                preserved = {
-                    "last_selected_vendedor",
-                    "success_pedido_registrado",
-                    "success_adjuntos",
-                }
-                for k in list(st.session_state.keys()):
-                    if k not in preserved:
-                        del st.session_state[k]
-                st.query_params.clear()
+                vendedor = st.session_state.get("last_selected_vendedor")
+                st.session_state.clear()
+                st.session_state.last_selected_vendedor = vendedor
+                st.session_state.success_pedido_registrado = id_pedido
+                st.session_state.success_adjuntos = adjuntos_urls
                 st.query_params.update({"tab": "0"})
                 st.rerun()
             else:
