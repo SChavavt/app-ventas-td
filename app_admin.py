@@ -2,6 +2,7 @@
 import streamlit as st
 import json
 import time
+import random
 import pandas as pd
 import boto3
 import gspread
@@ -19,6 +20,7 @@ from streamlit.runtime.scriptrunner import StopException
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
 
 REFRESH_COOLDOWN = 60
+QUOTA_ERROR_THRESHOLD = 5
 
 
 def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
@@ -43,15 +45,23 @@ def _err_signature(e) -> tuple[int|None, str]:
 def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
     """
     Abre una worksheet con reintentos automáticos en caso de errores temporales
-    utilizando backoff exponencial (1s, 2s, 4s). Usa instancias cacheadas para
-    evitar solicitudes repetidas al abrir el spreadsheet.
+    utilizando backoff exponencial con jitter. Reutiliza la instancia cacheada
+    del spreadsheet y evita limpiar recursos globales.
     """
+    if st.session_state.get("_quota_hits", 0) >= QUOTA_ERROR_THRESHOLD:
+        st.error("🚫 Se alcanzó el límite de cuota de Google Sheets. Espera antes de reintentar.")
+        raise RuntimeError("google-sheets quota exceeded")
+
     last_err = None
-    delay = 1
+    delay = 1.0
+    ss = None
     for attempt in range(retries):
         try:
-            ss = get_spreadsheet(sheet_id)  # usa instancia cacheada del spreadsheet
-            return ss.worksheet(worksheet_name)
+            if ss is None:
+                ss = get_spreadsheet(sheet_id)  # usa instancia cacheada del spreadsheet
+            ws = ss.worksheet(worksheet_name)
+            st.session_state["_quota_hits"] = 0
+            return ws
         except gspread.exceptions.APIError as e:
             last_err = e
             status, text = _err_signature(e)
@@ -62,14 +72,18 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
                 ("resource_exhausted" in text) or
                 ("backenderror" in text)
             )
+            if is_rate:
+                hits = st.session_state.get("_quota_hits", 0) + 1
+                st.session_state["_quota_hits"] = hits
+                if hits >= QUOTA_ERROR_THRESHOLD:
+                    st.error("🚫 Se detectaron múltiples errores de cuota. Espera antes de reintentar.")
+                    break
             if is_rate and attempt < retries - 1:
-                if attempt == 0:
-                    # primer fallo: fuerza refresco de recursos
-                    st.cache_resource.clear()
+                jitter = random.uniform(0, delay)
                 st.warning(
-                    f"⚠️ Error de Google Sheets al abrir '{worksheet_name}'. Reintentando en {delay}s..."
+                    f"⚠️ Error de Google Sheets al abrir '{worksheet_name}'. Reintentando en {delay + jitter:.1f}s..."
                 )
-                time.sleep(delay)
+                time.sleep(delay + jitter)
                 delay *= 2
                 continue
             break
