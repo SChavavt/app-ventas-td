@@ -700,7 +700,7 @@ with tab1:
     pago_triple = False
     estado_pago = "🔴 No Pagado"  # Valor por defecto
 
-    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
+    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
         st.markdown("---")
         st.subheader("💰 Estado de Pago")
         estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
@@ -855,7 +855,6 @@ with tab1:
             if tipo_envio in [
                 "🚚 Pedido Foráneo",
                 "🏙️ Pedido CDMX",
-                "📋 Solicitudes de Guía",
                 "📍 Pedido Local",
                 "🎓 Cursos y Eventos",
             ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
@@ -971,37 +970,37 @@ with tab1:
                 elif header == "Estado":
                     values.append("🟡 Pendiente")
                 elif header == "Estado_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(estado_pago)
                     else:
                         values.append("")
                 elif header == "Fecha_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
                     else:
                         values.append("")
                 elif header == "Forma_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(forma_pago)
                     else:
                         values.append("")
                 elif header == "Terminal":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(terminal)
                     else:
                         values.append("")
                 elif header == "Banco_Destino_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(banco_destino)
                     else:
                         values.append("")
                 elif header == "Monto_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
                     else:
                         values.append("")
                 elif header == "Referencia_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📋 Solicitudes de Guía", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(referencia_pago)
                     else:
                         values.append("")
