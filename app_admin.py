@@ -784,6 +784,10 @@ with tab1:
                                 success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
                                 if success:
                                     adjuntos_urls.append(url)
+                                    st.toast(f"✅ {file.name} subido correctamente", icon="✅")
+
+                            if len(adjuntos_urls) == len(comprobantes_nuevo):
+                                st.success("Todos los comprobantes se han subido correctamente")
 
                         # ---- Normalizaciones SEGURAS para Google Sheets ----
                         if isinstance(fecha_pago, (datetime, date)):
