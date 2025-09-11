@@ -23,6 +23,10 @@ REFRESH_COOLDOWN = 60
 QUOTA_ERROR_THRESHOLD = 5
 
 
+if "pedidos_reload_nonce" not in st.session_state:
+    st.session_state["pedidos_reload_nonce"] = 0
+
+
 def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
     """Rate-limit manual reloads to avoid hitting Google Sheets too often."""
     now = time.time()
@@ -122,8 +126,10 @@ def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
+
+
 @st.cache_data(ttl=60)
-def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name):
+def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0):
     # 1) Intenta leer con reintentos usando el helper
     try:
         ws = safe_open_worksheet(sheet_id, worksheet_name)
@@ -245,7 +251,9 @@ def get_spreadsheet(sheet_id: str):
 
 
 if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
-    df_pedidos, headers = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "datos_pedidos")
+    df_pedidos, headers = cargar_pedidos_desde_google_sheet(
+        GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
+    )
     # Excluir pedidos de cursos y eventos para que no aparezcan en ningún flujo
     if 'Tipo_Envio' in df_pedidos.columns:
         df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
@@ -253,9 +261,12 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
         st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
         if st.button("🔁 Reintentar conexión", key="retry_pedidos_inicial"):
             if allow_refresh("pedidos_last_refresh"):
-                cargar_pedidos_desde_google_sheet.clear()
-                get_google_sheets_client.clear()
-                get_spreadsheet.clear()
+                st.session_state["pedidos_reload_nonce"] += 1
+                df_pedidos, headers = cargar_pedidos_desde_google_sheet(
+                    GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
+                )
+                st.session_state.df_pedidos = df_pedidos
+                st.session_state.headers = headers
                 st.toast("Reintentando...", icon="🔄")
                 rerun_current_tab()
         # No st.stop(): deja que otras pestañas/partes sigan funcionando
@@ -470,16 +481,43 @@ with tab1:
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
+    pending_refresh = st.session_state.get("pedidos_autorefresh")
+    if pending_refresh:
+        remaining = REFRESH_COOLDOWN - (time.time() - pending_refresh)
+        if remaining <= 0 and allow_refresh("pedidos_last_refresh"):
+            st.session_state["pedidos_reload_nonce"] += 1
+            df_pedidos, headers = cargar_pedidos_desde_google_sheet(
+                GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
+            )
+            if 'Tipo_Envio' in df_pedidos.columns:
+                df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
+            st.session_state.df_pedidos = df_pedidos
+            st.session_state.headers = headers
+            if 'Comprobante_Confirmado' in df_pedidos.columns:
+                st.session_state.pedidos_pagados_no_confirmados = df_pedidos[
+                    df_pedidos['Comprobante_Confirmado'] != 'Sí'
+                ].copy()
+            st.session_state.pop("pedidos_autorefresh", None)
+            st.toast("Pedidos sincronizados", icon="🔁")
+        elif remaining > 0:
+            with suppress(Exception):
+                st.autorefresh(interval=int(remaining * 1000), key="pedidos_autorefresh_timer")
+
     if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
-          if allow_refresh("pedidos_last_refresh"):
-              cargar_pedidos_desde_google_sheet.clear()
-              get_google_sheets_client.clear()
-              get_spreadsheet.clear()
-              st.session_state.pop("df_pedidos", None)
-              st.session_state.pop("headers", None)
-              st.session_state.pop("pedidos_pagados_no_confirmados", None)
-              st.toast("Pedidos recargados", icon="🔄")
-              rerun_current_tab()
+        if allow_refresh("pedidos_last_refresh"):
+            st.session_state["pedidos_reload_nonce"] += 1
+            df_pedidos, headers = cargar_pedidos_desde_google_sheet(
+                GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
+            )
+            if 'Tipo_Envio' in df_pedidos.columns:
+                df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
+            st.session_state.df_pedidos = df_pedidos
+            st.session_state.headers = headers
+            if 'Comprobante_Confirmado' in df_pedidos.columns:
+                st.session_state.pedidos_pagados_no_confirmados = df_pedidos[
+                    df_pedidos['Comprobante_Confirmado'] != 'Sí'
+                ].copy()
+            st.toast("Pedidos recargados", icon="🔄")
 
     if df_pedidos.empty:
         st.info("ℹ️ No hay pedidos cargados en este momento.")
@@ -1041,6 +1079,7 @@ with tab1:
                                 pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search]
                                 st.session_state.df_pedidos = df_pedidos
                                 st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+                                st.session_state["pedidos_autorefresh"] = time.time()
 
                                 st.success("🎉 Comprobante confirmado exitosamente.")
                                 st.balloons()
