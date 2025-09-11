@@ -13,6 +13,8 @@ import re
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
+from gspread.utils import rowcol_to_a1
+from gspread.exceptions import APIError
 
 
 # NEW: Import boto3 for AWS S3
@@ -33,6 +35,20 @@ def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> b
         return False
     st.session_state[key] = now
     return True
+
+
+def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
+    """Realiza ``batch_update`` con reintentos ante errores de cuota."""
+    for attempt in range(retries):
+        try:
+            worksheet.batch_update(data)
+            return
+        except APIError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 429 and attempt < retries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+            else:
+                raise
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
@@ -1514,6 +1530,8 @@ with tab2:
                             gsheet_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0] + 2
                             changes_made = False
 
+                            cell_updates = []
+
                             def col_exists(col):
                                 return col in headers
                             def col_idx(col):
@@ -1522,11 +1540,13 @@ with tab2:
                             # 2) Guardar Modificacion_Surtido (si cambió)
                             if col_exists("Modificacion_Surtido"):
                                 if new_modificacion_surtido_input.strip() != current_modificacion_surtido_value.strip():
-                                    worksheet.update_cell(
-                                        gsheet_row_index,
-                                        col_idx("Modificacion_Surtido"),
-                                        new_modificacion_surtido_input.strip(),
-                                    )
+                                    cell_updates.append({
+                                        "range": rowcol_to_a1(
+                                            gsheet_row_index,
+                                            col_idx("Modificacion_Surtido"),
+                                        ),
+                                        "values": [[new_modificacion_surtido_input.strip()]],
+                                    })
                                     changes_made = True
 
                             # 3) Subida de archivos de Surtido -> Adjuntos_Surtido
@@ -1546,7 +1566,13 @@ with tab2:
                                 actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
                                 current_urls = [x.strip() for x in str(actual_row.get("Adjuntos_Surtido","")).split(",") if x.strip()]
                                 updated_str = ", ".join(current_urls + new_adjuntos_surtido_urls)
-                                worksheet.update_cell(gsheet_row_index, col_idx("Adjuntos_Surtido"), updated_str)
+                                cell_updates.append({
+                                    "range": rowcol_to_a1(
+                                        gsheet_row_index,
+                                        col_idx("Adjuntos_Surtido"),
+                                    ),
+                                    "values": [[updated_str]],
+                                })
 
                             # 4) Comprobantes extra -> concatenar en 'Adjuntos'
                             comprobante_urls = []
@@ -1565,7 +1591,13 @@ with tab2:
                                     actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
                                     current_adjuntos = [x.strip() for x in str(actual_row.get("Adjuntos","")).split(",") if x.strip()]
                                     updated_adjuntos = ", ".join(current_adjuntos + comprobante_urls)
-                                    worksheet.update_cell(gsheet_row_index, col_idx("Adjuntos"), updated_adjuntos)
+                                    cell_updates.append({
+                                        "range": rowcol_to_a1(
+                                            gsheet_row_index,
+                                            col_idx("Adjuntos"),
+                                        ),
+                                        "values": [[updated_adjuntos]],
+                                    })
 
                             # 5) Refacturación (si las columnas existen en ESA hoja)
                             if tipo_modificacion_seleccionada == "Refacturación":
@@ -1576,20 +1608,47 @@ with tab2:
                                 }
                                 for campo, valor in campos_refact.items():
                                     if col_exists(campo):
-                                        worksheet.update_cell(gsheet_row_index, col_idx(campo), valor)
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index,
+                                                col_idx(campo),
+                                            ),
+                                            "values": [[valor]],
+                                        })
                                 st.toast("🧾 Refacturación registrada.")
                             else:
                                 for campo in ["Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada"]:
                                     if col_exists(campo):
-                                        worksheet.update_cell(gsheet_row_index, col_idx(campo), "")
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index,
+                                                col_idx(campo),
+                                            ),
+                                            "values": [[""]],
+                                        })
 
                             # 6) Cambiar estado del pedido a 'En Proceso'
                             if col_exists("Estado"):
-                                worksheet.update_cell(gsheet_row_index, col_idx("Estado"), "🔵 En Proceso")
+                                cell_updates.append({
+                                    "range": rowcol_to_a1(
+                                        gsheet_row_index,
+                                        col_idx("Estado"),
+                                    ),
+                                    "values": [["🔵 En Proceso"]],
+                                })
                                 changes_made = True
                                 message_placeholder_tab2.info("🔵 El estado del pedido se cambió a 'En Proceso'.")
                             if selected_source == "datos_pedidos" and col_exists("Fecha_Completado"):
-                                worksheet.update_cell(gsheet_row_index, col_idx("Fecha_Completado"), "")
+                                cell_updates.append({
+                                    "range": rowcol_to_a1(
+                                        gsheet_row_index,
+                                        col_idx("Fecha_Completado"),
+                                    ),
+                                    "values": [[""]],
+                                })
+
+                            if cell_updates:
+                                safe_batch_update(worksheet, cell_updates)
 
                             # 7) Mensajes y limpieza de inputs
                             if changes_made:
@@ -1770,10 +1829,30 @@ with tab3:
                                     current_adjuntos = df_pedidos_comprobante.loc[df_index, 'Adjuntos'] if 'Adjuntos' in df_pedidos_comprobante.columns else ""
                                     adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
                                     adjuntos_list.extend(new_urls)
-
-                                    worksheet.update_cell(sheet_row, headers.index('Adjuntos') + 1, ", ".join(adjuntos_list))
-                                    worksheet.update_cell(sheet_row, headers.index('Estado_Pago') + 1, "✅ Pagado")
-                                    worksheet.update_cell(sheet_row, headers.index('Fecha_Pago_Comprobante') + 1, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
+                                    updates = [
+                                        {
+                                            "range": rowcol_to_a1(
+                                                sheet_row,
+                                                headers.index('Adjuntos') + 1,
+                                            ),
+                                            "values": [[", ".join(adjuntos_list)]],
+                                        },
+                                        {
+                                            "range": rowcol_to_a1(
+                                                sheet_row,
+                                                headers.index('Estado_Pago') + 1,
+                                            ),
+                                            "values": [["✅ Pagado"]],
+                                        },
+                                        {
+                                            "range": rowcol_to_a1(
+                                                sheet_row,
+                                                headers.index('Fecha_Pago_Comprobante') + 1,
+                                            ),
+                                            "values": [[datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d')]],
+                                        },
+                                    ]
+                                    safe_batch_update(worksheet, updates)
 
                                     st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
                                     st.balloons()
@@ -1791,10 +1870,26 @@ with tab3:
                         df_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
                         sheet_row = df_index + 2
 
-                        worksheet.update_cell(sheet_row, headers.index('Estado_Pago') + 1, "✅ Pagado")
+                        updates = [
+                            {
+                                "range": rowcol_to_a1(
+                                    sheet_row,
+                                    headers.index('Estado_Pago') + 1,
+                                ),
+                                "values": [["✅ Pagado"]],
+                            }
+                        ]
 
                         if 'Fecha_Pago_Comprobante' in headers:
-                            worksheet.update_cell(sheet_row, headers.index('Fecha_Pago_Comprobante') + 1, datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d'))
+                            updates.append({
+                                "range": rowcol_to_a1(
+                                    sheet_row,
+                                    headers.index('Fecha_Pago_Comprobante') + 1,
+                                ),
+                                "values": [[datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d')]],
+                            })
+
+                        safe_batch_update(worksheet, updates)
 
                         st.success("✅ Pedido marcado como pagado sin comprobante.")
                         st.balloons()
