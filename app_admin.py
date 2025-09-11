@@ -977,8 +977,9 @@ with tab1:
                         if num_comprobantes == 1:
                             st.markdown("### 🧾 Comprobante")
                         else:
-                            emoji_num = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
-                            st.markdown(f"### {emoji_num[i]} 🧾 Comprobante {i+1}")
+                            emoji_num = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+                            label = emoji_num[i] if i < len(emoji_num) else str(i+1)
+                            st.markdown(f"### {label} 🧾 Comprobante {i+1}")
 
                         col_pago = st.columns(4)
                         with col_pago[0]:
