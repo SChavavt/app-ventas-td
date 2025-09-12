@@ -753,7 +753,20 @@ with tab1:
                     col4, col5 = st.columns(2)
                     with col4:
                         if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                            terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal_input")
+                            terminal = st.selectbox(
+                                "🏧 Terminal",
+                                [
+                                    "BANORTE",
+                                    "AFIRME",
+                                    "VELPAY",
+                                    "CLIP",
+                                    "PAYPAL",
+                                    "BBVA",
+                                    "CONEKTA",
+                                    "MERCADO PAGO",
+                                ],
+                                key="terminal_input",
+                            )
                             banco_destino = ""
                         else:
                             banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_input")
@@ -770,7 +783,20 @@ with tab1:
                 monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
                 terminal1 = banco1 = ""
                 if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1")
+                    terminal1 = st.selectbox(
+                        "🏧 Terminal 1",
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
+                        key="terminal1",
+                    )
                 else:
                     banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1")
                 ref1 = st.text_input("🔢 Referencia 1", key="ref1")
@@ -782,7 +808,20 @@ with tab1:
                 monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
                 terminal2 = banco2 = ""
                 if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2")
+                    terminal2 = st.selectbox(
+                        "🏧 Terminal 2",
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
+                        key="terminal2",
+                    )
                 else:
                     banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2")
                 ref2 = st.text_input("🔢 Referencia 2", key="ref2")
@@ -804,7 +843,20 @@ with tab1:
                 monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
                 terminal1 = banco1 = ""
                 if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal1")
+                    terminal1 = st.selectbox(
+                        "🏧 Terminal 1",
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
+                        key="terminal1",
+                    )
                 else:
                     banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1")
                 ref1 = st.text_input("🔢 Referencia 1", key="ref1")
@@ -816,7 +868,20 @@ with tab1:
                 monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
                 terminal2 = banco2 = ""
                 if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal2")
+                    terminal2 = st.selectbox(
+                        "🏧 Terminal 2",
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
+                        key="terminal2",
+                    )
                 else:
                     banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2")
                 ref2 = st.text_input("🔢 Referencia 2", key="ref2")
@@ -828,7 +893,20 @@ with tab1:
                 monto3 = st.number_input("💲 Monto 3", min_value=0.0, format="%.2f", key="monto_pago3")
                 terminal3 = banco3 = ""
                 if forma3 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    terminal3 = st.selectbox("🏧 Terminal 3", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA"], key="terminal3")
+                    terminal3 = st.selectbox(
+                        "🏧 Terminal 3",
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
+                        key="terminal3",
+                    )
                 else:
                     banco3 = st.selectbox("🏦 Banco 3", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco3")
                 ref3 = st.text_input("🔢 Referencia 3", key="ref3")
