@@ -1107,7 +1107,7 @@ with tab1:
 
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=300)
 def cargar_pedidos_combinados():
     """
     Carga y unifica pedidos de 'datos_pedidos' y 'casos_especiales'.
@@ -1268,6 +1268,8 @@ if "reset_inputs_tab2" in st.session_state:
 
 with tab2:
     st.header("✏️ Modificar Pedido Existente")
+    if st.button("🔄 Actualizar pedidos"):
+        cargar_pedidos_combinados.clear()
 
     message_placeholder_tab2 = st.empty()
 
