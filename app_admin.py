@@ -130,7 +130,7 @@ def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0):
     # 1) Intenta leer con reintentos usando el helper
     try:
@@ -483,27 +483,8 @@ with tab1:
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
-    pending_refresh = st.session_state.get("pedidos_autorefresh")
-    if pending_refresh:
-        remaining = REFRESH_COOLDOWN - (time.time() - pending_refresh)
-        if remaining <= 0 and allow_refresh("pedidos_last_refresh"):
-            st.session_state["pedidos_reload_nonce"] += 1
-            df_pedidos, headers = cargar_pedidos_desde_google_sheet(
-                GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
-            )
-            if 'Tipo_Envio' in df_pedidos.columns:
-                df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
-            st.session_state.df_pedidos = df_pedidos
-            st.session_state.headers = headers
-            if 'Comprobante_Confirmado' in df_pedidos.columns:
-                st.session_state.pedidos_pagados_no_confirmados = df_pedidos[
-                    df_pedidos['Comprobante_Confirmado'] != 'Sí'
-                ].copy()
-            st.session_state.pop("pedidos_autorefresh", None)
-            st.toast("Pedidos sincronizados", icon="🔁")
-        elif remaining > 0:
-            with suppress(Exception):
-                st.autorefresh(interval=int(remaining * 1000), key="pedidos_autorefresh_timer")
+    # Limpia la bandera de auto-recarga heredada de versiones anteriores
+    st.session_state.pop("pedidos_autorefresh", None)
 
     if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
         if allow_refresh("pedidos_last_refresh"):
@@ -670,6 +651,7 @@ with tab1:
                                 if updates:
                                     safe_batch_update(worksheet, updates)
                                     _get_ws_datos.clear()
+                                    cargar_pedidos_desde_google_sheet.clear()
 
                                 df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index
                                 if len(df_idx) > 0:
@@ -1082,6 +1064,7 @@ with tab1:
                                 if cell_updates:
                                     safe_batch_update(worksheet, cell_updates)
                                     _get_ws_datos.clear()
+                                    cargar_pedidos_desde_google_sheet.clear()
 
                                 df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index
                                 if len(df_idx) > 0:
@@ -1092,8 +1075,6 @@ with tab1:
                                 pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search]
                                 st.session_state.df_pedidos = df_pedidos
                                 st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
-                                st.session_state["pedidos_autorefresh"] = time.time()
-
                                 st.success("🎉 Comprobante confirmado exitosamente.")
                                 st.balloons()
                                 time.sleep(3)
