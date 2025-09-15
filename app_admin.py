@@ -105,6 +105,8 @@ def rerun_current_tab():
     st.query_params["tab"] = st.session_state.get("current_tab", "0")
     st.rerun()
 
+
+@st.cache_resource(ttl=60)
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
     return safe_open_worksheet(GOOGLE_SHEET_ID, "datos_pedidos")
@@ -667,6 +669,7 @@ with tab1:
 
                                 if updates:
                                     safe_batch_update(worksheet, updates)
+                                    _get_ws_datos.clear()
 
                                 df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index
                                 if len(df_idx) > 0:
@@ -843,6 +846,7 @@ with tab1:
 
                         if cell_updates:
                             safe_batch_update(worksheet, cell_updates)
+                            _get_ws_datos.clear()
 
                         df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index
                         if len(df_idx) > 0:
@@ -1077,6 +1081,7 @@ with tab1:
                                         })
                                 if cell_updates:
                                     safe_batch_update(worksheet, cell_updates)
+                                    _get_ws_datos.clear()
 
                                 df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index
                                 if len(df_idx) > 0:
