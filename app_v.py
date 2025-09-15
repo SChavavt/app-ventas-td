@@ -2274,11 +2274,17 @@ with tab5:
         if pedido_seleccionado:
             pedido_row = df_guias[df_guias["display_label"] == pedido_seleccionado].iloc[0]
             ultima_guia = str(pedido_row["Ultima_Guia"]).strip()
+            fuente = ""
+            if "Fuente" in pedido_row:
+                fuente = str(pedido_row["Fuente"]).strip()
 
             st.markdown("### 📎 Última Guía Subida")
             if ultima_guia:
-                nombre = ultima_guia.split("/")[-1]
-                st.markdown(f"- [📄 {nombre}]({ultima_guia})")
+                if fuente == "casos_especiales":
+                    st.markdown(f"[{ultima_guia}]({ultima_guia})")
+                else:
+                    nombre = ultima_guia.split("/")[-1]
+                    st.markdown(f"- [📄 {nombre}]({ultima_guia})")
             else:
                 st.warning("⚠️ No se encontró una URL válida para la guía.")
 
