@@ -1597,8 +1597,7 @@ with tab2:
                             worksheet = sh.worksheet(hoja_objetivo)
 
                             headers = worksheet.row_values(1)
-                            all_data_actual = worksheet.get_all_records()
-                            df_actual = pd.DataFrame(all_data_actual)
+                            df_actual = df_pedidos[df_pedidos["Fuente"] == selected_source].reset_index(drop=True)
 
                             if df_actual.empty or 'ID_Pedido' not in df_actual.columns:
                                 message_placeholder_tab2.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
