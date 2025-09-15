@@ -11,6 +11,7 @@ from io import BytesIO
 import time
 import re
 import gspread
+from urllib.parse import quote
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 from gspread.utils import rowcol_to_a1
@@ -2280,11 +2281,12 @@ with tab5:
 
             st.markdown("### 📎 Última Guía Subida")
             if ultima_guia:
+                url_encoded = quote(ultima_guia, safe=':/')
                 if fuente == "casos_especiales":
-                    st.markdown(f"[{ultima_guia}]({ultima_guia})")
+                    st.markdown(f"[{ultima_guia}]({url_encoded})")
                 else:
                     nombre = ultima_guia.split("/")[-1]
-                    st.markdown(f"- [📄 {nombre}]({ultima_guia})")
+                    st.markdown(f"- [📄 {nombre}]({url_encoded})")
             else:
                 st.warning("⚠️ No se encontró una URL válida para la guía.")
 
