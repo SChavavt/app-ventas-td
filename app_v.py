@@ -2095,22 +2095,77 @@ with tab4:
         if df_casos.empty:
             st.info("No hay casos especiales abiertos.")
         else:
-            df_casos = df_casos.reset_index(drop=True)
-            columnas_mostrar = ["Estado","Cliente","Vendedor_Registro","Tipo_Envio","Seguimiento"]
-            st.dataframe(df_casos[columnas_mostrar], use_container_width=True, hide_index=True)
+            if "Hora_Registro" in df_casos.columns:
+                df_casos["Hora_Registro"] = pd.to_datetime(df_casos["Hora_Registro"], errors="coerce")
 
-            df_casos["display_label"] = df_casos.apply(
-                lambda r: f"{r['Estado']} - {r['Cliente']} ({r['Tipo_Envio']})", axis=1
-            )
-            selected_case = st.selectbox(
-                "📂 Selecciona un caso para ver detalles",
-                df_casos["display_label"].tolist(),
-                key="select_caso_especial_tab4"
-            )
+            if "Vendedor_Registro" in df_casos.columns:
+                df_casos["Vendedor_Registro"] = (
+                    df_casos["Vendedor_Registro"].astype(str).str.strip()
+                )
 
-            if selected_case:
-                case_row = df_casos[df_casos["display_label"] == selected_case].iloc[0]
-                render_caso_especial(case_row)
+            col_vend_casos, col_fecha_casos = st.columns(2)
+
+            with col_vend_casos:
+                vendedores_casos = ["Todos"]
+                if "Vendedor_Registro" in df_casos.columns:
+                    unique_vendedores_casos = sorted(
+                        [
+                            v
+                            for v in df_casos["Vendedor_Registro"].dropna().astype(str).str.strip().unique().tolist()
+                            if v and v.lower() not in ["none", "nan"]
+                        ]
+                    )
+                    vendedores_casos.extend(unique_vendedores_casos)
+                selected_vendedor_casos = st.selectbox(
+                    "Filtrar por Vendedor:",
+                    options=vendedores_casos,
+                    key="filtro_vendedor_casos_especiales"
+                )
+
+            with col_fecha_casos:
+                fecha_filtro_casos = st.date_input(
+                    "📅 Filtrar por Fecha de Registro:",
+                    value=datetime.now().date(),
+                    key="filtro_fecha_casos_especiales"
+                )
+
+            filtered_casos = df_casos.copy()
+
+            if (
+                selected_vendedor_casos != "Todos"
+                and "Vendedor_Registro" in filtered_casos.columns
+            ):
+                filtered_casos = filtered_casos[
+                    filtered_casos["Vendedor_Registro"] == selected_vendedor_casos
+                ]
+
+            if "Hora_Registro" in filtered_casos.columns:
+                filtered_casos = filtered_casos[
+                    filtered_casos["Hora_Registro"].dt.date == fecha_filtro_casos
+                ]
+
+            if filtered_casos.empty:
+                st.warning("No hay casos especiales que coincidan con los filtros seleccionados.")
+            else:
+                filtered_casos = filtered_casos.reset_index(drop=True)
+                columnas_mostrar = ["Estado","Cliente","Vendedor_Registro","Tipo_Envio","Seguimiento"]
+                st.dataframe(filtered_casos[columnas_mostrar], use_container_width=True, hide_index=True)
+
+                filtered_casos = filtered_casos.copy()
+                filtered_casos["display_label"] = filtered_casos.apply(
+                    lambda r: f"{r['Estado']} - {r['Cliente']} ({r['Tipo_Envio']})", axis=1
+                )
+                selected_case = st.selectbox(
+                    "📂 Selecciona un caso para ver detalles",
+                    filtered_casos["display_label"].tolist(),
+                    key="select_caso_especial_tab4"
+                )
+
+                if selected_case:
+                    case_row = filtered_casos[
+                        filtered_casos["display_label"] == selected_case
+                    ].iloc[0]
+                    render_caso_especial(case_row)
 
 
 # --- TAB 5: GUIAS CARGADAS ---
