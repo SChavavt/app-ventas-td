@@ -126,6 +126,21 @@ def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0
                 raise
 
 
+def clean_modificacion_surtido(value) -> str:
+    """Normaliza el texto de modificación de surtido evitando valores vacíos o nulos."""
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    if text.lower() in {"nan", "none", "null", "n/a", "na"}:
+        return ""
+
+    return text
+
+
 # --- GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
@@ -551,6 +566,9 @@ with tab1:
 
             if selected_index is not None:
                 selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
+                modificacion_surtido_text = clean_modificacion_surtido(
+                    selected_pedido_data.get("Modificacion_Surtido", "")
+                )
 
                 # 🚨 Lógica especial si es pedido a crédito
                 if selected_pedido_data.get("Estado_Pago", "").strip() == "💳 CREDITO":
@@ -562,6 +580,8 @@ with tab1:
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("📋 Información del Pedido")
+                        if modificacion_surtido_text:
+                            st.info(f"🛠 Modificación de surtido: {modificacion_surtido_text}")
                         st.write(f"**📄 Folio Factura:** {selected_pedido_data.get('Folio_Factura', 'N/A')}")
                         st.write(f"**🗒 Comentario del Pedido:** {selected_pedido_data.get('Comentario', 'Sin comentario')}")
                         st.write(f"**🤝 Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
@@ -877,6 +897,8 @@ with tab1:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.subheader("📋 Información del Pedido")
+                    if modificacion_surtido_text:
+                        st.info(f"🛠 Modificación de surtido: {modificacion_surtido_text}")
                     st.write(f"**Folio Factura:** {selected_pedido_data.get('Folio_Factura', 'N/A')}")
                     st.write(f"**🗒 Comentario del Pedido:** {selected_pedido_data.get('Comentario', 'Sin comentario')}")
                     st.write(f"**Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
@@ -1489,6 +1511,14 @@ with tab3, suppress(StopException):
         title = "🧾 Caso Especial – 🔁 Devolución" if is_dev else "🧾 Caso Especial – 🛠 Garantía"
         st.markdown(f"### {title}")
 
+        mod_txt = clean_modificacion_surtido(row.get("Modificacion_Surtido", ""))
+        mod_txt_message = f"🛠 Modificación de surtido: {mod_txt}" if mod_txt else ""
+        mod_txt_displayed = False
+
+        if mod_txt_message:
+            st.info(mod_txt_message)
+            mod_txt_displayed = True
+
         vendedor = row.get("Vendedor_Registro", "") or row.get("Vendedor", "")
         hora = row.get("Hora_Registro", "")
 
@@ -1565,16 +1595,17 @@ with tab3, suppress(StopException):
             st.markdown("**🗒️ Comentario Administrativo:**")
             st.info(__s(row.get("Comentarios_Admin_Devolucion","")))
 
-        mod_txt = __s(row.get("Modificacion_Surtido",""))
         adj_mod_raw = row.get("Adjuntos_Surtido","")
         if 'partir_urls' in globals():
             adj_mod = partir_urls(adj_mod_raw)
         else:
             adj_mod = [x.strip() for x in str(adj_mod_raw).split(",") if x.strip()]
-        if __has(mod_txt) or adj_mod:
+        show_mod_section = bool(adj_mod) or (mod_txt_message and not mod_txt_displayed)
+        if show_mod_section:
             st.markdown("#### 🛠 Modificación de surtido")
-            if __has(mod_txt):
-                st.info(mod_txt)
+            if mod_txt_message and not mod_txt_displayed:
+                st.info(mod_txt_message)
+                mod_txt_displayed = True
             if adj_mod:
                 st.markdown("**Archivos de modificación:**")
                 for u in adj_mod:
