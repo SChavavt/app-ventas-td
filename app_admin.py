@@ -102,16 +102,7 @@ st.set_page_config(page_title="App Admin TD", layout="wide")
 
 def rerun_current_tab():
     """Rerun Streamlit keeping the current tab in query params."""
-    current_tab = st.session_state.get("current_tab")
-    if current_tab is None:
-        current_tab = st.query_params.get("tab", ["0"])[0]
-    if not isinstance(current_tab, str):
-        current_tab = str(current_tab)
-    if not current_tab.isdigit():
-        current_tab = "0"
-
-    st.session_state["current_tab"] = current_tab
-    st.query_params["tab"] = current_tab
+    st.query_params["tab"] = st.session_state.get("current_tab", "0")
     st.rerun()
 
 
@@ -476,147 +467,23 @@ tab_names = [
 
 # índice de pestaña activo desde la URL (por defecto 0)
 _tab_param = st.query_params.get("tab", ["0"])[0]
-if not isinstance(_tab_param, str):
-    _tab_param = str(_tab_param)
-if not _tab_param.isdigit():
-    _tab_param = "0"
-
-_tab_default_str = st.session_state.get("current_tab", _tab_param)
-if not isinstance(_tab_default_str, str):
-    _tab_default_str = str(_tab_default_str)
-if not _tab_default_str.isdigit():
-    _tab_default_str = "0"
-
-current_tab_value = st.text_input(
-    "current_tab_state",
-    value=_tab_default_str,
-    key="current_tab",
-    label_visibility="collapsed",
-)
-if not isinstance(current_tab_value, str):
-    current_tab_value = str(current_tab_value)
-if not current_tab_value.isdigit():
-    current_tab_value = "0"
-    st.session_state["current_tab"] = current_tab_value
-
-if st.query_params.get("tab", [None])[0] != current_tab_value:
-    st.query_params["tab"] = current_tab_value
-
 try:
-    _default_tab = int(current_tab_value)
+    _default_tab = int(_tab_param)
 except Exception:
     _default_tab = 0
-    current_tab_value = "0"
-    st.session_state["current_tab"] = current_tab_value
-    st.query_params["tab"] = current_tab_value
 
-st.markdown(
-    """
-    <script>
-    (function() {
-        const doc = window.parent.document;
-        const hiddenInput = doc.querySelector('input[aria-label="current_tab_state"]');
-        if (hiddenInput) {
-            hiddenInput.setAttribute('data-current-tab-input', 'true');
-            const wrapper = hiddenInput.closest('div[data-testid="stTextInput"]');
-            if (wrapper) {
-                wrapper.style.position = 'absolute';
-                wrapper.style.width = '1px';
-                wrapper.style.height = '1px';
-                wrapper.style.overflow = 'hidden';
-                wrapper.style.opacity = '0';
-                wrapper.style.pointerEvents = 'none';
-                wrapper.style.margin = '0';
-                wrapper.style.padding = '0';
-            }
-        }
-    })();
-    </script>
-    """,
-    unsafe_allow_html=True,
-)
+# mantener en session_state la pestaña activa
+st.session_state.setdefault("current_tab", str(_default_tab))
 
 tabs = st.tabs(tab_names)
 tab1, tab2, tab3, tab4 = tabs
 
+# forza la pestaña almacenada al recargar
 st.markdown(
     f"""
     <script>
-    (function() {{
-        const desiredIndex = {_default_tab};
-        const desiredValue = "{current_tab_value}";
-        const doc = window.parent.document;
-
-        const init = () => {{
-            const tabs = Array.from(doc.querySelectorAll('div[data-baseweb="tab-list"] button'));
-            if (!tabs.length) {{
-                window.parent.setTimeout(init, 100);
-                return;
-            }}
-
-            const hiddenInput = doc.querySelector('input[data-current-tab-input="true"]');
-            const syncState = (index) => {{
-                const value = String(index);
-                if (hiddenInput && hiddenInput.value !== value) {{
-                    hiddenInput.value = value;
-                    hiddenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                }}
-
-                const url = new URL(window.parent.location.href);
-                if (url.searchParams.get('tab') !== value) {{
-                    url.searchParams.set('tab', value);
-                    window.parent.history.replaceState(null, '', url.toString());
-                }}
-            }};
-
-            const updateFromDOM = () => {{
-                const activeIdx = tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true');
-                if (activeIdx >= 0) {{
-                    syncState(activeIdx);
-                }}
-            }};
-
-            tabs.forEach((tab, index) => {{
-                if (!tab.dataset.tabSyncAttached) {{
-                    tab.dataset.tabSyncAttached = 'true';
-                    tab.addEventListener('click', () => syncState(index));
-                    tab.addEventListener('keydown', (event) => {{
-                        if (event.key === 'Enter' || event.key === ' ') {{
-                            syncState(index);
-                        }}
-                    }});
-                }}
-            }});
-
-            const tabList = doc.querySelector('div[data-baseweb="tab-list"]');
-            if (tabList && !tabList.dataset.tabSyncObserved) {{
-                tabList.dataset.tabSyncObserved = 'true';
-                const observer = new MutationObserver(() => updateFromDOM());
-                observer.observe(tabList, {{
-                    attributes: true,
-                    subtree: true,
-                    attributeFilter: ['aria-selected']
-                }});
-            }}
-
-            if (Number.isInteger(desiredIndex) && desiredIndex >= 0 && desiredIndex < tabs.length) {{
-                const activeIdx = tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true');
-                if (activeIdx !== desiredIndex) {{
-                    tabs[desiredIndex].click();
-                    return;
-                }}
-            }}
-
-            const desiredFromValue = Number.parseInt(desiredValue, 10);
-            if (!Number.isNaN(desiredFromValue) && desiredFromValue >= 0 && desiredFromValue < tabs.length) {{
-                syncState(desiredFromValue);
-            }} else {{
-                updateFromDOM();
-            }}
-        }};
-
-        init();
-    }})();
+        const tabs = window.parent.document.querySelectorAll('div[data-baseweb="tab-list"] button');
+        if (tabs.length > {_default_tab}) {{ tabs[{_default_tab}].click(); }}
     </script>
     """,
     unsafe_allow_html=True,
@@ -625,13 +492,9 @@ st.markdown(
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
-    active_tab = st.session_state.get("current_tab", current_tab_value)
-    if not isinstance(active_tab, str):
-        active_tab = str(active_tab)
-    if active_tab == "0":
-        if st.query_params.get("tab", [None])[0] != "0":
-            st.query_params["tab"] = "0"
-        st.session_state["current_tab"] = "0"
+    if st.query_params.get("tab", ["0"])[0] != "0":
+        st.query_params["tab"] = "0"
+    st.session_state["current_tab"] = "0"
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
@@ -1247,13 +1110,9 @@ with tab1:
                             st.warning("Funcionalidad pendiente.")
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
-    active_tab = st.session_state.get("current_tab", current_tab_value)
-    if not isinstance(active_tab, str):
-        active_tab = str(active_tab)
-    if active_tab == "1":
-        if st.query_params.get("tab", [None])[0] != "1":
-            st.query_params["tab"] = "1"
-        st.session_state["current_tab"] = "1"
+    if st.query_params.get("tab", ["0"])[0] != "1":
+        st.query_params["tab"] = "1"
+    st.session_state["current_tab"] = "1"
     st.header("📥 Pedidos Confirmados")
 
     # Imports usados en este bloque
@@ -1491,13 +1350,9 @@ with tab2:
         )
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
-    active_tab = st.session_state.get("current_tab", current_tab_value)
-    if not isinstance(active_tab, str):
-        active_tab = str(active_tab)
-    if active_tab == "2":
-        if st.query_params.get("tab", [None])[0] != "2":
-            st.query_params["tab"] = "2"
-        st.session_state["current_tab"] = "2"
+    if st.query_params.get("tab", ["0"])[0] != "2":
+        st.query_params["tab"] = "2"
+    st.session_state["current_tab"] = "2"
     st.header("📦 Confirmación de Casos (Devoluciones + Garantías)")
 
     from datetime import datetime
@@ -2040,13 +1895,9 @@ with tab3, suppress(StopException):
 
 # --- TAB 4: CASOS ESPECIALES (Descarga Devoluciones/Garantías) ---
 with tab4:
-    active_tab = st.session_state.get("current_tab", current_tab_value)
-    if not isinstance(active_tab, str):
-        active_tab = str(active_tab)
-    if active_tab == "3":
-        if st.query_params.get("tab", [None])[0] != "3":
-            st.query_params["tab"] = "3"
-        st.session_state["current_tab"] = "3"
+    if st.query_params.get("tab", ["0"])[0] != "3":
+        st.query_params["tab"] = "3"
+    st.session_state["current_tab"] = "3"
     st.header("📥 Casos Especiales (Devoluciones/Garantías)")
 
     from io import BytesIO
