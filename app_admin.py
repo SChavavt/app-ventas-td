@@ -714,7 +714,10 @@ with tab1:
                         key="comprobante_local_no_pagado"
                     )
 
-                    with st.expander("📝 Detalles del Pago"):
+                    with st.expander(
+                        "📝 Detalles del Pago",
+                        expanded=selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado",
+                    ):
                         fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_local")
                         forma_pago = st.selectbox("💳 Forma de Pago", [
                             "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
