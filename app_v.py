@@ -1,5 +1,6 @@
 
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 from datetime import datetime, timedelta
 import json
@@ -456,11 +457,74 @@ tabs_labels = [
 ]
 
 # Leer índice de pestaña desde los parámetros de la URL
-params = st.query_params
-active_tab_index = int(params.get("tab", ["0"])[0])
+try:
+    default_tab = int(st.query_params.get("tab", ["0"])[0])
+except (TypeError, ValueError):
+    default_tab = 0
+
+if tabs_labels:
+    default_tab = max(0, min(len(tabs_labels) - 1, default_tab))
+else:
+    default_tab = 0
+
+st.session_state.setdefault("current_tab_index", default_tab)
 
 # Crear pestañas y mantener referencia
 tabs = st.tabs(tabs_labels)
+
+components.html(
+    f"""
+    <script>
+    (function() {{
+        const desiredIndex = {default_tab};
+        const parentWindow = window.parent;
+        const parentDocument = parentWindow.document;
+
+        function updateQueryParam(index) {{
+            try {{
+                const url = new URL(parentWindow.location.href);
+                url.searchParams.set('tab', index);
+                parentWindow.history.replaceState(null, '', url.toString());
+            }} catch (error) {{
+                console.error('Error syncing tab param', error);
+            }}
+        }}
+
+        function attachListeners() {{
+            const buttons = parentDocument.querySelectorAll('div[data-baseweb="tab-list"] button');
+            if (!buttons || !buttons.length) {{
+                setTimeout(attachListeners, 100);
+                return;
+            }}
+
+            buttons.forEach((button, index) => {{
+                if (button.getAttribute('data-tab-listener') === 'true') {{
+                    return;
+                }}
+                button.setAttribute('data-tab-listener', 'true');
+                button.addEventListener('click', () => updateQueryParam(index));
+            }});
+
+            if (desiredIndex >= 0 && desiredIndex < buttons.length) {{
+                const targetButton = buttons[desiredIndex];
+                if (targetButton && targetButton.getAttribute('aria-selected') !== 'true') {{
+                    targetButton.click();
+                }}
+            }}
+        }}
+
+        if (document.readyState === 'complete') {{
+            attachListeners();
+        }} else {{
+            window.addEventListener('load', attachListeners);
+            document.addEventListener('DOMContentLoaded', attachListeners);
+            setTimeout(attachListeners, 500);
+        }}
+    }})();
+    </script>
+    """,
+    height=0,
+)
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
@@ -486,6 +550,9 @@ if 'last_selected_vendedor' not in st.session_state:
 
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
+    tab1_is_active = default_tab == 0
+    if tab1_is_active:
+        st.session_state["current_tab_index"] = 0
     st.header("📝 Nuevo Pedido")
     # ✅ Mostrar mensaje persistente si se acaba de registrar un pedido
     if "success_pedido_registrado" in st.session_state:
@@ -1173,11 +1240,14 @@ with tab1:
                         break
             if exito:
                 vendedor = st.session_state.get("last_selected_vendedor")
+                current_index = st.session_state.get("current_tab_index", default_tab)
                 st.session_state.clear()
+                st.session_state.current_tab_index = current_index
                 st.session_state.last_selected_vendedor = vendedor
                 st.session_state.success_pedido_registrado = id_pedido
                 st.session_state.success_adjuntos = adjuntos_urls
-                st.query_params.update({"tab": "0"})
+                if tab1_is_active and st.session_state.get("current_tab_index") == 0:
+                    st.query_params.update({"tab": "0"})
                 st.rerun()
             else:
                 st.error("❌ No se pudo registrar el pedido después de varios intentos.")
@@ -1347,6 +1417,9 @@ if "reset_inputs_tab2" in st.session_state:
     del st.session_state["reset_inputs_tab2"]
 
 with tab2:
+    tab2_is_active = default_tab == 1
+    if tab2_is_active:
+        st.session_state["current_tab_index"] = 1
     st.header("✏️ Modificar Pedido Existente")
     if st.button("🔄 Actualizar pedidos"):
         cargar_pedidos_combinados.clear()
@@ -1738,7 +1811,8 @@ with tab2:
                                 st.session_state["last_updated_order_id"] = selected_order_id
                                 st.session_state["new_modificacion_surtido_input"] = ""   # limpiar textarea
                                 st.session_state["uploaded_files_surtido"] = []           # limpiar uploader
-                                st.query_params.update({"tab": "1"})  # mantener UX actual
+                                if tab2_is_active and st.session_state.get("current_tab_index") == 1:
+                                    st.query_params.update({"tab": "1"})  # mantener UX actual
                                 st.rerun()
                             else:
                                 message_placeholder_tab2.info("ℹ️ No se detectaron cambios nuevos para guardar.")
@@ -1762,6 +1836,9 @@ with tab2:
 
 # --- TAB 3: PENDING PROOF OF PAYMENT ---
 with tab3:
+    tab3_is_active = default_tab == 2
+    if tab3_is_active:
+        st.session_state["current_tab_index"] = 2
     st.header("🧾 Pedidos Pendientes de Comprobante")
 
     df_pedidos_comprobante = pd.DataFrame()
@@ -2076,6 +2153,9 @@ def cargar_casos_especiales():
 
 # --- TAB 4: CASOS ESPECIALES ---
 with tab4:
+    tab4_is_active = default_tab == 3
+    if tab4_is_active:
+        st.session_state["current_tab_index"] = 3
     st.header("🗂 Casos Especiales")
 
     try:
@@ -2170,7 +2250,8 @@ with tab4:
 
 # --- TAB 5: GUIAS CARGADAS ---
 def fijar_tab5_activa():
-    st.query_params.update({"tab": "4"})
+    if st.session_state.get("current_tab_index") == 4:
+        st.query_params.update({"tab": "4"})
 
 @st.cache_data(ttl=60)
 def cargar_datos_guias_unificadas():
@@ -2267,6 +2348,9 @@ def cargar_datos_guias_unificadas():
     return df
 
 with tab5:
+    tab5_is_active = default_tab == 4
+    if tab5_is_active:
+        st.session_state["current_tab_index"] = 4
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
     try:
@@ -2347,6 +2431,9 @@ with tab5:
 
 # --- TAB 6: DOWNLOAD DATA ---
 with tab6:
+    tab6_is_active = default_tab == 5
+    if tab6_is_active:
+        st.session_state["current_tab_index"] = 5
     st.header("⬇️ Descargar Datos de Pedidos")
 
     @st.cache_data(ttl=60)
@@ -2536,6 +2623,9 @@ with tab6:
             st.info("No hay datos que coincidan con los filtros seleccionados para descargar.")
 # --- TAB 7: SEARCH ORDER ---
 with tab7:
+    tab7_is_active = default_tab == 6
+    if tab7_is_active:
+        st.session_state["current_tab_index"] = 6
     st.subheader("🔍 Buscador de Pedidos por Guía o Cliente")
 
     modo_busqueda = st.radio(
