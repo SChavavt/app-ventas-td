@@ -1145,7 +1145,7 @@ with tab2:
         st.session_state["tab2_reload_nonce"] = 0
 
     # ✅ Cache de lectura (robusta, con snapshot)
-    @st.cache_data(show_spinner=False, ttl=0)
+    @st.cache_data(show_spinner=False)
     def cargar_confirmados_guardados_cached(sheet_id: str, ws_name: str, _nonce: int):
         """
         Lee la hoja de confirmados con reintentos (safe_open_worksheet) y guarda snapshot.
@@ -1388,7 +1388,7 @@ with tab3, suppress(StopException):
         st.session_state["tab3_selected_idx"] = 0
 
     # Lectura con fallback
-    @st.cache_data(show_spinner=False, ttl=0)
+    @st.cache_data(show_spinner=False)
     def get_raw_sheet_data_cached(sheet_id, worksheet_name, _nonce: int):
         try:
             try:
