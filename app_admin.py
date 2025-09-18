@@ -465,15 +465,25 @@ tab_names = [
     "🗂️ Data Especiales",
 ]
 
-# índice de pestaña activo desde la URL (por defecto 0)
-_tab_param = st.query_params.get("tab", ["0"])[0]
-try:
-    _default_tab = int(_tab_param)
-except Exception:
-    _default_tab = 0
+# índice de pestaña activo (prioriza session_state sobre query params)
+_session_tab = st.session_state.get("current_tab")
+if _session_tab is not None:
+    try:
+        _default_tab = int(_session_tab)
+    except Exception:
+        _default_tab = 0
+else:
+    _tab_param = st.query_params.get("tab", ["0"])[0]
+    try:
+        _default_tab = int(_tab_param)
+    except Exception:
+        _default_tab = 0
 
 # mantener en session_state la pestaña activa
 st.session_state.setdefault("current_tab", str(_default_tab))
+
+# sincronizar query params con la pestaña activa calculada
+st.query_params["tab"] = str(_default_tab)
 
 tabs = st.tabs(tab_names)
 tab1, tab2, tab3, tab4 = tabs
