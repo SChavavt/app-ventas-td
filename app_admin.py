@@ -643,6 +643,7 @@ with tab1:
 
                                 # Actualizaciones
                                 updates = []
+                                local_updates = {}
                                 if "Comprobante_Confirmado" in headers:
                                     updates.append({
                                         "range": rowcol_to_a1(
@@ -651,6 +652,7 @@ with tab1:
                                         ),
                                         "values": [[confirmacion_credito]],
                                     })
+                                    local_updates["Comprobante_Confirmado"] = confirmacion_credito
 
                                 if "Comentario" in headers:
                                     comentario_existente = selected_pedido_data.get("Comentario", "")
@@ -667,6 +669,7 @@ with tab1:
                                         ),
                                         "values": [[comentario_final]],
                                     })
+                                    local_updates["Comentario"] = comentario_final
 
                                 if updates:
                                     safe_batch_update(worksheet, updates)
@@ -676,10 +679,12 @@ with tab1:
                                 df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index
                                 if len(df_idx) > 0:
                                     df_idx = df_idx[0]
-                                    for col, val in updates.items():
+                                    for col, val in local_updates.items():
                                         if col in df_pedidos.columns:
                                             df_pedidos.at[df_idx, col] = val
-                                pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_data["ID_Pedido"]]
+                                pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
+                                    pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_data["ID_Pedido"]
+                                ].copy()
                                 st.session_state.df_pedidos = df_pedidos
                                 st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
 
