@@ -222,6 +222,39 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0)
         return pd.DataFrame(), []
 
 
+@st.cache_data(show_spinner=False, ttl=300)
+def cargar_casos_especiales(sheet_id: str, worksheet_name: str = "casos_especiales", _nonce: int = 0):
+    """Lee la hoja de casos especiales con padding básico y evita filas vacías."""
+    ws = safe_open_worksheet(sheet_id, worksheet_name)
+    raw_values = ws.get_values(value_render_option="UNFORMATTED_VALUE")
+
+    if not raw_values:
+        return pd.DataFrame(), []
+
+    headers = ["" if h is None else str(h) for h in raw_values[0]]
+    num_cols = len(headers)
+
+    if num_cols == 0:
+        return pd.DataFrame(), headers
+
+    rows = []
+    for raw_row in raw_values[1:]:
+        row = list(raw_row[:num_cols])
+        if len(row) < num_cols:
+            row.extend([None] * (num_cols - len(row)))
+        row = ["" if cell is None else cell for cell in row]
+        if all(str(cell).strip() == "" for cell in row):
+            continue
+        rows.append(row)
+
+    if rows:
+        df = pd.DataFrame(rows, columns=headers)
+    else:
+        df = pd.DataFrame(columns=headers)
+
+    return df, headers
+
+
 @st.cache_resource
 def get_google_sheets_client():
     """
@@ -319,9 +352,8 @@ df_pedidos = st.session_state.df_pedidos
 headers = st.session_state.headers
 pedidos_pagados_no_confirmados = st.session_state.get('pedidos_pagados_no_confirmados', pd.DataFrame())
 
-df_casos, headers_casos = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "casos_especiales")
-
-
+if "casos_reload_nonce" not in st.session_state:
+    st.session_state["casos_reload_nonce"] = 0
 
 # --- CONFIGURACIÓN DE AWS S3 ---
 try:
@@ -1405,35 +1437,8 @@ with tab3, suppress(StopException):
     tab3_alert = st.empty()
 
     # Estado local
-    if "tab3_reload_nonce" not in st.session_state:
-        st.session_state["tab3_reload_nonce"] = 0
     if "tab3_selected_idx" not in st.session_state:
         st.session_state["tab3_selected_idx"] = 0
-
-    # Lectura con fallback
-    @st.cache_data(show_spinner=False)
-    def get_raw_sheet_data_cached(sheet_id, worksheet_name, _nonce: int):
-        try:
-            try:
-                ws = safe_open_worksheet(sheet_id, worksheet_name)
-            except Exception:
-                ws = get_spreadsheet(sheet_id).worksheet(worksheet_name)
-            vals = ws.get_all_values()
-            # guarda snapshot "último bueno" para futuros fallbacks
-            st.session_state["_tab3_lastgood"] = vals
-            return vals
-        except gspread.exceptions.APIError:
-            snap = st.session_state.get("_tab3_lastgood")
-            if snap:
-                return snap
-            raise
-
-    def process_sheet_data(raw_data):
-        if not raw_data or len(raw_data) < 1:
-            return pd.DataFrame(), []
-        headers = raw_data[0]
-        df = pd.DataFrame(raw_data[1:], columns=headers)
-        return df, headers
 
     # Recargar
     col_recargar, _ = st.columns([1, 5])
@@ -1441,8 +1446,8 @@ with tab3, suppress(StopException):
         def _reload_tab3():
             if not allow_refresh("tab3_last_refresh", tab3_alert):
                 return
-            st.session_state["tab3_reload_nonce"] += 1
-            get_raw_sheet_data_cached.clear()
+            st.session_state["casos_reload_nonce"] += 1
+            cargar_casos_especiales.clear()
             st.toast("Casos recargados", icon="🔄")
             rerun_current_tab()
 
@@ -1455,16 +1460,32 @@ with tab3, suppress(StopException):
 
     # Carga principal
     try:
-        raw_casos = get_raw_sheet_data_cached(
-            sheet_id=GOOGLE_SHEET_ID,
-            worksheet_name="casos_especiales",
-            _nonce=st.session_state["tab3_reload_nonce"],
+        df_casos_cached, headers_casos_cached = cargar_casos_especiales(
+            GOOGLE_SHEET_ID,
+            "casos_especiales",
+            st.session_state["casos_reload_nonce"],
         )
-    except Exception as e:
-        tab3_alert.error(f"❌ No se pudo leer 'casos_especiales'. {e}")
+        df_casos = df_casos_cached.copy()
+        headers_casos = list(headers_casos_cached)
+        st.session_state["_lastgood_casos_especiales"] = (
+            df_casos.copy(),
+            list(headers_casos),
+        )
+    except gspread.exceptions.WorksheetNotFound:
+        tab3_alert.error("❌ No existe la hoja 'casos_especiales'.")
         st.stop()
+    except gspread.exceptions.APIError as e:
+        snap = st.session_state.get("_lastgood_casos_especiales")
+        if snap:
+            tab3_alert.warning(
+                "♻️ Google Sheets dio un error temporal al leer 'casos_especiales'. Mostrando el último dato bueno en caché."
+            )
+            df_casos = snap[0].copy()
+            headers_casos = list(snap[1])
+        else:
+            tab3_alert.error(f"❌ No se pudo leer 'casos_especiales'. {e}")
+            st.stop()
 
-    df_casos, headers_casos = process_sheet_data(raw_casos)
     if df_casos.empty:
         tab3_alert.info("ℹ️ No hay casos registrados en 'casos_especiales'.")
         st.stop()
@@ -1926,8 +1947,8 @@ with tab3, suppress(StopException):
 
         if ok_all:
             tab3_alert.success("✅ Confirmación guardada.")
-            st.session_state["tab3_reload_nonce"] += 1
-            get_raw_sheet_data_cached.clear()
+            st.session_state["casos_reload_nonce"] += 1
+            cargar_casos_especiales.clear()
             st.toast("Confirmación guardada", icon="✅")
             rerun_current_tab()
         else:
@@ -1947,62 +1968,53 @@ with tab4:
     import gspread, json, re, math
     import pandas as pd
 
-    # estado local (nonce)
-    if "tab4_reload_nonce" not in st.session_state:
-        st.session_state["tab4_reload_nonce"] = 0
-
-    # ✅ lector robusto con caché
-    @st.cache_data(show_spinner=False, ttl=300)
-    def cargar_casos_especiales_cached(sheet_id: str, ws_name: str, _nonce: int):
-        ws = safe_open_worksheet(sheet_id, ws_name)
-        vals = ws.get_values("A1:AN", value_render_option="UNFORMATTED_VALUE")
-        if not vals:
-            return pd.DataFrame(), [], None
-        headers = vals[0]
-        df = pd.DataFrame(vals[1:], columns=headers)
-        df = df.dropna(how="all")
-        for c in ["ID_Pedido", "Cliente", "Folio_Factura", "Tipo_Envio", "Hora_Registro"]:
-            if c not in df.columns:
-                df[c] = ""
-        return df, headers, ws
-
     # 🔁 recargar
     col_a, col_b = st.columns([1, 5])
     with col_a:
         if st.button("🔄 Recargar Casos", type="secondary", key="tab4_reload_btn"):
             if allow_refresh("tab4_last_refresh"):
-                st.session_state["tab4_reload_nonce"] += 1
+                st.session_state["casos_reload_nonce"] += 1
+                cargar_casos_especiales.clear()
                 st.toast("♻️ Casos recargados.", icon="♻️")
                 rerun_current_tab()
 
     # leer hoja
-    prev_nonce = st.session_state["tab4_reload_nonce"]
     try:
-        df_ce, headers_ce, ws_casos = cargar_casos_especiales_cached(
-            GOOGLE_SHEET_ID, "casos_especiales", prev_nonce
+        df_ce_cached, headers_ce_cached = cargar_casos_especiales(
+            GOOGLE_SHEET_ID,
+            "casos_especiales",
+            st.session_state["casos_reload_nonce"],
         )
+        df_ce = df_ce_cached.copy()
+        headers_ce = list(headers_ce_cached)
         st.session_state["_lastgood_casos_especiales"] = (
-            df_ce.copy(), headers_ce
+            df_ce.copy(),
+            list(headers_ce),
         )
     except gspread.exceptions.WorksheetNotFound:
         st.error("❌ No existe la hoja 'casos_especiales'.")
-        df_ce, headers_ce, ws_casos = pd.DataFrame(), [], None
+        df_ce, headers_ce = pd.DataFrame(), []
     except gspread.exceptions.APIError as e:
-        st.session_state["tab4_reload_nonce"] = max(0, prev_nonce - 1)
+        current = st.session_state.get("casos_reload_nonce", 0)
+        st.session_state["casos_reload_nonce"] = max(0, current - 1)
         snap = st.session_state.get("_lastgood_casos_especiales")
         if snap:
             st.warning(
                 "♻️ Google Sheets dio un error temporal al leer 'casos_especiales'. Mostrando el último dato bueno en caché."
             )
-            df_ce, headers_ce = snap
-            ws_casos = None
+            df_ce = snap[0].copy()
+            headers_ce = list(snap[1])
         else:
             st.error(f"❌ Error al leer 'casos_especiales': {e}")
-            df_ce, headers_ce, ws_casos = pd.DataFrame(), [], None
+            df_ce, headers_ce = pd.DataFrame(), []
 
     if df_ce.empty:
         st.info("ℹ️ No hay registros en 'casos_especiales'.")
         st.stop()
+
+    for c in ["ID_Pedido", "Cliente", "Folio_Factura", "Tipo_Envio", "Hora_Registro"]:
+        if c not in df_ce.columns:
+            df_ce[c] = ""
 
     # ------- Normalizador de URLs (Adjuntos puede venir como JSON/CSV/texto) -------
     def _normalize_urls(value):
