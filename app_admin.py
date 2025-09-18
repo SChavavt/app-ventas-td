@@ -150,13 +150,36 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0)
     # 1) Intenta leer con reintentos usando el helper
     try:
         ws = safe_open_worksheet(sheet_id, worksheet_name)
-        headers = ws.row_values(1)
-        df = pd.DataFrame(ws.get_all_records())
+        raw_values = ws.get_values()
+
+        if not raw_values:
+            headers = []
+            df = pd.DataFrame()
+        else:
+            headers = ["" if h is None else str(h) for h in raw_values[0]]
+            num_cols = len(headers)
+
+            if num_cols == 0:
+                df = pd.DataFrame()
+            else:
+                rows = []
+                for raw_row in raw_values[1:]:
+                    row = list(raw_row[:num_cols])
+                    if len(row) < num_cols:
+                        row.extend([""] * (num_cols - len(row)))
+                    row = ["" if cell is None else cell for cell in row]
+                    if all(str(cell).strip() == "" for cell in row):
+                        continue
+                    rows.append(row)
+
+                df = pd.DataFrame(rows, columns=headers) if rows else pd.DataFrame(columns=headers)
 
         # 🔧 Normalización idéntica o equivalente a la tuya actual
         def _clean(s):
             return str(s).replace("\u00a0", " ").strip().replace("  ", " ").replace(" ", "_")
-        df.columns = [_clean(c) for c in df.columns]
+
+        if not df.empty or headers:
+            df.columns = [_clean(c) for c in df.columns]
 
         alias = {
             "Folio de Factura": "Folio_Factura",
