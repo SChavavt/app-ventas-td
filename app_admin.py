@@ -685,7 +685,7 @@ with tab1:
 
                                 st.success("✅ Confirmación de crédito guardada exitosamente.")
                                 st.balloons()
-                                time.sleep(2)
+                                rerun_current_tab()
 
                             except Exception as e:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
@@ -864,7 +864,7 @@ with tab1:
 
                         st.success("✅ Comprobante y datos de pago guardados exitosamente.")
                         st.balloons()
-                        time.sleep(2)
+                        rerun_current_tab()
 
                     except Exception as e:
                         st.error(f"❌ Error al guardar el comprobante: {e}")
@@ -1099,7 +1099,7 @@ with tab1:
                                 st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
                                 st.success("🎉 Comprobante confirmado exitosamente.")
                                 st.balloons()
-                                time.sleep(3)
+                                rerun_current_tab()
 
                             except Exception as e:
                                 st.error(f"❌ Error al confirmar comprobante: {e}")
