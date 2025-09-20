@@ -2353,6 +2353,14 @@ with tab5:
         st.session_state["current_tab_index"] = 4
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
+    if st.button("🔄 Actualizar guías"):
+        if allow_refresh("guias_last_refresh"):
+            cargar_datos_guias_unificadas.clear()
+            get_worksheet.clear()
+            if hasattr(get_worksheet_casos_especiales, "clear"):
+                get_worksheet_casos_especiales.clear()
+            st.rerun()
+
     try:
         df_guias = cargar_datos_guias_unificadas()
     except Exception as e:
