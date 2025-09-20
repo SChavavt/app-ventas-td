@@ -2630,7 +2630,7 @@ with tab7:
 
     modo_busqueda = st.radio(
         "Selecciona el modo de búsqueda:",
-        ["🔢 Por número de guía", "🧑 Por cliente"],
+        ["🔢 Por número de guía", "🧑 Por cliente/factura"],
         key="tab7_modo_busqueda_radio"
     )
 
@@ -2642,11 +2642,10 @@ with tab7:
         buscar_btn = st.button("🔎 Buscar", key="tab7_btn_buscar_guia")
     else:
         keyword = st.text_input(
-            "🧑 Ingresa el nombre del cliente a buscar (sin importar mayúsculas ni acentos):",
+            "🧑 Ingresa el nombre del cliente o el folio de la factura a buscar (sin importar mayúsculas ni acentos para el cliente):",
             key="tab7_keyword_cliente"
         )
-        buscar_btn = st.button("🔍 Buscar Pedido del Cliente", key="tab7_btn_buscar_cliente")
-        cliente_normalizado = normalizar(keyword.strip()) if keyword else ""
+        buscar_btn = st.button("🔍 Buscar Pedido por Cliente o Folio", key="tab7_btn_buscar_cliente")
 
     if buscar_btn:
         if modo_busqueda == "🔢 Por número de guía":
@@ -2661,19 +2660,27 @@ with tab7:
             df_pedidos = df_pedidos.sort_values(by='Hora_Registro', ascending=False).reset_index(drop=True)
 
         # ====== BÚSQUEDA POR CLIENTE: también en casos_especiales ======
-        if modo_busqueda == "🧑 Por cliente":
-            if not keyword.strip():
-                st.warning("⚠️ Ingresa un nombre de cliente.")
+        if modo_busqueda == "🧑 Por cliente/factura":
+            criterio = keyword.strip()
+            if not criterio:
+                st.warning("⚠️ Ingresa un cliente o folio de factura.")
                 st.stop()
 
-            cliente_normalizado = normalizar(keyword.strip())
+            cliente_normalizado = normalizar(criterio)
+            criterio_minusculas = criterio.lower()
 
             # 1) datos_pedidos (S3 + archivos)
             for _, row in df_pedidos.iterrows():
                 nombre = str(row.get("Cliente", "")).strip()
-                if not nombre:
+                folio_factura = str(row.get("Folio_Factura", "")).strip()
+                folio_factura = "" if folio_factura.lower() == "nan" else folio_factura
+                folio_factura_minusculas = folio_factura.lower()
+                if not nombre and not folio_factura:
                     continue
-                if cliente_normalizado not in normalizar(nombre):
+                nombre_normalizado = normalizar(nombre) if nombre else ""
+                coincide_cliente = bool(cliente_normalizado) and cliente_normalizado in nombre_normalizado
+                coincide_folio = bool(criterio_minusculas) and criterio_minusculas == folio_factura_minusculas
+                if not coincide_cliente and not coincide_folio:
                     continue
 
                 pedido_id = str(row.get("ID_Pedido", "")).strip()
@@ -2717,9 +2724,15 @@ with tab7:
 
             for _, row in df_casos.iterrows():
                 nombre = str(row.get("Cliente", "")).strip()
-                if not nombre:
+                folio_factura = str(row.get("Folio_Factura", "")).strip()
+                folio_factura = "" if folio_factura.lower() == "nan" else folio_factura
+                folio_factura_minusculas = folio_factura.lower()
+                if not nombre and not folio_factura:
                     continue
-                if cliente_normalizado not in normalizar(nombre):
+                nombre_normalizado = normalizar(nombre) if nombre else ""
+                coincide_cliente = bool(cliente_normalizado) and cliente_normalizado in nombre_normalizado
+                coincide_folio = bool(criterio_minusculas) and criterio_minusculas == folio_factura_minusculas
+                if not coincide_cliente and not coincide_folio:
                     continue
 
                 resultados.append({
@@ -3023,6 +3036,6 @@ with tab7:
             mensaje = (
                 "⚠️ No se encontraron coincidencias en ningún archivo PDF."
                 if modo_busqueda == "🔢 Por número de guía"
-                else "⚠️ No se encontraron pedidos o casos para el cliente ingresado."
+                else "⚠️ No se encontraron pedidos o casos para el cliente o folio ingresado."
             )
             st.warning(mensaje)
