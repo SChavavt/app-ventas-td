@@ -2375,10 +2375,17 @@ with tab5:
             )
 
         with col2_tab5:
+            filtrar_7_dias = st.checkbox(
+                "Mostrar últimos 7 días",
+                key="filtro_guias_7_dias",
+                on_change=fijar_tab5_activa
+            )
             fecha_filtro_tab5 = st.date_input(
                 "📅 Filtrar por Fecha de Registro:",
-                value=datetime.now().date(),
-                key="filtro_fecha_guias"
+                value=st.session_state.get("filtro_fecha_guias", datetime.now().date()),
+                key="filtro_fecha_guias",
+                disabled=filtrar_7_dias,
+                on_change=fijar_tab5_activa
             )
 
         fecha_col_para_filtrar = None
@@ -2388,7 +2395,12 @@ with tab5:
             fecha_col_para_filtrar = "Fecha_Entrega"
 
         if fecha_col_para_filtrar:
-            df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date == fecha_filtro_tab5]
+            if filtrar_7_dias:
+                hoy = datetime.now().date()
+                rango_inicio = hoy - timedelta(days=6)
+                df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date.between(rango_inicio, hoy)]
+            else:
+                df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date == fecha_filtro_tab5]
 
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
