@@ -18,6 +18,17 @@ from streamlit.runtime.scriptrunner import StopException
 
 # Reintentos robustos para Google Sheets
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
+TRANSIENT_TEXT_MARKERS = {
+    "ratelimit",
+    "ratelimitexceeded",
+    "rate_limit_exceeded",
+    "user_rate_limit_exceeded",
+    "quotaexceeded",
+    "quota_exceeded",
+    "limitexceeded",
+    "resource_exhausted",
+    "backenderror",
+}
 
 REFRESH_COOLDOWN = 60
 QUOTA_ERROR_THRESHOLD = 5
@@ -46,6 +57,20 @@ def _err_signature(e) -> tuple[int|None, str]:
         text = str(e)
     return status, text.lower()
 
+
+def _is_transient_quota_error(status: int | None, text: str) -> bool:
+    """Determina si el error es transitorio y conviene reintentar."""
+    if status in RETRIABLE_CODES:
+        return True
+    return any(marker in text for marker in TRANSIENT_TEXT_MARKERS)
+
+
+def _register_quota_hit() -> int:
+    """Incrementa el contador de quota y devuelve el total acumulado."""
+    hits = st.session_state.get("_quota_hits", 0) + 1
+    st.session_state["_quota_hits"] = hits
+    return hits
+
 def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
     """
     Abre una worksheet con reintentos automáticos en caso de errores temporales
@@ -69,16 +94,9 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
         except gspread.exceptions.APIError as e:
             last_err = e
             status, text = _err_signature(e)
-            is_rate = (
-                (status in RETRIABLE_CODES) or
-                ("ratelimit" in text) or
-                ("user_rate_limit_exceeded" in text) or
-                ("resource_exhausted" in text) or
-                ("backenderror" in text)
-            )
+            is_rate = _is_transient_quota_error(status, text)
             if is_rate:
-                hits = st.session_state.get("_quota_hits", 0) + 1
-                st.session_state["_quota_hits"] = hits
+                hits = _register_quota_hit()
                 if hits >= QUOTA_ERROR_THRESHOLD:
                     st.error("🚫 Se detectaron múltiples errores de cuota. Espera antes de reintentar.")
                     break
@@ -112,18 +130,50 @@ def _get_ws_datos():
     return safe_open_worksheet(GOOGLE_SHEET_ID, "datos_pedidos")
 
 
-def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
-    """Realiza ``batch_update`` con reintentos exponenciales ante errores 429."""
+def safe_batch_update(
+    worksheet,
+    data,
+    retries: int = 5,
+    base_delay: float = 2.0,
+    max_delay: float = 64.0,
+) -> None:
+    """Realiza ``batch_update`` con reintentos exponenciales ante errores temporales."""
+    if st.session_state.get("_quota_hits", 0) >= QUOTA_ERROR_THRESHOLD:
+        st.error("🚫 Se alcanzó el límite de cuota de Google Sheets. Espera antes de reintentar.")
+        raise RuntimeError("quota cooldown")
+
+    last_err: APIError | None = None
+    delay = base_delay
     for attempt in range(retries):
         try:
             worksheet.batch_update(data)
+            st.session_state["_quota_hits"] = 0
             return
         except APIError as e:
-            status = getattr(getattr(e, "response", None), "status_code", None)
-            if status == 429 and attempt < retries - 1:
-                time.sleep(base_delay * (2 ** attempt))
-            else:
+            status, text = _err_signature(e)
+            if not _is_transient_quota_error(status, text):
                 raise
+
+            last_err = e
+            hits = _register_quota_hit()
+            if hits >= QUOTA_ERROR_THRESHOLD:
+                st.error("🚫 Se detectaron múltiples errores de cuota. Espera antes de reintentar.")
+                break
+
+            if attempt >= retries - 1:
+                break
+
+            capped_delay = min(delay, max_delay)
+            jitter = random.uniform(0, capped_delay)
+            sleep_for = capped_delay + jitter
+            st.warning(
+                f"⚠️ Error de Google Sheets al actualizar. Reintentando en {sleep_for:.1f}s..."
+            )
+            time.sleep(sleep_for)
+            delay = min(delay * 2, max_delay)
+
+    st.error("🚫 Google Sheets está aplicando un cooldown de cuota. Intenta nuevamente en unos minutos.")
+    raise RuntimeError("quota cooldown") from last_err
 
 
 def clean_modificacion_surtido(value) -> str:
