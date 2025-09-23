@@ -77,7 +77,18 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
     utilizando backoff exponencial con jitter. Reutiliza la instancia cacheada
     del spreadsheet y evita limpiar recursos globales.
     """
+    now = time.time()
+    locked_until = st.session_state.get("_quota_locked_until")
+    if locked_until is not None:
+        if now >= locked_until:
+            st.session_state["_quota_hits"] = 0
+            st.session_state.pop("_quota_locked_until", None)
+        else:
+            st.error("🚫 Se alcanzó el límite de cuota de Google Sheets. Espera antes de reintentar.")
+            raise RuntimeError("google-sheets quota exceeded")
+
     if st.session_state.get("_quota_hits", 0) >= QUOTA_ERROR_THRESHOLD:
+        st.session_state["_quota_locked_until"] = now + REFRESH_COOLDOWN
         st.error("🚫 Se alcanzó el límite de cuota de Google Sheets. Espera antes de reintentar.")
         raise RuntimeError("google-sheets quota exceeded")
 
@@ -90,6 +101,7 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
                 ss = get_spreadsheet(sheet_id)  # usa instancia cacheada del spreadsheet
             ws = ss.worksheet(worksheet_name)
             st.session_state["_quota_hits"] = 0
+            st.session_state.pop("_quota_locked_until", None)
             return ws
         except gspread.exceptions.APIError as e:
             last_err = e
@@ -98,6 +110,7 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
             if is_rate:
                 hits = _register_quota_hit()
                 if hits >= QUOTA_ERROR_THRESHOLD:
+                    st.session_state["_quota_locked_until"] = time.time() + REFRESH_COOLDOWN
                     st.error("🚫 Se detectaron múltiples errores de cuota. Espera antes de reintentar.")
                     break
             if is_rate and attempt < retries - 1:
