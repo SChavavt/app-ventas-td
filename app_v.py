@@ -393,6 +393,15 @@ def render_caso_especial(row):
             f"**👥 Responsable del Error:** {row.get('Nombre_Responsable','') or 'N/A'}"
         )
 
+    dir_guia = row.get("Direccion_Guia_Retorno", "")
+    dir_envio = row.get("Direccion_Envio", "")
+    if __has(dir_guia) or __has(dir_envio):
+        st.markdown("#### 🏠 Direcciones")
+        if __has(dir_guia):
+            st.markdown(f"- **Guía de retorno:** {__s(dir_guia)}")
+        if __has(dir_envio):
+            st.markdown(f"- **Envío destino:** {__s(dir_envio)}")
+
     if __has(row.get("Fecha_Entrega","")) or __has(row.get("Fecha_Recepcion_Devolucion","")) or __has(row.get("Estado_Recepcion","")):
         st.markdown(
             f"**📅 Fecha Entrega/Cierre:** {row.get('Fecha_Entrega','') or 'N/A'}  |  "
@@ -621,6 +630,8 @@ with tab1:
     g_nombre_responsable = ""
     g_numero_serie = ""
     g_fecha_compra = None
+    direccion_guia_retorno = ""
+    direccion_envio_destino = ""
 
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
@@ -747,6 +758,17 @@ with tab1:
                 g_numero_serie = st.text_input("🔢 Número de serie / lote (opcional)", key="g_numero_serie")
             with col_g2:
                 g_fecha_compra = st.date_input("🗓 Fecha de compra (opcional)", value=None, key="g_fecha_compra")
+
+        if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+            st.markdown("### 🏠 Direcciones")
+            direccion_guia_retorno = st.text_area(
+                "📬 Dirección para guía de retorno",
+                key="direccion_guia_retorno",
+            )
+            direccion_envio_destino = st.text_area(
+                "📦 Dirección de envío destino",
+                key="direccion_envio_destino",
+            )
 
         st.markdown("---")
         st.subheader("📎 Adjuntos del Pedido")
@@ -1030,6 +1052,17 @@ with tab1:
                 if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
                     worksheet = get_worksheet_casos_especiales()
                     headers = get_sheet_headers("casos_especiales")
+                    required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio"]
+                    missing_headers = [col for col in required_headers if col not in headers]
+                    if missing_headers:
+                        try:
+                            new_headers = headers + missing_headers
+                            worksheet.update('A1', [new_headers])
+                            get_sheet_headers.clear()
+                            headers = get_sheet_headers("casos_especiales")
+                        except Exception as header_error:
+                            st.error(f"❌ No se pudieron preparar las columnas de direcciones: {header_error}")
+                            st.stop()
                 else:
                     worksheet = get_worksheet()
                     headers = get_sheet_headers("datos_pedidos")
@@ -1213,6 +1246,16 @@ with tab1:
                         values.append(g_nombre_responsable)
                     else:
                         values.append("")
+                elif header == "Direccion_Guia_Retorno":
+                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                        values.append(direccion_guia_retorno)
+                    else:
+                        values.append("")
+                elif header == "Direccion_Envio":
+                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                        values.append(direccion_envio_destino)
+                    else:
+                        values.append("")
                 # -------- Opcionales si existen en la hoja --------
                 elif header == "Numero_Serie":
                     values.append(g_numero_serie if tipo_envio == "🛠 Garantía" else "")
@@ -1300,6 +1343,7 @@ def cargar_pedidos_combinados():
             'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
             'Nota_Credito_URL','Documento_Adicional_URL','Comentarios_Admin_Devolucion',
             'Hoja_Ruta_Mensajero','Fecha_Recepcion_Devolucion','Hora_Proceso','Area_Responsable','Nombre_Responsable',
+            'Direccion_Guia_Retorno','Direccion_Envio',
             # seguimiento
             'Seguimiento'
         ]
@@ -1347,6 +1391,7 @@ def cargar_pedidos_combinados():
             # detalle del caso (dev/garantía)
             'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
             'Area_Responsable','Nombre_Responsable',
+            'Direccion_Guia_Retorno','Direccion_Envio',
             # ⚙️ NUEVO: Garantías
             'Numero_Serie','Fecha_Compra',   # si tu hoja usa "FechaCompra", abajo lo normalizamos
             # recepción/cierre
@@ -2116,6 +2161,7 @@ def cargar_casos_especiales():
         # Detalle del caso
         "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
         "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
+        "Direccion_Guia_Retorno","Direccion_Envio",
         # ⚙️ NUEVO: Garantías
         "Numero_Serie","Fecha_Compra",  # (si tu hoja usa 'FechaCompra', abajo la normalizamos)
         # Fechas/recepción
