@@ -1051,7 +1051,11 @@ with tab1:
             try:
                 if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
                     worksheet = get_worksheet_casos_especiales()
-                    headers = get_sheet_headers("casos_especiales")
+                    if worksheet is None:
+                        st.error("❌ No fue posible acceder a la hoja de casos especiales.")
+                        st.stop()
+
+                    headers = worksheet.row_values(1)
                     required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio"]
                     missing_headers = [col for col in required_headers if col not in headers]
                     if missing_headers:
@@ -1059,13 +1063,16 @@ with tab1:
                             new_headers = headers + missing_headers
                             worksheet.update('A1', [new_headers])
                             get_sheet_headers.clear()
-                            headers = get_sheet_headers("casos_especiales")
+                            headers = worksheet.row_values(1)
                         except Exception as header_error:
                             st.error(f"❌ No se pudieron preparar las columnas de direcciones: {header_error}")
                             st.stop()
                 else:
                     worksheet = get_worksheet()
-                    headers = get_sheet_headers("datos_pedidos")
+                    if worksheet is None:
+                        st.error("❌ No fue posible acceder a la hoja de pedidos.")
+                        st.stop()
+                    headers = worksheet.row_values(1)
 
                 if not headers:
                     st.error("❌ La hoja de cálculo está vacía.")
