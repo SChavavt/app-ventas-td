@@ -1807,7 +1807,13 @@ with tab3, suppress(StopException):
     gsheet_row_idx = int(matches[0]) + 2
 
     # Worksheet para escritura con reintentos
-    worksheet_casos = safe_open_worksheet(GOOGLE_SHEET_ID, "casos_especiales")
+    try:
+        worksheet_casos = safe_open_worksheet(GOOGLE_SHEET_ID, "casos_especiales")
+    except gspread.exceptions.APIError:
+        tab3_alert.warning(
+            "⚠️ Google Sheets está aplicando un cooldown. Se trabajará con el snapshot hasta que pase el bloqueo."
+        )
+        st.stop()
 
     # ========= RENDER DEL CASO SELECCIONADO (detecta si es Devolución o Garantía) =========
     tipo_case = str(row.get("Tipo_Envio","")).strip()
