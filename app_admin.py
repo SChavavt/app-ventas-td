@@ -248,6 +248,48 @@ def clean_modificacion_surtido(value) -> str:
     return text
 
 
+def normalize_id_pedido(value) -> str:
+    """Normaliza el ID de pedido eliminando espacios y sufijos decimales espurios."""
+    if value is None:
+        return ""
+
+    text = str(value).replace("\u00a0", " ").strip()
+    if not text:
+        return ""
+
+    lowered = text.lower()
+    if lowered in {"nan", "none", "null", "n/a", "na"}:
+        return ""
+
+    candidate = text.replace(",", "")
+    if "." in candidate:
+        integer_part, decimal_part = candidate.split(".", 1)
+        if integer_part.isdigit() and decimal_part.strip("0") == "":
+            candidate = integer_part
+
+    if candidate.isdigit():
+        # Normaliza 00123, 123.0, etc. → "123"
+        return str(int(candidate))
+
+    return text
+
+
+def normalize_folio_factura(value) -> str:
+    """Limpia el folio de factura removiendo espacios y marcadores nulos."""
+    if value is None:
+        return ""
+
+    text = str(value).replace("\u00a0", " ").strip()
+    if not text:
+        return ""
+
+    lowered = text.lower()
+    if lowered in {"nan", "none", "null", "n/a", "na"}:
+        return ""
+
+    return text
+
+
 # --- GOOGLE SHEETS CONFIGURATION ---
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
@@ -313,6 +355,9 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0)
             lambda s: s.mask(s.str.lower().isin(NA_LITERALS))
         )
         df = df.dropna(subset=["Folio_Factura", "ID_Pedido"], how="all")
+
+        if "ID_Pedido" in df.columns:
+            df["ID_Pedido"] = df["ID_Pedido"].apply(normalize_id_pedido)
 
         # 2) Guarda snapshot “último bueno” por si falla luego
         st.session_state[f"_lastgood_{worksheet_name}"] = (df.copy(), list(headers))
@@ -1291,9 +1336,11 @@ with tab2:
         ws = safe_open_worksheet(sheet_id, ws_name)
         vals = ws.get_values("A1:ZZ", value_render_option="UNFORMATTED_VALUE")
         if not vals:
-            return pd.DataFrame(), []
+            return pd.DataFrame(), [], 0, 0
         headers = vals[0]
         df = pd.DataFrame(vals[1:], columns=headers)
+
+        total_filas_hoja = len(df)
 
         # Normalización mínima / columnas clave
         campos_clave = ['ID_Pedido', 'Cliente', 'Folio_Factura']
@@ -1306,27 +1353,62 @@ with tab2:
             axis=1
         )]
 
+        registros_antes_deduplicado = len(df)
+
+        if not df.empty:
+            df["ID_Pedido"] = df["ID_Pedido"].apply(normalize_id_pedido)
+            df["Folio_Factura"] = df["Folio_Factura"].apply(normalize_folio_factura)
+            df = df[df["ID_Pedido"] != ""]
+            df = df.drop_duplicates(subset=["ID_Pedido", "Folio_Factura"], keep="last").reset_index(drop=True)
+        deduplicados = max(registros_antes_deduplicado - len(df), 0)
+
         # Snapshot "último bueno"
         st.session_state["_lastgood_confirmados"] = (df.copy(), headers[:])
-        return df, headers
+        return df, headers, deduplicados, total_filas_hoja
 
     # 📄 Cargar hoja 'pedidos_confirmados' con fallback a snapshot si la API falla
     try:
-        df_confirmados_guardados, headers_confirmados = cargar_confirmados_guardados_cached(
+        df_confirmados_guardados, headers_confirmados, duplicados_eliminados, total_original = cargar_confirmados_guardados_cached(
             GOOGLE_SHEET_ID, "pedidos_confirmados", st.session_state["tab2_reload_nonce"]
         )
     except gspread.exceptions.WorksheetNotFound:
         spreadsheet = get_spreadsheet(GOOGLE_SHEET_ID)
         spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
         df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
+        duplicados_eliminados = 0
+        total_original = 0
     except gspread.exceptions.APIError as e:
         snap = st.session_state.get("_lastgood_confirmados")
         if snap:
             st.warning("♻️ Error temporal al leer 'pedidos_confirmados'. Mostrando último snapshot bueno.")
             df_confirmados_guardados, headers_confirmados = snap
+            duplicados_eliminados = st.session_state.get("_last_confirmados_dedup", 0)
+            total_original = st.session_state.get("_last_confirmados_total", len(df_confirmados_guardados))
         else:
             st.error(f"❌ No se pudo leer 'pedidos_confirmados'. Detalle: {e}")
             df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
+            duplicados_eliminados = 0
+            total_original = 0
+
+    st.session_state["_last_confirmados_dedup"] = duplicados_eliminados
+    st.session_state["_last_confirmados_total"] = total_original
+
+    if duplicados_eliminados > 0 and not df_confirmados_guardados.empty:
+        st.info(
+            f"ℹ️ Se detectaron {duplicados_eliminados} filas duplicadas en la hoja. La vista y las descargas ya están depuradas;"
+            " al actualizar se limpiará la hoja en Drive."
+        )
+        if total_original:
+            st.caption(
+                f"Se muestran {len(df_confirmados_guardados)} confirmados únicos de {total_original} filas originales."
+            )
+        st.session_state["_confirmados_cleanup_snapshot"] = {
+            "headers": headers_confirmados[:],
+            "df": df_confirmados_guardados.copy(),
+            "duplicados": duplicados_eliminados,
+        }
+    else:
+        st.session_state.pop("_confirmados_cleanup_snapshot", None)
 
     # Métricas rápidas (usa df_pedidos en memoria si existe)
     if ('df_pedidos' in locals() or 'df_pedidos' in globals()) and not df_pedidos.empty:
@@ -1354,16 +1436,87 @@ with tab2:
         if allow_refresh("tab2_last_refresh", tab2_alert):
             try:
                 # Detectar nuevos confirmados no guardados aún en la hoja
-                ids_existentes = set(df_confirmados_guardados["ID_Pedido"].astype(str)) if not df_confirmados_guardados.empty else set()
+                cleanup_snapshot = st.session_state.get("_confirmados_cleanup_snapshot")
+                if cleanup_snapshot:
+                    try:
+                        spreadsheet = get_spreadsheet(GOOGLE_SHEET_ID)
+                        try:
+                            hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
+                        except gspread.exceptions.WorksheetNotFound:
+                            hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
+
+                        df_saneado = cleanup_snapshot["df"].copy()
+                        headers_saneados = cleanup_snapshot["headers"]
+                        columnas_orden = headers_saneados if headers_saneados else df_saneado.columns.tolist()
+
+                        for col in columnas_orden:
+                            if col not in df_saneado.columns:
+                                df_saneado[col] = ""
+                        columnas_finales = columnas_orden[:]
+                        for col in df_saneado.columns:
+                            if col not in columnas_finales:
+                                columnas_finales.append(col)
+
+                        df_saneado = df_saneado[columnas_finales].fillna("").astype(str)
+                        valores_actualizados = [columnas_finales] + df_saneado.values.tolist()
+
+                        hoja_confirmados.clear()
+                        hoja_confirmados.update("A1", valores_actualizados, value_input_option="USER_ENTERED")
+
+                        tab2_alert.success(
+                            f"🧹 Se limpiaron {cleanup_snapshot['duplicados']} duplicados directamente en la hoja."
+                        )
+                        st.session_state.pop("_confirmados_cleanup_snapshot", None)
+                        df_confirmados_guardados = df_saneado
+                        headers_confirmados = columnas_finales
+                    except Exception as e:
+                        tab2_alert.warning(
+                            f"⚠️ No fue posible limpiar los duplicados en la hoja: {e}. Se continuará con la actualización."
+                        )
+
+                # Detectar nuevos confirmados no guardados aún en la hoja
+                if not df_confirmados_guardados.empty:
+                    ids_existentes_norm = df_confirmados_guardados["ID_Pedido"].apply(normalize_id_pedido)
+                    folios_existentes_norm = df_confirmados_guardados["Folio_Factura"].apply(normalize_folio_factura)
+                    pares_existentes = {
+                        (id_val, folio_val)
+                        for id_val, folio_val in zip(ids_existentes_norm, folios_existentes_norm)
+                        if id_val
+                    }
+                else:
+                    pares_existentes = set()
+
+                if 'ID_Pedido' in df_pedidos.columns:
+                    serie_ids_normalizados = df_pedidos['ID_Pedido'].apply(normalize_id_pedido)
+                else:
+                    serie_ids_normalizados = pd.Series(["" for _ in range(len(df_pedidos))], index=df_pedidos.index)
+
+                if 'Folio_Factura' in df_pedidos.columns:
+                    serie_folios_normalizados = df_pedidos['Folio_Factura'].apply(normalize_folio_factura)
+                else:
+                    serie_folios_normalizados = pd.Series(["" for _ in range(len(df_pedidos))], index=df_pedidos.index)
+
+                pares_normalizados = pd.Series(
+                    list(zip(serie_ids_normalizados, serie_folios_normalizados)), index=df_pedidos.index
+                )
+
                 df_nuevos = df_pedidos[
                     (df_pedidos.get('Comprobante_Confirmado') == 'Sí') &
-                    (~df_pedidos['ID_Pedido'].astype(str).isin(ids_existentes))
+                    (~pares_normalizados.isin(pares_existentes))
                 ].copy()
+
+                if not df_nuevos.empty:
+                    df_nuevos.loc[:, 'ID_Pedido'] = serie_ids_normalizados.loc[df_nuevos.index]
+                    df_nuevos.loc[:, 'Folio_Factura'] = serie_folios_normalizados.loc[df_nuevos.index]
+                    df_nuevos = df_nuevos[(df_nuevos['ID_Pedido'] != "")]
 
                 if df_nuevos.empty:
                     tab2_alert.info("✅ No hay pedidos confirmados nuevos por registrar. Se recargará la tabla igualmente…")
                 else:
                     df_nuevos = df_nuevos.sort_values(by='Fecha_Pago_Comprobante', ascending=False, na_position='last')
+                    df_nuevos = df_nuevos.drop_duplicates(
+                        subset=['ID_Pedido', 'Folio_Factura'], keep='first'
+                    )
 
                     columnas_guardar = [
                         'ID_Pedido', 'Folio_Factura', 'Folio_Factura_Refacturada',
