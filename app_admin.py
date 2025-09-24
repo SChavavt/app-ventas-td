@@ -751,11 +751,25 @@ with tab1:
 
             if selected_index is not None:
                 selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
-                current_pedido_id = selected_pedido_data.get("ID_Pedido")
-                last_pedido_id = st.session_state.get("last_selected_pedido_id")
-                if current_pedido_id and last_pedido_id != current_pedido_id:
+
+                raw_pedido_id = selected_pedido_data.get("ID_Pedido")
+                normalized_pedido_id = normalize_id_pedido(raw_pedido_id)
+                fallback_folio = normalize_folio_factura(
+                    selected_pedido_data.get("Folio_Factura")
+                )
+
+                if normalized_pedido_id:
+                    current_selection_key = f"ID::{normalized_pedido_id}"
+                elif fallback_folio:
+                    current_selection_key = f"FOLIO::{fallback_folio}"
+                else:
+                    current_selection_key = f"INDEX::{selected_index}"
+
+                last_selection_key = st.session_state.get("last_selected_pedido_key")
+                if last_selection_key != current_selection_key:
                     clear_comprobante_form_state()
-                st.session_state["last_selected_pedido_id"] = current_pedido_id
+
+                st.session_state["last_selected_pedido_key"] = current_selection_key
                 modificacion_surtido_text = clean_modificacion_surtido(
                     selected_pedido_data.get("Modificacion_Surtido", "")
                 )
@@ -1062,7 +1076,7 @@ with tab1:
                             st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
 
                             clear_comprobante_form_state()
-                            st.session_state.pop("last_selected_pedido_id", None)
+                            st.session_state.pop("last_selected_pedido_key", None)
                             st.success("✅ Comprobante y datos de pago guardados exitosamente.")
                             st.balloons()
                             rerun_current_tab()
@@ -1298,6 +1312,8 @@ with tab1:
                                     pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search]
                                     st.session_state.df_pedidos = df_pedidos
                                     st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+                                    clear_comprobante_form_state()
+                                    st.session_state.pop("last_selected_pedido_key", None)
                                     st.success("🎉 Comprobante confirmado exitosamente.")
                                     st.balloons()
                                     rerun_current_tab()
