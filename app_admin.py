@@ -137,6 +137,50 @@ def rerun_current_tab():
     st.rerun()
 
 
+def clear_comprobante_form_state():
+    """Limpia los campos persistentes del formulario de comprobantes."""
+    keys_to_clear = {
+        "pago_doble_admin",
+        "comprobante_local_no_pagado",
+        "fecha_pago_local",
+        "forma_pago_local",
+        "monto_pago_local",
+        "terminal_local",
+        "banco_destino_local",
+        "referencia_local",
+        "cp_pago1_admin",
+        "fecha_pago1_admin",
+        "forma_pago1_admin",
+        "monto_pago1_admin",
+        "terminal1_admin",
+        "banco1_admin",
+        "ref1_admin",
+        "cp_pago2_admin",
+        "fecha_pago2_admin",
+        "forma_pago2_admin",
+        "monto_pago2_admin",
+        "terminal2_admin",
+        "banco2_admin",
+        "ref2_admin",
+    }
+
+    for key in keys_to_clear:
+        st.session_state.pop(key, None)
+
+    dynamic_prefixes = (
+        "fecha_pago_",
+        "forma_pago_",
+        "banco_pago_",
+        "terminal_pago_",
+        "monto_pago_",
+        "ref_pago_",
+    )
+
+    for key in list(st.session_state.keys()):
+        if any(key.startswith(prefix) for prefix in dynamic_prefixes):
+            st.session_state.pop(key, None)
+
+
 @st.cache_resource(ttl=60)
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
@@ -662,6 +706,11 @@ with tab1:
 
             if selected_index is not None:
                 selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
+                current_pedido_id = selected_pedido_data.get("ID_Pedido")
+                last_pedido_id = st.session_state.get("last_selected_pedido_id")
+                if current_pedido_id and last_pedido_id != current_pedido_id:
+                    clear_comprobante_form_state()
+                st.session_state["last_selected_pedido_id"] = current_pedido_id
                 modificacion_surtido_text = clean_modificacion_surtido(
                     selected_pedido_data.get("Modificacion_Surtido", "")
                 )
@@ -966,7 +1015,9 @@ with tab1:
                             pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_data["ID_Pedido"]]
                             st.session_state.df_pedidos = df_pedidos
                             st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
-    
+
+                            clear_comprobante_form_state()
+                            st.session_state.pop("last_selected_pedido_id", None)
                             st.success("✅ Comprobante y datos de pago guardados exitosamente.")
                             st.balloons()
                             rerun_current_tab()
