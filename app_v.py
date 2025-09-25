@@ -39,6 +39,60 @@ def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> b
     return True
 
 
+def set_feedback_dialog(
+    kind: str,
+    message: str,
+    *,
+    details: str | None = None,
+    attachments: list[str] | None = None,
+    celebrate: bool = False,
+) -> None:
+    """Guarda en sesión la información de un aviso de retroalimentación."""
+    st.session_state["feedback_dialog"] = {
+        "type": kind,
+        "message": message,
+        "details": details,
+        "attachments": attachments or [],
+        "celebrate": celebrate,
+    }
+
+
+def render_feedback_dialog() -> None:
+    """Muestra el aviso de retroalimentación pendiente, si lo hay."""
+    feedback = st.session_state.get("feedback_dialog")
+    if not feedback:
+        return
+
+    dialog = st.container()
+    msg = feedback.get("message", "")
+    details = feedback.get("details")
+    attachments = feedback.get("attachments") or []
+    celebrate = feedback.get("celebrate", False)
+    ack_key = feedback.get("ack_key", f"feedback_ack_{feedback.get('type', 'info')}")
+
+    if feedback.get("type") == "success":
+        dialog.success(msg)
+        if attachments:
+            dialog.info(
+                "📎 Archivos subidos: "
+                + ", ".join(os.path.basename(url) for url in attachments)
+            )
+        if celebrate and not feedback.get("celebrated"):
+            st.balloons()
+            feedback["celebrated"] = True
+            st.session_state["feedback_dialog"] = feedback
+        if details:
+            dialog.write(details)
+    else:
+        dialog.error(msg)
+        if details:
+            dialog.markdown(f"**Detalle del error:** {details}")
+
+    if dialog.button("Aceptar", key=ack_key):
+        st.session_state.pop("feedback_dialog", None)
+        st.rerun()
+
+
 def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
     """Realiza ``batch_update`` con reintentos ante errores de cuota."""
     for attempt in range(retries):
@@ -563,15 +617,7 @@ with tab1:
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
     st.header("📝 Nuevo Pedido")
-    # ✅ Mostrar mensaje persistente si se acaba de registrar un pedido
-    if "success_pedido_registrado" in st.session_state:
-        st.success(f"🎉 Pedido {st.session_state['success_pedido_registrado']} registrado con éxito.")
-        if "success_adjuntos" in st.session_state and st.session_state["success_adjuntos"]:
-            st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in st.session_state["success_adjuntos"]))
-        st.balloons()
-        del st.session_state["success_pedido_registrado"]
-        if "success_adjuntos" in st.session_state:
-            del st.session_state["success_adjuntos"]
+    render_feedback_dialog()
 
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
@@ -1275,18 +1321,19 @@ with tab1:
                     values.append("")
 
             exito = False
+            last_error_message: str | None = None
             for intento in range(3):
                 try:
                     worksheet.append_row(values)
                     exito = True
                     break
                 except gspread.exceptions.APIError as e:
+                    last_error_message = str(e)
                     if "RESOURCE_EXHAUSTED" in str(e) or (
                         hasattr(e, "response") and getattr(e.response, "status_code", None) == 429
                     ):
                         time.sleep(2 ** intento)
                     else:
-                        st.error(f"❌ Error al registrar el pedido: {e}")
                         break
             if exito:
                 vendedor = st.session_state.get("last_selected_vendedor")
@@ -1294,16 +1341,31 @@ with tab1:
                 st.session_state.clear()
                 st.session_state.current_tab_index = current_index
                 st.session_state.last_selected_vendedor = vendedor
-                st.session_state.success_pedido_registrado = id_pedido
-                st.session_state.success_adjuntos = adjuntos_urls
+                set_feedback_dialog(
+                    "success",
+                    f"🎉 Pedido {id_pedido} registrado con éxito.",
+                    attachments=adjuntos_urls,
+                    celebrate=True,
+                )
                 if tab1_is_active and st.session_state.get("current_tab_index") == 0:
                     st.query_params.update({"tab": "0"})
                 st.rerun()
             else:
-                st.error("❌ No se pudo registrar el pedido después de varios intentos.")
+                set_feedback_dialog(
+                    "error",
+                    "❌ Falló al subir el pedido.",
+                    details=last_error_message
+                    or "No se pudo registrar el pedido después de varios intentos.",
+                )
+                st.rerun()
 
         except Exception as e:
-            st.error(f"❌ Error inesperado al registrar el pedido: {e}")
+            set_feedback_dialog(
+                "error",
+                "❌ Falló al subir el pedido.",
+                details=str(e),
+            )
+            st.rerun()
 
 
 
