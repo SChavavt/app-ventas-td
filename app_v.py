@@ -182,17 +182,17 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
         s3_key: La ruta completa y nombre del archivo en S3 (ej. 'pedido_id/filename.pdf').
 
     Returns:
-        tuple: (True, URL del archivo) si tiene éxito, (False, None) en caso de error.
+        tuple: (True, URL del archivo, None) si tiene éxito.
+               (False, None, str(error)) cuando ocurre un problema.
     """
     try:
         # Asegúrate de que el puntero del archivo esté al principio
         file_obj.seek(0)
         s3_client.upload_fileobj(file_obj, bucket_name, s3_key)
         file_url = f"https://{bucket_name}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
-        return True, file_url
+        return True, file_url, None
     except Exception as e:
-        st.error(f"❌ Error al subir el archivo '{s3_key}' a S3: {e}")
-        return False, None
+        return False, None, str(e)
     
 # --- Función para actualizar una celda de Google Sheets de forma segura ---
 def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
@@ -206,7 +206,17 @@ def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
     except Exception as e:
         st.error(f"❌ Error al actualizar la celda ({row_index}, {col_name}) en Google Sheets: {e}")
         return False
-    
+
+
+def set_pedido_submission_status(status: str, message: str, detail: str | None = None, attachments: list[str] | None = None) -> None:
+    """Guarda el resultado del registro de un pedido para mostrarlo en la UI."""
+    st.session_state["pedido_submission_status"] = {
+        "status": status,
+        "message": message,
+        "detail": detail or "",
+        "attachments": attachments or [],
+    }
+
 @st.cache_data(ttl=300)
 def cargar_pedidos():
     sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet("datos_pedidos")
@@ -563,16 +573,6 @@ with tab1:
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
     st.header("📝 Nuevo Pedido")
-    # ✅ Mostrar mensaje persistente si se acaba de registrar un pedido
-    if "success_pedido_registrado" in st.session_state:
-        st.success(f"🎉 Pedido {st.session_state['success_pedido_registrado']} registrado con éxito.")
-        if "success_adjuntos" in st.session_state and st.session_state["success_adjuntos"]:
-            st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(u) for u in st.session_state["success_adjuntos"]))
-        st.balloons()
-        del st.session_state["success_pedido_registrado"]
-        if "success_adjuntos" in st.session_state:
-            del st.session_state["success_adjuntos"]
-
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
         [
@@ -792,6 +792,32 @@ with tab1:
 
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
+
+    message_container = st.container()
+
+    with message_container:
+        status_data = st.session_state.get("pedido_submission_status")
+        if status_data:
+            status = status_data.get("status")
+            detail = status_data.get("detail")
+            attachments = status_data.get("attachments") or []
+
+            if status == "success":
+                st.success(status_data.get("message", "✅ Pedido registrado correctamente."))
+                if attachments:
+                    st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(url) for url in attachments))
+                if detail:
+                    st.write(detail)
+                st.balloons()
+            else:
+                error_message = status_data.get("message", "❌ Falla al subir el pedido.")
+                if detail:
+                    error_message = f"{error_message}\n\n🔍 Detalle: {detail}"
+                st.error(error_message)
+
+            if st.button("Aceptar", key="acknowledge_pedido_status"):
+                del st.session_state["pedido_submission_status"]
+                st.rerun()
 
     # -------------------------------
     # SECCIÓN DE ESTADO DE PAGO (FUERA DEL FORM) - sin cambios
@@ -1013,6 +1039,7 @@ with tab1:
     # Registro del Pedido
     # -------------------------------
     if submit_button:
+        st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
@@ -1052,8 +1079,12 @@ with tab1:
                 if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
                     worksheet = get_worksheet_casos_especiales()
                     if worksheet is None:
-                        st.error("❌ No fue posible acceder a la hoja de casos especiales.")
-                        st.stop()
+                        set_pedido_submission_status(
+                            "error",
+                            "❌ Falla al subir el pedido.",
+                            "No fue posible acceder a la hoja de casos especiales.",
+                        )
+                        st.rerun()
 
                     headers = worksheet.row_values(1)
                     required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio"]
@@ -1065,18 +1096,30 @@ with tab1:
                             get_sheet_headers.clear()
                             headers = worksheet.row_values(1)
                         except Exception as header_error:
-                            st.error(f"❌ No se pudieron preparar las columnas de direcciones: {header_error}")
-                            st.stop()
+                            set_pedido_submission_status(
+                                "error",
+                                "❌ Falla al subir el pedido.",
+                                f"No se pudieron preparar las columnas de direcciones: {header_error}",
+                            )
+                            st.rerun()
                 else:
                     worksheet = get_worksheet()
                     if worksheet is None:
-                        st.error("❌ No fue posible acceder a la hoja de pedidos.")
-                        st.stop()
+                        set_pedido_submission_status(
+                            "error",
+                            "❌ Falla al subir el pedido.",
+                            "No fue posible acceder a la hoja de pedidos.",
+                        )
+                        st.rerun()
                     headers = worksheet.row_values(1)
 
                 if not headers:
-                    st.error("❌ La hoja de cálculo está vacía.")
-                    st.stop()
+                    set_pedido_submission_status(
+                        "error",
+                        "❌ Falla al subir el pedido.",
+                        "La hoja de cálculo está vacía.",
+                    )
+                    st.rerun()
 
                 # Hora local de CDMX para ID y Hora_Registro
                 zona_mexico = timezone("America/Mexico_City")
@@ -1091,8 +1134,12 @@ with tab1:
                     time.sleep(6)
                     st.rerun()
                 else:
-                    st.error(f"❌ Error al acceder a Google Sheets: {e}")
-                    st.stop()
+                    set_pedido_submission_status(
+                        "error",
+                        "❌ Falla al subir el pedido.",
+                        f"Error al acceder a Google Sheets: {e}",
+                    )
+                    st.rerun()
 
             # Subida de adjuntos (pedido + pagos + evidencias)
             adjuntos_urls = []
@@ -1101,35 +1148,47 @@ with tab1:
                 for file in uploaded_files:
                     ext = os.path.splitext(file.name)[1]
                     s3_key = f"{id_pedido}/{file.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
-                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
+                    success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
                     if success:
                         adjuntos_urls.append(url)
                     else:
-                        st.error(f"❌ Falló la subida de {file.name}")
-                        st.stop()
+                        set_pedido_submission_status(
+                            "error",
+                            "❌ Falla al subir el pedido.",
+                            f"No se pudo subir {file.name} a S3: {error_msg or 'Error desconocido'}",
+                        )
+                        st.rerun()
 
             if comprobante_pago_files:
                 for archivo in comprobante_pago_files:
                     ext_cp = os.path.splitext(archivo.name)[1]
                     s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cp}"
-                    success_cp, url_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
+                    success_cp, url_cp, error_msg_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
                     if success_cp:
                         adjuntos_urls.append(url_cp)
                     else:
-                        st.error(f"❌ Falló la subida de {archivo.name}")
-                        st.stop()
+                        set_pedido_submission_status(
+                            "error",
+                            "❌ Falla al subir el pedido.",
+                            f"No se pudo subir {archivo.name} a S3: {error_msg_cp or 'Error desconocido'}",
+                        )
+                        st.rerun()
 
             # Evidencias de Casos Especiales (Devolución/Garantía)
             if comprobante_cliente:
                 for archivo_cc in comprobante_cliente:
                     ext_cc = os.path.splitext(archivo_cc.name)[1]
                     s3_key_cc = f"{id_pedido}/evidencia_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
-                    success_cc, url_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
+                    success_cc, url_cc, error_msg_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
                     if success_cc:
                         adjuntos_urls.append(url_cc)
                     else:
-                        st.error(f"❌ Falló la subida de {archivo_cc.name}")
-                        st.stop()
+                        set_pedido_submission_status(
+                            "error",
+                            "❌ Falla al subir el pedido.",
+                            f"No se pudo subir {archivo_cc.name} a S3: {error_msg_cc or 'Error desconocido'}",
+                        )
+                        st.rerun()
 
             adjuntos_str = ", ".join(adjuntos_urls)
 
@@ -1286,7 +1345,12 @@ with tab1:
                     ):
                         time.sleep(2 ** intento)
                     else:
-                        st.error(f"❌ Error al registrar el pedido: {e}")
+                        set_pedido_submission_status(
+                            "error",
+                            "❌ Falla al subir el pedido.",
+                            f"Error al registrar el pedido: {e}",
+                        )
+                        st.rerun()
                         break
             if exito:
                 vendedor = st.session_state.get("last_selected_vendedor")
@@ -1294,16 +1358,29 @@ with tab1:
                 st.session_state.clear()
                 st.session_state.current_tab_index = current_index
                 st.session_state.last_selected_vendedor = vendedor
-                st.session_state.success_pedido_registrado = id_pedido
-                st.session_state.success_adjuntos = adjuntos_urls
+                set_pedido_submission_status(
+                    "success",
+                    f"✅ El pedido {id_pedido} fue subido correctamente.",
+                    attachments=adjuntos_urls,
+                )
                 if tab1_is_active and st.session_state.get("current_tab_index") == 0:
                     st.query_params.update({"tab": "0"})
                 st.rerun()
             else:
-                st.error("❌ No se pudo registrar el pedido después de varios intentos.")
+                set_pedido_submission_status(
+                    "error",
+                    "❌ Falla al subir el pedido.",
+                    "No se pudo registrar el pedido después de varios intentos.",
+                )
+                st.rerun()
 
         except Exception as e:
-            st.error(f"❌ Error inesperado al registrar el pedido: {e}")
+            set_pedido_submission_status(
+                "error",
+                "❌ Falla al subir el pedido.",
+                f"Error inesperado al registrar el pedido: {e}",
+            )
+            st.rerun()
 
 
 
@@ -1761,12 +1838,14 @@ with tab2:
                                 for f in uploaded_files_surtido:
                                     ext = os.path.splitext(f.name)[1]
                                     s3_key = f"{selected_order_id}/surtido_{f.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
-                                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, f, s3_key)
+                                    success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, f, s3_key)
                                     if success:
                                         new_adjuntos_surtido_urls.append(url)
                                         changes_made = True
                                     else:
-                                        message_placeholder_tab2.warning(f"⚠️ Falló la subida de {f.name}")
+                                        message_placeholder_tab2.warning(
+                                            f"⚠️ Falló la subida de {f.name}: {error_msg or 'Error desconocido'}"
+                                        )
 
                             if new_adjuntos_surtido_urls and col_exists("Adjuntos_Surtido"):
                                 actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
@@ -1786,12 +1865,14 @@ with tab2:
                                 for archivo in uploaded_comprobantes_extra:
                                     ext = os.path.splitext(archivo.name)[1]
                                     s3_key = f"{selected_order_id}/comprobante_{selected_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
-                                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
+                                    success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
                                     if success:
                                         comprobante_urls.append(url)
                                         changes_made = True
                                     else:
-                                        message_placeholder_tab2.warning(f"⚠️ Falló la subida del comprobante {archivo.name}")
+                                        message_placeholder_tab2.warning(
+                                            f"⚠️ Falló la subida del comprobante {archivo.name}: {error_msg or 'Error desconocido'}"
+                                        )
 
                                 if comprobante_urls and col_exists("Adjuntos"):
                                     actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
@@ -2029,11 +2110,11 @@ with tab3:
                                 for archivo in comprobante_files:
                                     ext = os.path.splitext(archivo.name)[1]
                                     s3_key = f"{selected_pending_order_id}/comprobante_{selected_pending_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
-                                    success, url = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
+                                    success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
                                     if success:
                                         new_urls.append(url)
                                     else:
-                                        st.warning(f"⚠️ Falló la subida de {archivo.name}")
+                                        st.warning(f"⚠️ Falló la subida de {archivo.name}: {error_msg or 'Error desconocido'}")
 
                                 if new_urls:
                                     current_adjuntos = df_pedidos_comprobante.loc[df_index, 'Adjuntos'] if 'Adjuntos' in df_pedidos_comprobante.columns else ""
