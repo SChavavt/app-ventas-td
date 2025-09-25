@@ -37,6 +37,9 @@ QUOTA_ERROR_THRESHOLD = 5
 if "pedidos_reload_nonce" not in st.session_state:
     st.session_state["pedidos_reload_nonce"] = 0
 
+if "comprobante_form_nonce" not in st.session_state:
+    st.session_state["comprobante_form_nonce"] = 0
+
 
 def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
     """Rate-limit manual reloads to avoid hitting Google Sheets too often."""
@@ -137,6 +140,11 @@ def rerun_current_tab():
     st.rerun()
 
 
+def _comprobante_form_key(base: str) -> str:
+    nonce = st.session_state.get("comprobante_form_nonce", 0)
+    return f"{base}__{nonce}"
+
+
 def clear_comprobante_form_state():
     """Limpia los campos persistentes del formulario de comprobantes."""
     keys_to_clear = {
@@ -164,8 +172,11 @@ def clear_comprobante_form_state():
         "ref2_admin",
     }
 
+    current_nonce = st.session_state.get("comprobante_form_nonce", 0)
+
     for key in keys_to_clear:
         st.session_state.pop(key, None)
+        st.session_state.pop(f"{key}__{current_nonce}", None)
 
     dynamic_prefixes = (
         "fecha_pago_",
@@ -179,6 +190,10 @@ def clear_comprobante_form_state():
     for key in list(st.session_state.keys()):
         if any(key.startswith(prefix) for prefix in dynamic_prefixes):
             st.session_state.pop(key, None)
+        elif any(key.startswith(f"{base}__") for base in keys_to_clear):
+            st.session_state.pop(key, None)
+
+    st.session_state["comprobante_form_nonce"] = current_nonce + 1
 
 
 @st.cache_resource(ttl=60)
@@ -913,7 +928,10 @@ with tab1:
                     ):
                         st.subheader("🧾 Subir Comprobante de Pago")
     
-                    pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="pago_doble_admin")
+                    pago_doble = st.checkbox(
+                        "✅ Pago en dos partes distintas",
+                        key=_comprobante_form_key("pago_doble_admin"),
+                    )
     
                     comprobantes_nuevo = []
                     if not pago_doble:
@@ -921,52 +939,195 @@ with tab1:
                             "📤 Subir Comprobante(s) de Pago",
                             type=["pdf", "jpg", "jpeg", "png"],
                             accept_multiple_files=True,
-                            key="comprobante_local_no_pagado"
+                            key=_comprobante_form_key("comprobante_local_no_pagado"),
                         )
     
                         with st.expander(
                             "📝 Detalles del Pago",
                             expanded=selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado",
                         ):
-                            fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_local")
-                            forma_pago = st.selectbox("💳 Forma de Pago", [
-                                "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
-                            ], key="forma_pago_local")
-                            monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_local")
+                            fecha_pago = st.date_input(
+                                "📅 Fecha del Pago",
+                                value=datetime.today().date(),
+                                key=_comprobante_form_key("fecha_pago_local"),
+                            )
+                            forma_pago = st.selectbox(
+                                "💳 Forma de Pago",
+                                [
+                                    "Transferencia",
+                                    "Depósito en Efectivo",
+                                    "Tarjeta de Débito",
+                                    "Tarjeta de Crédito",
+                                    "Cheque",
+                                ],
+                                key=_comprobante_form_key("forma_pago_local"),
+                            )
+                            monto_pago = st.number_input(
+                                "💲 Monto del Pago",
+                                min_value=0.0,
+                                format="%.2f",
+                                key=_comprobante_form_key("monto_pago_local"),
+                            )
     
                             if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                                terminal = st.selectbox("🏧 Terminal", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "MERCADO PAGO"], key="terminal_local")
+                                terminal = st.selectbox(
+                                    "🏧 Terminal",
+                                    [
+                                        "BANORTE",
+                                        "AFIRME",
+                                        "VELPAY",
+                                        "CLIP",
+                                        "PAYPAL",
+                                        "BBVA",
+                                        "CONEKTA",
+                                        "MERCADO PAGO",
+                                    ],
+                                    key=_comprobante_form_key("terminal_local"),
+                                )
                                 banco_destino = ""
                             else:
-                                banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_local")
+                                banco_destino = st.selectbox(
+                                    "🏦 Banco Destino",
+                                    [
+                                        "BANORTE",
+                                        "BANAMEX",
+                                        "AFIRME",
+                                        "BANCOMER OP",
+                                        "BANCOMER CURSOS",
+                                    ],
+                                    key=_comprobante_form_key("banco_destino_local"),
+                                )
                                 terminal = ""
-    
-                            referencia = st.text_input("🔢 Referencia (opcional)", key="referencia_local")
+
+                            referencia = st.text_input(
+                                "🔢 Referencia (opcional)",
+                                key=_comprobante_form_key("referencia_local"),
+                            )
     
                     else:
                         st.markdown("### 1️⃣ Primer Pago")
-                        comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1_admin")
-                        fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1_admin")
-                        forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1_admin")
-                        monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1_admin")
+                        comp1 = st.file_uploader(
+                            "💳 Comprobante 1",
+                            type=["pdf", "jpg", "jpeg", "png"],
+                            accept_multiple_files=True,
+                            key=_comprobante_form_key("cp_pago1_admin"),
+                        )
+                        fecha1 = st.date_input(
+                            "📅 Fecha 1",
+                            value=datetime.today().date(),
+                            key=_comprobante_form_key("fecha_pago1_admin"),
+                        )
+                        forma1 = st.selectbox(
+                            "💳 Forma 1",
+                            [
+                                "Transferencia",
+                                "Depósito en Efectivo",
+                                "Tarjeta de Débito",
+                                "Tarjeta de Crédito",
+                                "Cheque",
+                            ],
+                            key=_comprobante_form_key("forma_pago1_admin"),
+                        )
+                        monto1 = st.number_input(
+                            "💲 Monto 1",
+                            min_value=0.0,
+                            format="%.2f",
+                            key=_comprobante_form_key("monto_pago1_admin"),
+                        )
                         terminal1 = banco1 = ""
                         if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                            terminal1 = st.selectbox("🏧 Terminal 1", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "MERCADO PAGO"], key="terminal1_admin")
+                            terminal1 = st.selectbox(
+                                "🏧 Terminal 1",
+                                [
+                                    "BANORTE",
+                                    "AFIRME",
+                                    "VELPAY",
+                                    "CLIP",
+                                    "PAYPAL",
+                                    "BBVA",
+                                    "CONEKTA",
+                                    "MERCADO PAGO",
+                                ],
+                                key=_comprobante_form_key("terminal1_admin"),
+                            )
                         else:
-                            banco1 = st.selectbox("🏦 Banco 1", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco1_admin")
-                        ref1 = st.text_input("🔢 Referencia 1", key="ref1_admin")
+                            banco1 = st.selectbox(
+                                "🏦 Banco 1",
+                                [
+                                    "BANORTE",
+                                    "BANAMEX",
+                                    "AFIRME",
+                                    "BANCOMER OP",
+                                    "BANCOMER CURSOS",
+                                ],
+                                key=_comprobante_form_key("banco1_admin"),
+                            )
+                        ref1 = st.text_input(
+                            "🔢 Referencia 1",
+                            key=_comprobante_form_key("ref1_admin"),
+                        )
     
                         st.markdown("### 2️⃣ Segundo Pago")
-                        comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2_admin")
-                        fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2_admin")
-                        forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2_admin")
-                        monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2_admin")
+                        comp2 = st.file_uploader(
+                            "💳 Comprobante 2",
+                            type=["pdf", "jpg", "jpeg", "png"],
+                            accept_multiple_files=True,
+                            key=_comprobante_form_key("cp_pago2_admin"),
+                        )
+                        fecha2 = st.date_input(
+                            "📅 Fecha 2",
+                            value=datetime.today().date(),
+                            key=_comprobante_form_key("fecha_pago2_admin"),
+                        )
+                        forma2 = st.selectbox(
+                            "💳 Forma 2",
+                            [
+                                "Transferencia",
+                                "Depósito en Efectivo",
+                                "Tarjeta de Débito",
+                                "Tarjeta de Crédito",
+                                "Cheque",
+                            ],
+                            key=_comprobante_form_key("forma_pago2_admin"),
+                        )
+                        monto2 = st.number_input(
+                            "💲 Monto 2",
+                            min_value=0.0,
+                            format="%.2f",
+                            key=_comprobante_form_key("monto_pago2_admin"),
+                        )
                         terminal2 = banco2 = ""
                         if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                            terminal2 = st.selectbox("🏧 Terminal 2", ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "MERCADO PAGO"], key="terminal2_admin")
+                            terminal2 = st.selectbox(
+                                "🏧 Terminal 2",
+                                [
+                                    "BANORTE",
+                                    "AFIRME",
+                                    "VELPAY",
+                                    "CLIP",
+                                    "PAYPAL",
+                                    "BBVA",
+                                    "CONEKTA",
+                                    "MERCADO PAGO",
+                                ],
+                                key=_comprobante_form_key("terminal2_admin"),
+                            )
                         else:
-                            banco2 = st.selectbox("🏦 Banco 2", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco2_admin")
-                        ref2 = st.text_input("🔢 Referencia 2", key="ref2_admin")
+                            banco2 = st.selectbox(
+                                "🏦 Banco 2",
+                                [
+                                    "BANORTE",
+                                    "BANAMEX",
+                                    "AFIRME",
+                                    "BANCOMER OP",
+                                    "BANCOMER CURSOS",
+                                ],
+                                key=_comprobante_form_key("banco2_admin"),
+                            )
+                        ref2 = st.text_input(
+                            "🔢 Referencia 2",
+                            key=_comprobante_form_key("ref2_admin"),
+                        )
     
                         # Unificar comprobantes y campos
                         comprobantes_nuevo = (comp1 or []) + (comp2 or [])
