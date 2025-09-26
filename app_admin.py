@@ -1867,9 +1867,28 @@ with tab2:
         )
 
         # Descargar Excel (desde el DF ya ordenado)
+        df_excel = df_confirmados_guardados.copy()
+        if "Link_Comprobante" in df_excel.columns:
+            enlaces_por_fila = (
+                df_excel["Link_Comprobante"].fillna("")
+                .apply(
+                    lambda valor: [
+                        enlace.strip()
+                        for enlace in str(valor).split(",")
+                        if enlace and enlace.strip()
+                    ]
+                )
+            )
+            max_comprobantes = int(enlaces_por_fila.map(len).max()) if not enlaces_por_fila.empty else 0
+            for idx in range(max_comprobantes):
+                nombre_columna = f"Link_Comprobante_{idx + 1}"
+                df_excel[nombre_columna] = enlaces_por_fila.apply(
+                    lambda enlaces, i=idx: enlaces[i] if len(enlaces) > i else ""
+                )
+
         output_confirmados = BytesIO()
         with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-            df_confirmados_guardados.to_excel(writer, index=False, sheet_name='Confirmados')
+            df_excel.to_excel(writer, index=False, sheet_name='Confirmados')
         data_xlsx = output_confirmados.getvalue()
 
         st.download_button(
