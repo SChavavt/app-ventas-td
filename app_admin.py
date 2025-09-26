@@ -74,6 +74,36 @@ def _register_quota_hit() -> int:
     st.session_state["_quota_hits"] = hits
     return hits
 
+
+def expand_link_comprobante_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Expande la columna Link_Comprobante en columnas individuales ordenadas y únicas."""
+    df_expanded = df.copy()
+
+    columnas_expandidas_existentes = [c for c in df_expanded.columns if c.startswith("Link_Comprobante_")]
+    if columnas_expandidas_existentes:
+        df_expanded = df_expanded.drop(columns=columnas_expandidas_existentes)
+
+    if "Link_Comprobante" not in df_expanded.columns:
+        return df_expanded, []
+
+    def _split_links(valor: str) -> list[str]:
+        bruto = str(valor or "")
+        partes = [p.strip() for p in bruto.replace("\n", ",").split(",") if p and p.strip()]
+        return list(dict.fromkeys(partes))
+
+    enlaces_por_fila = df_expanded["Link_Comprobante"].fillna("").apply(_split_links)
+    max_enlaces = int(enlaces_por_fila.map(len).max() or 0) if not enlaces_por_fila.empty else 0
+
+    columnas_creadas: list[str] = []
+    for idx in range(max_enlaces):
+        nombre_columna = f"Link_Comprobante_{idx + 1}"
+        columnas_creadas.append(nombre_columna)
+        df_expanded[nombre_columna] = enlaces_por_fila.apply(
+            lambda enlaces, i=idx: enlaces[i] if len(enlaces) > i else ""
+        )
+
+    return df_expanded, columnas_creadas
+
 def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
     """
     Abre una worksheet con reintentos automáticos en caso de errores temporales
@@ -1854,7 +1884,9 @@ with tab2:
 
         st.success(f"✅ {len(df_confirmados_guardados)} pedidos confirmados (últimos primero).")
 
-        columnas_para_tabla = [col for col in df_confirmados_guardados.columns if col.startswith("Link_") or col in [
+        df_confirmados_vista, _ = expand_link_comprobante_columns(df_confirmados_guardados)
+
+        columnas_para_tabla = [col for col in df_confirmados_vista.columns if col.startswith("Link_") or col in [
             'Folio_Factura', 'Folio_Factura_Refacturada', 'Cliente', 'Vendedor_Registro',
             'Tipo_Envio', 'Fecha_Entrega', 'Estado', 'Estado_Pago', 'Refacturacion_Tipo',
             'Refacturacion_Subtipo', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
@@ -1862,29 +1894,12 @@ with tab2:
         ]]
 
         st.dataframe(
-            df_confirmados_guardados[columnas_para_tabla] if columnas_para_tabla else df_confirmados_guardados,
+            df_confirmados_vista[columnas_para_tabla] if columnas_para_tabla else df_confirmados_vista,
             use_container_width=True, hide_index=True
         )
 
         # Descargar Excel (desde el DF ya ordenado)
-        df_excel = df_confirmados_guardados.copy()
-        if "Link_Comprobante" in df_excel.columns:
-            enlaces_por_fila = (
-                df_excel["Link_Comprobante"].fillna("")
-                .apply(
-                    lambda valor: [
-                        enlace.strip()
-                        for enlace in str(valor).split(",")
-                        if enlace and enlace.strip()
-                    ]
-                )
-            )
-            max_comprobantes = int(enlaces_por_fila.map(len).max()) if not enlaces_por_fila.empty else 0
-            for idx in range(max_comprobantes):
-                nombre_columna = f"Link_Comprobante_{idx + 1}"
-                df_excel[nombre_columna] = enlaces_por_fila.apply(
-                    lambda enlaces, i=idx: enlaces[i] if len(enlaces) > i else ""
-                )
+        df_excel, _ = expand_link_comprobante_columns(df_confirmados_guardados)
 
         output_confirmados = BytesIO()
         with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
