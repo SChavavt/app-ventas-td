@@ -3,6 +3,7 @@ import streamlit as st
 import json
 import time
 import random
+import html
 import pandas as pd
 import boto3
 import gspread
@@ -1768,6 +1769,65 @@ with tab2:
                         'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
                     ]
 
+                    def build_and_upload_comprobante_index_html(pedido_id: str, comprobantes: list[dict], s3_client_instance):
+                        """Genera un índice HTML de comprobantes y lo sube a S3, devolviendo la URL accesible."""
+                        if not pedido_id or not comprobantes or not s3_client_instance:
+                            return None
+
+                        try:
+                            items_html = []
+                            for comprobante in comprobantes:
+                                key = comprobante.get("key")
+                                if not key:
+                                    continue
+                                archivo_url = get_s3_file_download_url(s3_client_instance, key)
+                                if not archivo_url or archivo_url == "#":
+                                    archivo_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
+
+                                titulo = comprobante.get("title") or key.split("/")[-1]
+                                titulo = html.escape(str(titulo))
+                                archivo_url = html.escape(str(archivo_url), quote=True)
+                                items_html.append(
+                                    f'<li><a href="{archivo_url}" target="_blank" rel="noopener noreferrer">{titulo}</a></li>'
+                                )
+
+                            if not items_html:
+                                return None
+
+                            pedido_label = html.escape(str(pedido_id))
+                            html_content = """<!DOCTYPE html>
+<html lang=\"es\">
+<head>
+    <meta charset=\"utf-8\" />
+    <title>Comprobantes {pedido}</title>
+</head>
+<body>
+    <h1>Comprobantes del pedido {pedido}</h1>
+    <ul>
+        {items}
+    </ul>
+</body>
+</html>
+""".format(pedido=pedido_label, items="\n        ".join(items_html))
+
+                            index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/comprobantes/index.html"
+                            s3_client_instance.put_object(
+                                Bucket=S3_BUCKET_NAME,
+                                Key=index_key,
+                                Body=html_content.encode("utf-8"),
+                                ContentType="text/html",
+                            )
+
+                            index_url = get_s3_file_download_url(s3_client_instance, index_key)
+                            if not index_url or index_url == "#":
+                                index_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{index_key}"
+                            return index_url
+                        except Exception as exc:
+                            st.warning(
+                                f"⚠️ No se pudo generar el índice de comprobantes para el pedido {pedido_id}: {exc}"
+                            )
+                            return None
+
                     link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
 
                     for _, row in df_nuevos.iterrows():
@@ -1776,6 +1836,9 @@ with tab2:
                         comprobante_urls = []
                         factura_url = guia_url = refact_url = ""
 
+                        comprobantes = []
+                        files = []
+
                         if pedido_id and s3_client:
                             prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
                             files = get_files_in_s3_prefix(s3_client, prefix)
@@ -1783,20 +1846,19 @@ with tab2:
                                 prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
                                 files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
 
-                            # Comprobante
-                            if prefix:
+                            if files:
                                 comprobantes = [
-                                    f
-                                    for f in get_files_in_s3_prefix(s3_client, prefix)
-                                    if "comprobante" in f["title"].lower()
+                                    f for f in files if "comprobante" in f["title"].lower()
                                 ]
-                            else:
-                                comprobantes = []
-                            if comprobantes:
-                                comprobante_urls = [
-                                    f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobante['key']}"
-                                    for comprobante in comprobantes
-                                ]
+
+                                for comprobante in comprobantes:
+                                    key = comprobante.get("key")
+                                    if not key:
+                                        continue
+                                    url = get_s3_file_download_url(s3_client, key)
+                                    if not url or url == "#":
+                                        url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
+                                    comprobante_urls.append(url)
 
                             # Factura
                             facturas = [f for f in files if "factura" in f["title"].lower()]
@@ -1818,7 +1880,19 @@ with tab2:
                             if refacturas:
                                 refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
 
-                        link_comprobantes.append(", ".join(comprobante_urls))
+                        comprobante_link_value = ""
+                        comprobante_urls = [url for url in comprobante_urls if url]
+                        if comprobante_urls:
+                            if len(comprobante_urls) == 1:
+                                comprobante_link_value = comprobante_urls[0]
+                            else:
+                                index_url = build_and_upload_comprobante_index_html(pedido_id, comprobantes, s3_client)
+                                if index_url and index_url != "#":
+                                    comprobante_link_value = index_url
+                                else:
+                                    comprobante_link_value = ", ".join(comprobante_urls)
+
+                        link_comprobantes.append(comprobante_link_value)
                         link_facturas.append(factura_url)
                         link_guias.append(guia_url)
                         link_refacturaciones.append(refact_url)
