@@ -663,27 +663,64 @@ if _session_tab is not None:
     except Exception:
         _default_tab = 0
 else:
-    _tab_param = st.query_params.get("tab", ["0"])[0]
+    _tab_param = st.query_params.get("tab", "0")
+    if isinstance(_tab_param, (list, tuple)):
+        _tab_param = _tab_param[0] if _tab_param else "0"
     try:
         _default_tab = int(_tab_param)
     except Exception:
         _default_tab = 0
 
-# mantener en session_state la pestaña activa
-st.session_state.setdefault("current_tab", str(_default_tab))
+if not 0 <= _default_tab < len(tab_names):
+    _default_tab = 0
 
-# sincronizar query params con la pestaña activa calculada
-st.query_params["tab"] = str(_default_tab)
+st.session_state["current_tab"] = str(_default_tab)
+
+_current_param = st.query_params.get("tab")
+if isinstance(_current_param, (list, tuple)):
+    _current_param = _current_param[0] if _current_param else None
+if _current_param != str(_default_tab):
+    st.query_params["tab"] = str(_default_tab)
 
 tabs = st.tabs(tab_names)
 tab1, tab2, tab3, tab4 = tabs
 
-# forza la pestaña almacenada al recargar
+# forza la pestaña almacenada al recargar y sincroniza la URL al cambiar de pestaña
 st.markdown(
     f"""
     <script>
-        const tabs = window.parent.document.querySelectorAll('div[data-baseweb="tab-list"] button');
-        if (tabs.length > {_default_tab}) {{ tabs[{_default_tab}].click(); }}
+        const ensureTabHandlers = () => {{
+            const tabButtons = window.parent.document.querySelectorAll('div[data-baseweb="tab-list"] button');
+            if (!tabButtons.length) {{
+                window.requestAnimationFrame(ensureTabHandlers);
+                return;
+            }}
+
+            const desiredIndex = {_default_tab};
+            const url = new URL(window.parent.location.href);
+
+            tabButtons.forEach((btn, idx) => {{
+                if (btn.dataset.tabSyncBound === 'true') {{
+                    return;
+                }}
+                btn.dataset.tabSyncBound = 'true';
+                btn.addEventListener('click', () => {{
+                    const clickUrl = new URL(window.parent.location.href);
+                    clickUrl.searchParams.set('tab', String(idx));
+                    window.parent.history.replaceState(null, '', clickUrl);
+                }});
+            }});
+
+            const desiredButton = tabButtons[desiredIndex] || tabButtons[0];
+            if (desiredButton && desiredButton.getAttribute('aria-selected') !== 'true') {{
+                desiredButton.click();
+            }}
+
+            url.searchParams.set('tab', String(desiredIndex));
+            window.parent.history.replaceState(null, '', url);
+        }};
+
+        ensureTabHandlers();
     </script>
     """,
     unsafe_allow_html=True,
@@ -692,8 +729,6 @@ st.markdown(
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
-    if st.query_params.get("tab", ["0"])[0] != "0":
-        st.query_params["tab"] = "0"
     st.session_state["current_tab"] = "0"
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
@@ -1488,8 +1523,6 @@ with tab1:
                                 st.warning("Funcionalidad pendiente.")
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
-    if st.query_params.get("tab", ["0"])[0] != "1":
-        st.query_params["tab"] = "1"
     st.session_state["current_tab"] = "1"
     st.header("📥 Pedidos Confirmados")
 
@@ -1836,8 +1869,6 @@ with tab2:
         )
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
-    if st.query_params.get("tab", ["0"])[0] != "2":
-        st.query_params["tab"] = "2"
     st.session_state["current_tab"] = "2"
     st.header("📦 Confirmación de Casos (Devoluciones + Garantías)")
 
@@ -2387,8 +2418,6 @@ with tab3, suppress(StopException):
 
 # --- TAB 4: CASOS ESPECIALES (Descarga Devoluciones/Garantías) ---
 with tab4:
-    if st.query_params.get("tab", ["0"])[0] != "3":
-        st.query_params["tab"] = "3"
     st.session_state["current_tab"] = "3"
     st.header("📥 Casos Especiales (Devoluciones/Garantías)")
 
