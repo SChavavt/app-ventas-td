@@ -1743,7 +1743,8 @@ with tab2:
                     for _, row in df_nuevos.iterrows():
                         pedido_id = row.get("ID_Pedido")
                         tipo_envio = "foráneo" if "foráneo" in str(row.get("Tipo_Envio", "")).lower() else "local"
-                        comprobante_url = factura_url = guia_url = refact_url = ""
+                        comprobante_urls = []
+                        factura_url = guia_url = refact_url = ""
 
                         if pedido_id and s3_client:
                             prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
@@ -1753,9 +1754,19 @@ with tab2:
                                 files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
 
                             # Comprobante
-                            comprobantes = [f for f in files if "comprobante" in f["title"].lower()]
+                            if prefix:
+                                comprobantes = [
+                                    f
+                                    for f in get_files_in_s3_prefix(s3_client, prefix)
+                                    if "comprobante" in f["title"].lower()
+                                ]
+                            else:
+                                comprobantes = []
                             if comprobantes:
-                                comprobante_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobantes[0]['key']}"
+                                comprobante_urls = [
+                                    f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{comprobante['key']}"
+                                    for comprobante in comprobantes
+                                ]
 
                             # Factura
                             facturas = [f for f in files if "factura" in f["title"].lower()]
@@ -1777,7 +1788,7 @@ with tab2:
                             if refacturas:
                                 refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
 
-                        link_comprobantes.append(comprobante_url)
+                        link_comprobantes.append(", ".join(comprobante_urls))
                         link_facturas.append(factura_url)
                         link_guias.append(guia_url)
                         link_refacturaciones.append(refact_url)
