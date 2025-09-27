@@ -743,14 +743,49 @@ def discover_comprobante_assets(
 
     prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
     files = get_files_in_s3_prefix(s3_client_instance, prefix)
-    if not files:
-        prefix = find_pedido_subfolder_prefix(s3_client_instance, S3_ATTACHMENT_PREFIX, pedido_id)
-        files = get_files_in_s3_prefix(s3_client_instance, prefix) if prefix else []
+
+    comprobantes = [
+        f for f in files if "comprobante" in str(f.get("title", "")).lower()
+    ] if files else []
+
+    if not files or not comprobantes:
+        original_prefix = find_pedido_subfolder_prefix(
+            s3_client_instance, S3_ATTACHMENT_PREFIX, pedido_id
+        )
+        if original_prefix:
+            original_files = get_files_in_s3_prefix(s3_client_instance, original_prefix)
+            if original_files:
+                if not files:
+                    files = original_files
+                else:
+                    combined_files = list(files)
+                    existing_keys = {
+                        f.get("key")
+                        for f in files
+                        if isinstance(f, dict) and f.get("key")
+                    }
+                    for extra_file in original_files:
+                        if not isinstance(extra_file, dict):
+                            continue
+                        extra_key = extra_file.get("key")
+                        if extra_key and extra_key in existing_keys:
+                            continue
+                        if not extra_key and extra_file in combined_files:
+                            continue
+                        combined_files.append(extra_file)
+                        if extra_key:
+                            existing_keys.add(extra_key)
+                    files = combined_files
+
+                comprobantes = [
+                    f for f in files if "comprobante" in str(f.get("title", "")).lower()
+                ]
 
     result["files"] = files
     if not files:
         return result
 
+    # Recalcula comprobantes a partir de la lista final para asegurar que el índice considere todos los elementos
     comprobantes = [
         f for f in files if "comprobante" in str(f.get("title", "")).lower()
     ]
@@ -777,6 +812,19 @@ def discover_comprobante_assets(
             result["comprobante_link"] = index_url
         else:
             result["comprobante_link"] = ", ".join(comprobante_urls)
+
+    print(
+        "[discover_comprobante_assets]",
+        json.dumps(
+            {
+                "pedido_id": pedido_id,
+                "total_archivos": len(files),
+                "total_comprobantes": len(comprobantes),
+                "comprobante_link": result.get("comprobante_link", ""),
+            },
+            ensure_ascii=False,
+        ),
+    )
 
     facturas = [
         f for f in files if "factura" in str(f.get("title", "")).lower()
