@@ -1755,6 +1755,7 @@ with tab2:
         registros_antes_deduplicado = len(df)
 
         if not df.empty:
+            df["__sheet_row"] = df.index + 2
             df["ID_Pedido"] = df["ID_Pedido"].apply(normalize_id_pedido)
             df["Folio_Factura"] = df["Folio_Factura"].apply(normalize_folio_factura)
             df = df[df["ID_Pedido"] != ""]
@@ -1852,6 +1853,7 @@ with tab2:
                             hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
 
                         df_saneado = cleanup_snapshot["df"].copy()
+                        df_saneado = df_saneado.drop(columns=["__sheet_row"], errors="ignore")
                         headers_saneados = cleanup_snapshot["headers"]
                         columnas_orden = headers_saneados if headers_saneados else df_saneado.columns.tolist()
 
@@ -2043,6 +2045,14 @@ with tab2:
                                         pedido_id = row.get("ID_Pedido")
                                         tipo_envio = row.get("Tipo_Envio")
 
+                                        sheet_row_value = row.get("__sheet_row", df_idx + 2)
+                                        try:
+                                            sheet_row = int(sheet_row_value)
+                                        except (TypeError, ValueError):
+                                            sheet_row = df_idx + 2
+                                        if sheet_row <= 0:
+                                            sheet_row = df_idx + 2
+
                                         assets = discover_comprobante_assets(pedido_id, tipo_envio, s3_client)
                                         new_values = {
                                             "Link_Comprobante": assets.get("comprobante_link", ""),
@@ -2061,7 +2071,7 @@ with tab2:
                                             if new_text != current_text:
                                                 row_updates.append(
                                                     {
-                                                        "range": rowcol_to_a1(df_idx + 2, column_positions[col]),
+                                                        "range": rowcol_to_a1(sheet_row, column_positions[col]),
                                                         "values": [[new_text]],
                                                     }
                                                 )
@@ -2126,7 +2136,8 @@ with tab2:
 
         st.success(f"✅ {len(df_confirmados_guardados)} pedidos confirmados (últimos primero).")
 
-        df_confirmados_vista, _ = expand_link_comprobante_columns(df_confirmados_guardados)
+        df_confirmados_visible = df_confirmados_guardados.drop(columns=["__sheet_row"], errors="ignore")
+        df_confirmados_vista, _ = expand_link_comprobante_columns(df_confirmados_visible)
 
         columnas_para_tabla = [col for col in df_confirmados_vista.columns if col.startswith("Link_") or col in [
             'Folio_Factura', 'Folio_Factura_Refacturada', 'Cliente', 'Vendedor_Registro',
@@ -2141,7 +2152,7 @@ with tab2:
         )
 
         # Descargar Excel (desde el DF ya ordenado)
-        df_excel, _ = expand_link_comprobante_columns(df_confirmados_guardados)
+        df_excel, _ = expand_link_comprobante_columns(df_confirmados_visible)
 
         output_confirmados = BytesIO()
         with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
