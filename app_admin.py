@@ -2185,14 +2185,23 @@ with tab2:
         st.success(f"✅ {len(df_confirmados_guardados)} pedidos confirmados (últimos primero).")
 
         df_confirmados_visible = df_confirmados_guardados.drop(columns=["__sheet_row"], errors="ignore")
-        df_confirmados_vista, _ = expand_link_comprobante_columns(df_confirmados_visible)
+        df_confirmados_vista, columnas_expandidas_tabla = expand_link_comprobante_columns(df_confirmados_visible)
 
-        columnas_para_tabla = [col for col in df_confirmados_vista.columns if col.startswith("Link_") or col in [
+        columnas_a_ocultar = list(dict.fromkeys([*columnas_expandidas_tabla, "Fecha_Entrega"]))
+        columnas_a_ocultar_set = set(columnas_a_ocultar)
+        columnas_prioritarias = [
             'Folio_Factura', 'Folio_Factura_Refacturada', 'Cliente', 'Vendedor_Registro',
-            'Tipo_Envio', 'Fecha_Entrega', 'Estado', 'Estado_Pago', 'Refacturacion_Tipo',
+            'Tipo_Envio', 'Estado', 'Estado_Pago', 'Refacturacion_Tipo',
             'Refacturacion_Subtipo', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
             'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante'
-        ]]
+        ]
+
+        columnas_para_tabla = [
+            col for col in df_confirmados_vista.columns
+            if col not in columnas_a_ocultar_set and (
+                col.startswith("Link_") or col in columnas_prioritarias
+            )
+        ]
 
         st.dataframe(
             df_confirmados_vista[columnas_para_tabla] if columnas_para_tabla else df_confirmados_vista,
@@ -2200,7 +2209,10 @@ with tab2:
         )
 
         # Descargar Excel (desde el DF ya ordenado)
-        df_excel, _ = expand_link_comprobante_columns(df_confirmados_visible)
+        df_excel, columnas_expandidas_excel = expand_link_comprobante_columns(df_confirmados_visible)
+        columnas_a_ocultar_excel = list(dict.fromkeys([*columnas_expandidas_excel, "Fecha_Entrega"]))
+        if columnas_a_ocultar_excel:
+            df_excel = df_excel.drop(columnas_a_ocultar_excel, axis=1, errors="ignore")
 
         output_confirmados = BytesIO()
         with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
