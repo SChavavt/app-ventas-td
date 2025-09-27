@@ -4,6 +4,7 @@ import json
 import time
 import random
 import html
+import re
 import pandas as pd
 import boto3
 import gspread
@@ -654,6 +655,163 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     except Exception as e:
         print(f"Error uploading to S3: {e}")
         return False, ""
+
+
+def build_and_upload_comprobante_index_html(
+    pedido_id: str,
+    comprobantes: list[dict],
+    s3_client_instance,
+):
+    """Genera un índice HTML para múltiples comprobantes y devuelve la URL subida en S3."""
+    if not pedido_id or not comprobantes or not s3_client_instance:
+        return None
+
+    try:
+        items_html: list[str] = []
+        for comprobante in comprobantes:
+            key = comprobante.get("key")
+            if not key:
+                continue
+
+            archivo_url = get_s3_file_download_url(s3_client_instance, key)
+            if not archivo_url or archivo_url == "#":
+                archivo_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
+
+            titulo = comprobante.get("title") or key.split("/")[-1]
+            titulo = html.escape(str(titulo))
+            archivo_url = html.escape(str(archivo_url), quote=True)
+            items_html.append(
+                f'<li><a href="{archivo_url}" target="_blank" rel="noopener noreferrer">{titulo}</a></li>'
+            )
+
+        if not items_html:
+            return None
+
+        pedido_label = html.escape(str(pedido_id))
+        html_content = """<!DOCTYPE html>
+<html lang=\"es\">
+<head>
+    <meta charset=\"utf-8\" />
+    <title>Comprobantes {pedido}</title>
+</head>
+<body>
+    <h1>Comprobantes del pedido {pedido}</h1>
+    <ul>
+        {items}
+    </ul>
+</body>
+</html>
+""".format(pedido=pedido_label, items="\n        ".join(items_html))
+
+        index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/comprobantes/index.html"
+        s3_client_instance.put_object(
+            Bucket=S3_BUCKET_NAME,
+            Key=index_key,
+            Body=html_content.encode("utf-8"),
+            ContentType="text/html",
+        )
+
+        index_url = get_s3_file_download_url(s3_client_instance, index_key)
+        if not index_url or index_url == "#":
+            index_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{index_key}"
+
+        return index_url
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo generar el índice de comprobantes para {pedido_id}: {e}")
+        return None
+
+
+def discover_comprobante_assets(
+    pedido_id: str,
+    tipo_envio: str | None,
+    s3_client_instance,
+) -> dict:
+    """Obtiene los enlaces relevantes en S3 para un pedido y reconstruye los índices cuando aplica."""
+
+    result: dict = {
+        "files": [],
+        "comprobantes": [],
+        "comprobante_urls": [],
+        "comprobante_link": "",
+        "factura_url": "",
+        "guia_url": "",
+        "refact_url": "",
+    }
+
+    if not pedido_id or not s3_client_instance:
+        return result
+
+    prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
+    files = get_files_in_s3_prefix(s3_client_instance, prefix)
+    if not files:
+        prefix = find_pedido_subfolder_prefix(s3_client_instance, S3_ATTACHMENT_PREFIX, pedido_id)
+        files = get_files_in_s3_prefix(s3_client_instance, prefix) if prefix else []
+
+    result["files"] = files
+    if not files:
+        return result
+
+    comprobantes = [
+        f for f in files if "comprobante" in str(f.get("title", "")).lower()
+    ]
+    result["comprobantes"] = comprobantes
+
+    comprobante_urls: list[str] = []
+    for comprobante in comprobantes:
+        key = comprobante.get("key")
+        if not key:
+            continue
+        url = get_s3_file_download_url(s3_client_instance, key)
+        if not url or url == "#":
+            url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
+        if url:
+            comprobante_urls.append(url)
+
+    result["comprobante_urls"] = comprobante_urls
+
+    if len(comprobante_urls) == 1:
+        result["comprobante_link"] = comprobante_urls[0]
+    elif len(comprobante_urls) > 1:
+        index_url = build_and_upload_comprobante_index_html(pedido_id, comprobantes, s3_client_instance)
+        if index_url and index_url != "#":
+            result["comprobante_link"] = index_url
+        else:
+            result["comprobante_link"] = ", ".join(comprobante_urls)
+
+    facturas = [
+        f for f in files if "factura" in str(f.get("title", "")).lower()
+    ]
+    if facturas:
+        result["factura_url"] = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
+
+    tipo_envio_text = str(tipo_envio or "").strip().lower()
+    tipo_envio_text_flat = tipo_envio_text.replace("ó", "o")
+    if "foráneo" in tipo_envio_text or "foraneo" in tipo_envio_text_flat:
+        guias_filtradas = [
+            f
+            for f in files
+            if str(f.get("title", "")).lower().endswith(".pdf")
+            and re.search(r"(gu[ií]a|descarga)", str(f.get("title", "")).lower())
+        ]
+    else:
+        guias_filtradas = [
+            f for f in files if str(f.get("title", "")).lower().endswith(".xlsx")
+        ]
+
+    if guias_filtradas:
+        guias_con_surtido = [
+            f for f in guias_filtradas if "surtido" in str(f.get("title", "")).lower()
+        ]
+        guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
+        result["guia_url"] = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
+
+    refacturas = [
+        f for f in files if "surtido_factura" in str(f.get("title", "")).lower()
+    ]
+    if refacturas:
+        result["refact_url"] = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
+
+    return result
 
 # --- Inicializar clientes de Gspread y S3 ---
 try:
@@ -1669,6 +1827,13 @@ with tab2:
 
     # 🔁 Botón único: Actualizar Enlaces (agregar nuevos) + Recargar tabla
     tab2_alert = st.empty()
+    regen_summary = st.session_state.pop("_tab2_regen_links_summary", None)
+    if regen_summary:
+        tab2_alert.success(
+            "🧾 Regeneración completada: "
+            f"{regen_summary.get('updated', 0)} enlaces actualizados, "
+            f"{regen_summary.get('unchanged', 0)} ya estaban correctos."
+        )
     if st.button(
         "🔁 Actualizar Enlaces y Recargar Confirmados",
         type="primary",
@@ -1769,133 +1934,18 @@ with tab2:
                         'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
                     ]
 
-                    def build_and_upload_comprobante_index_html(pedido_id: str, comprobantes: list[dict], s3_client_instance):
-                        """Genera un índice HTML de comprobantes y lo sube a S3, devolviendo la URL accesible."""
-                        if not pedido_id or not comprobantes or not s3_client_instance:
-                            return None
-
-                        try:
-                            items_html = []
-                            for comprobante in comprobantes:
-                                key = comprobante.get("key")
-                                if not key:
-                                    continue
-                                archivo_url = get_s3_file_download_url(s3_client_instance, key)
-                                if not archivo_url or archivo_url == "#":
-                                    archivo_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
-
-                                titulo = comprobante.get("title") or key.split("/")[-1]
-                                titulo = html.escape(str(titulo))
-                                archivo_url = html.escape(str(archivo_url), quote=True)
-                                items_html.append(
-                                    f'<li><a href="{archivo_url}" target="_blank" rel="noopener noreferrer">{titulo}</a></li>'
-                                )
-
-                            if not items_html:
-                                return None
-
-                            pedido_label = html.escape(str(pedido_id))
-                            html_content = """<!DOCTYPE html>
-<html lang=\"es\">
-<head>
-    <meta charset=\"utf-8\" />
-    <title>Comprobantes {pedido}</title>
-</head>
-<body>
-    <h1>Comprobantes del pedido {pedido}</h1>
-    <ul>
-        {items}
-    </ul>
-</body>
-</html>
-""".format(pedido=pedido_label, items="\n        ".join(items_html))
-
-                            index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/comprobantes/index.html"
-                            s3_client_instance.put_object(
-                                Bucket=S3_BUCKET_NAME,
-                                Key=index_key,
-                                Body=html_content.encode("utf-8"),
-                                ContentType="text/html",
-                            )
-
-                            index_url = get_s3_file_download_url(s3_client_instance, index_key)
-                            if not index_url or index_url == "#":
-                                index_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{index_key}"
-                            return index_url
-                        except Exception as exc:
-                            st.warning(
-                                f"⚠️ No se pudo generar el índice de comprobantes para el pedido {pedido_id}: {exc}"
-                            )
-                            return None
-
                     link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
 
                     for _, row in df_nuevos.iterrows():
                         pedido_id = row.get("ID_Pedido")
-                        tipo_envio = "foráneo" if "foráneo" in str(row.get("Tipo_Envio", "")).lower() else "local"
-                        comprobante_urls = []
-                        factura_url = guia_url = refact_url = ""
+                        tipo_envio = row.get("Tipo_Envio")
 
-                        comprobantes = []
-                        files = []
+                        assets = discover_comprobante_assets(pedido_id, tipo_envio, s3_client)
 
-                        if pedido_id and s3_client:
-                            prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
-                            files = get_files_in_s3_prefix(s3_client, prefix)
-                            if not files:
-                                prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, pedido_id)
-                                files = get_files_in_s3_prefix(s3_client, prefix) if prefix else []
-
-                            if files:
-                                comprobantes = [
-                                    f for f in files if "comprobante" in f["title"].lower()
-                                ]
-
-                                for comprobante in comprobantes:
-                                    key = comprobante.get("key")
-                                    if not key:
-                                        continue
-                                    url = get_s3_file_download_url(s3_client, key)
-                                    if not url or url == "#":
-                                        url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
-                                    comprobante_urls.append(url)
-
-                            # Factura
-                            facturas = [f for f in files if "factura" in f["title"].lower()]
-                            if facturas:
-                                factura_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
-
-                            # Guía
-                            if tipo_envio == "foráneo":
-                                guias_filtradas = [f for f in files if f["title"].lower().endswith(".pdf") and re.search(r"(gu[ií]a|descarga)", f["title"].lower())]
-                            else:
-                                guias_filtradas = [f for f in files if f["title"].lower().endswith(".xlsx")]
-                            if guias_filtradas:
-                                guias_con_surtido = [f for f in guias_filtradas if "surtido" in f["title"].lower()]
-                                guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
-                                guia_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
-
-                            # Refacturación
-                            refacturas = [f for f in files if "surtido_factura" in f["title"].lower()]
-                            if refacturas:
-                                refact_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
-
-                        comprobante_link_value = ""
-                        comprobante_urls = [url for url in comprobante_urls if url]
-                        if comprobante_urls:
-                            if len(comprobante_urls) == 1:
-                                comprobante_link_value = comprobante_urls[0]
-                            else:
-                                index_url = build_and_upload_comprobante_index_html(pedido_id, comprobantes, s3_client)
-                                if index_url and index_url != "#":
-                                    comprobante_link_value = index_url
-                                else:
-                                    comprobante_link_value = ", ".join(comprobante_urls)
-
-                        link_comprobantes.append(comprobante_link_value)
-                        link_facturas.append(factura_url)
-                        link_guias.append(guia_url)
-                        link_refacturaciones.append(refact_url)
+                        link_comprobantes.append(assets.get("comprobante_link", ""))
+                        link_facturas.append(assets.get("factura_url", ""))
+                        link_guias.append(assets.get("guia_url", ""))
+                        link_refacturaciones.append(assets.get("refact_url", ""))
 
                     df_nuevos["Link_Comprobante"] = link_comprobantes
                     df_nuevos["Link_Factura"] = link_facturas
@@ -1930,6 +1980,124 @@ with tab2:
                 tab2_alert.error(f"❌ Error de Google API al actualizar/recargar: {e}")
             except Exception as e:
                 tab2_alert.error(f"❌ Ocurrió un error al actualizar/recargar: {e}")
+
+    if st.button(
+        "🧾 Regenerar enlaces de comprobantes existentes",
+        type="secondary",
+        help="Reconstruye los enlaces de comprobantes, facturas, guías y refacturas usando S3.",
+    ):
+        if allow_refresh("tab2_regen_links_refresh", tab2_alert, cooldown=180):
+            if df_confirmados_guardados.empty:
+                tab2_alert.info("ℹ️ No hay pedidos confirmados cargados para regenerar.")
+            else:
+                try:
+                    worksheet_confirmados = safe_open_worksheet(GOOGLE_SHEET_ID, "pedidos_confirmados")
+                except Exception as e:
+                    tab2_alert.error(f"❌ No se pudo acceder a la hoja de confirmados: {e}")
+                else:
+                    columnas_objetivo = [
+                        "Link_Comprobante",
+                        "Link_Factura",
+                        "Link_Guia",
+                        "Link_Refacturacion",
+                    ]
+                    column_positions = {
+                        col: headers_confirmados.index(col) + 1
+                        for col in columnas_objetivo
+                        if col in headers_confirmados
+                    }
+
+                    if "Link_Comprobante" not in column_positions:
+                        tab2_alert.error("❌ La hoja no contiene la columna 'Link_Comprobante'.")
+                    else:
+                        total_rows = len(df_confirmados_guardados)
+                        if total_rows == 0:
+                            tab2_alert.info("ℹ️ No se encontraron filas para procesar.")
+                        else:
+                            progress_bar = st.progress(0.0)
+
+                            def _cell_to_str(value) -> str:
+                                if value is None:
+                                    return ""
+                                try:
+                                    if pd.isna(value):
+                                        return ""
+                                except Exception:
+                                    pass
+                                text = str(value)
+                                if text.strip().lower() in {"nan", "none", "null"}:
+                                    return ""
+                                return text
+
+                            updated_rows = 0
+                            unchanged_rows = 0
+                            pending_payload: list[dict] = []
+                            pending_rows = 0
+                            error_occurred = False
+
+                            try:
+                                with st.spinner("Regenerando enlaces de comprobantes. Esto puede tardar unos minutos..."):
+                                    for processed, (df_idx, row) in enumerate(
+                                        df_confirmados_guardados.iterrows(), start=1
+                                    ):
+                                        pedido_id = row.get("ID_Pedido")
+                                        tipo_envio = row.get("Tipo_Envio")
+
+                                        assets = discover_comprobante_assets(pedido_id, tipo_envio, s3_client)
+                                        new_values = {
+                                            "Link_Comprobante": assets.get("comprobante_link", ""),
+                                            "Link_Factura": assets.get("factura_url", ""),
+                                            "Link_Guia": assets.get("guia_url", ""),
+                                            "Link_Refacturacion": assets.get("refact_url", ""),
+                                        }
+
+                                        row_updates: list[dict] = []
+                                        row_changed = False
+                                        for col, new_val in new_values.items():
+                                            if col not in column_positions:
+                                                continue
+                                            new_text = _cell_to_str(new_val)
+                                            current_text = _cell_to_str(row.get(col))
+                                            if new_text != current_text:
+                                                row_updates.append(
+                                                    {
+                                                        "range": rowcol_to_a1(df_idx + 2, column_positions[col]),
+                                                        "values": [[new_text]],
+                                                    }
+                                                )
+                                                df_confirmados_guardados.at[df_idx, col] = new_text
+                                                row_changed = True
+
+                                        if row_updates:
+                                            pending_payload.extend(row_updates)
+                                            pending_rows += 1
+                                            updated_rows += 1
+
+                                            if pending_rows >= 50:
+                                                safe_batch_update(worksheet_confirmados, pending_payload)
+                                                pending_payload = []
+                                                pending_rows = 0
+                                        if not row_changed:
+                                            unchanged_rows += 1
+
+                                        progress_bar.progress(processed / total_rows)
+
+                                    if pending_payload:
+                                        safe_batch_update(worksheet_confirmados, pending_payload)
+                            except Exception as e:
+                                error_occurred = True
+                                tab2_alert.error(f"❌ Error al regenerar enlaces: {e}")
+                            finally:
+                                progress_bar.empty()
+
+                            if not error_occurred:
+                                st.session_state["_tab2_regen_links_summary"] = {
+                                    "updated": updated_rows,
+                                    "unchanged": unchanged_rows,
+                                }
+                                cargar_confirmados_guardados_cached.clear()
+                                st.session_state["tab2_reload_nonce"] += 1
+                                rerun_current_tab()
 
     # ---------- Vista de confirmados ----------
     if df_confirmados_guardados.empty:
