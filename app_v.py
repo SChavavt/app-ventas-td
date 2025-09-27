@@ -567,6 +567,12 @@ VENDEDORES_LIST = sorted([
 if 'last_selected_vendedor' not in st.session_state:
     st.session_state.last_selected_vendedor = VENDEDORES_LIST[0] if VENDEDORES_LIST else ""
 
+# Initialize session state for guía foráneo controls
+if "solicita_guia_foraneo" not in st.session_state:
+    st.session_state["solicita_guia_foraneo"] = False
+if "direccion_guia_retorno_foraneo" not in st.session_state:
+    st.session_state["direccion_guia_retorno_foraneo"] = ""
+
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
     tab1_is_active = default_tab == 0
@@ -681,17 +687,7 @@ with tab1:
 
         comentario = st.text_area("💬 Comentario / Descripción Detallada")
 
-        if tipo_envio == "🚚 Pedido Foráneo":
-            solicita_guia_foraneo = st.checkbox("🧾 Solicitud de guía", key="solicita_guia_foraneo")
-            if solicita_guia_foraneo:
-                direccion_guia_retorno = st.text_area(
-                    "📬 Dirección para guía de retorno",
-                    key="direccion_guia_retorno_foraneo",
-                )
-            else:
-                if "direccion_guia_retorno_foraneo" in st.session_state:
-                    st.session_state["direccion_guia_retorno_foraneo"] = ""
-                direccion_guia_retorno = ""
+        foraneo_controls_placeholder = st.empty()
 
         # --- Campos adicionales para Devolución ---
         if tipo_envio == "🔁 Devolución":
@@ -805,6 +801,31 @@ with tab1:
 
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
+
+    if tipo_envio == "🚚 Pedido Foráneo":
+        with foraneo_controls_placeholder.container():
+            solicita_guia_foraneo = st.checkbox(
+                "🧾 Solicitud de guía",
+                key="solicita_guia_foraneo",
+            )
+            if solicita_guia_foraneo:
+                st.text_area(
+                    "📬 Dirección para guía de retorno",
+                    key="direccion_guia_retorno_foraneo",
+                )
+            else:
+                if st.session_state.get("direccion_guia_retorno_foraneo"):
+                    st.session_state["direccion_guia_retorno_foraneo"] = ""
+        direccion_guia_retorno_foraneo = st.session_state.get("direccion_guia_retorno_foraneo", "")
+    else:
+        foraneo_controls_placeholder.empty()
+        if st.session_state.get("solicita_guia_foraneo"):
+            st.session_state["solicita_guia_foraneo"] = False
+        if st.session_state.get("direccion_guia_retorno_foraneo"):
+            st.session_state["direccion_guia_retorno_foraneo"] = ""
+        direccion_guia_retorno_foraneo = ""
+
+    solicita_guia_foraneo = st.session_state.get("solicita_guia_foraneo", False)
 
     message_container = st.container()
 
@@ -1346,8 +1367,11 @@ with tab1:
                 elif header == "Direccion_Guia_Retorno":
                     if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
                         values.append(direccion_guia_retorno)
-                    elif tipo_envio == "🚚 Pedido Foráneo" and solicita_guia_foraneo:
-                        values.append(direccion_guia_retorno)
+                    elif tipo_envio == "🚚 Pedido Foráneo":
+                        if solicita_guia_foraneo:
+                            values.append(direccion_guia_retorno_foraneo)
+                        else:
+                            values.append("")
                     else:
                         values.append("")
                 elif header == "Direccion_Envio":
@@ -1391,6 +1415,8 @@ with tab1:
                 st.session_state.clear()
                 st.session_state.current_tab_index = current_index
                 st.session_state.last_selected_vendedor = vendedor
+                st.session_state["solicita_guia_foraneo"] = False
+                st.session_state["direccion_guia_retorno_foraneo"] = ""
                 set_pedido_submission_status(
                     "success",
                     f"✅ El pedido {id_pedido} fue subido correctamente.",
