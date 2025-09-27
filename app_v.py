@@ -632,6 +632,7 @@ with tab1:
     g_fecha_compra = None
     direccion_guia_retorno = ""
     direccion_envio_destino = ""
+    solicita_guia_foraneo = False
 
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
@@ -679,6 +680,18 @@ with tab1:
             fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", datetime.now().date())
 
         comentario = st.text_area("💬 Comentario / Descripción Detallada")
+
+        if tipo_envio == "🚚 Pedido Foráneo":
+            solicita_guia_foraneo = st.checkbox("🧾 Solicitud de guía", key="solicita_guia_foraneo")
+            if solicita_guia_foraneo:
+                direccion_guia_retorno = st.text_area(
+                    "📬 Dirección para guía de retorno",
+                    key="direccion_guia_retorno_foraneo",
+                )
+            else:
+                if "direccion_guia_retorno_foraneo" in st.session_state:
+                    st.session_state["direccion_guia_retorno_foraneo"] = ""
+                direccion_guia_retorno = ""
 
         # --- Campos adicionales para Devolución ---
         if tipo_envio == "🔁 Devolución":
@@ -1112,6 +1125,24 @@ with tab1:
                         )
                         st.rerun()
                     headers = worksheet.row_values(1)
+                    required_headers = []
+                    if tipo_envio == "🚚 Pedido Foráneo":
+                        required_headers.append("Direccion_Guia_Retorno")
+                    if required_headers:
+                        missing_headers = [col for col in required_headers if col not in headers]
+                        if missing_headers:
+                            try:
+                                new_headers = headers + missing_headers
+                                worksheet.update('A1', [new_headers])
+                                get_sheet_headers.clear()
+                                headers = worksheet.row_values(1)
+                            except Exception as header_error:
+                                set_pedido_submission_status(
+                                    "error",
+                                    "❌ Falla al subir el pedido.",
+                                    f"No se pudieron preparar las columnas de direcciones: {header_error}",
+                                )
+                                st.rerun()
 
                 if not headers:
                     set_pedido_submission_status(
@@ -1314,6 +1345,8 @@ with tab1:
                         values.append("")
                 elif header == "Direccion_Guia_Retorno":
                     if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                        values.append(direccion_guia_retorno)
+                    elif tipo_envio == "🚚 Pedido Foráneo" and solicita_guia_foraneo:
                         values.append(direccion_guia_retorno)
                     else:
                         values.append("")
