@@ -15,6 +15,7 @@ from io import BytesIO
 from datetime import datetime, date
 import os
 import uuid
+from urllib.parse import urlparse, unquote
 from contextlib import suppress
 from streamlit.runtime.scriptrunner import StopException
 
@@ -335,6 +336,138 @@ def normalize_folio_factura(value) -> str:
         return ""
 
     return text
+
+
+
+# --- Helpers de Adjuntos --------------------------------------------------
+
+
+def build_adjuntos_map_from_pedidos(df: pd.DataFrame) -> dict[str, object]:
+    """Crea un mapa ID_Pedido normalizado ➜ Adjuntos para consultas rápidas."""
+
+    mapping: dict[str, object] = {}
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return mapping
+
+    if "ID_Pedido" not in df.columns or "Adjuntos" not in df.columns:
+        return mapping
+
+    ids_normalizados = df["ID_Pedido"].apply(normalize_id_pedido)
+    adjuntos_series = df["Adjuntos"]
+
+    for idx, pedido_id in ids_normalizados.items():
+        if not pedido_id:
+            continue
+
+        try:
+            raw_adjuntos = adjuntos_series.iloc[idx]
+        except IndexError:
+            continue
+
+        if pd.isna(raw_adjuntos):
+            continue
+
+        if isinstance(raw_adjuntos, str) and not raw_adjuntos.strip():
+            continue
+
+        mapping[pedido_id] = raw_adjuntos
+
+    return mapping
+
+
+def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
+    """Extrae URLs de comprobantes desde el campo Adjuntos (JSON/lista/texto)."""
+
+    keyword = "comprobante"
+    results: list[str] = []
+    seen: set[str] = set()
+
+    def _add(url: str | None) -> None:
+        if not url:
+            return
+        url_text = str(url).strip()
+        if not url_text:
+            return
+        lowered = url_text.lower()
+        if lowered in {"nan", "none", "null"}:
+            return
+        if url_text not in seen:
+            seen.add(url_text)
+            results.append(url_text)
+
+    def _process(obj) -> None:
+        if obj is None:
+            return
+
+        if isinstance(obj, dict):
+            lowered_keys = {str(k).lower(): v for k, v in obj.items()}
+            url_candidates = [
+                lowered_keys.get("url"),
+                lowered_keys.get("link"),
+                lowered_keys.get("href"),
+                lowered_keys.get("download_url"),
+                lowered_keys.get("value"),
+            ]
+            name_candidates = [
+                lowered_keys.get("name"),
+                lowered_keys.get("nombre"),
+                lowered_keys.get("title"),
+                lowered_keys.get("filename"),
+                lowered_keys.get("file_name"),
+                lowered_keys.get("label"),
+                lowered_keys.get("descripcion"),
+                lowered_keys.get("description"),
+            ]
+
+            descriptor = " ".join(
+                str(candidate).strip()
+                for candidate in name_candidates
+                if candidate is not None and str(candidate).strip()
+            ).lower()
+
+            if not descriptor:
+                descriptor = " ".join(
+                    str(candidate).strip()
+                    for candidate in url_candidates
+                    if candidate is not None and str(candidate).strip()
+                ).lower()
+
+            for candidate in url_candidates:
+                if candidate is None:
+                    continue
+                candidate_text = str(candidate).strip()
+                if not candidate_text:
+                    continue
+                if keyword in descriptor or keyword in candidate_text.lower():
+                    _add(candidate_text)
+            return
+
+        if isinstance(obj, (list, tuple, set)):
+            for item in obj:
+                _process(item)
+            return
+
+        if isinstance(obj, str):
+            text_value = obj.strip()
+            if not text_value:
+                return
+            try:
+                parsed = json.loads(text_value)
+            except Exception:
+                urls = re.findall(r"https?://[^\s,;]+", text_value)
+                text_lower = text_value.lower()
+                for url in urls:
+                    if keyword in text_lower or keyword in url.lower():
+                        _add(url)
+                return
+            else:
+                _process(parsed)
+                return
+
+        _process(str(obj))
+
+    _process(value)
+    return results
 
 
 # --- GOOGLE SHEETS CONFIGURATION ---
@@ -718,6 +851,80 @@ def build_and_upload_comprobante_index_html(
         return index_url
     except Exception as e:
         st.warning(f"⚠️ No se pudo generar el índice de comprobantes para {pedido_id}: {e}")
+        return None
+
+
+def build_and_upload_comprobante_index_from_urls(
+    pedido_id: str,
+    urls: list[str],
+    s3_client_instance,
+) -> str | None:
+    """Genera y publica un índice HTML en S3 a partir de URLs externas."""
+
+    if not s3_client_instance or not urls:
+        return None
+
+    cleaned_items: list[tuple[str, str]] = []
+    for idx, raw_url in enumerate(urls, start=1):
+        url_text = str(raw_url or "").strip()
+        if not url_text:
+            continue
+        parsed = urlparse(url_text)
+        filename = os.path.basename(parsed.path.rstrip("/")) if parsed.path else ""
+        filename = unquote(filename) if filename else ""
+        if not filename:
+            filename = f"Comprobante {idx}"
+        safe_title = html.escape(filename.strip() or f"Comprobante {idx}")
+        safe_url = html.escape(url_text, quote=True)
+        cleaned_items.append((safe_title, safe_url))
+
+    if not cleaned_items:
+        return None
+
+    pedido_key = normalize_id_pedido(pedido_id) or str(pedido_id or "").strip()
+    if not pedido_key:
+        pedido_key = f"pedido-{uuid.uuid4().hex}"
+
+    pedido_label = html.escape(str(pedido_key))
+    items_html = "\n        ".join(
+        f'<li><a href="{url}" target="_blank" rel="noopener noreferrer">{title}</a></li>'
+        for title, url in cleaned_items
+    )
+
+    html_content = """<!DOCTYPE html>
+<html lang=\"es\">
+<head>
+    <meta charset=\"utf-8\" />
+    <title>Comprobantes {pedido}</title>
+</head>
+<body>
+    <h1>Comprobantes del pedido {pedido}</h1>
+    <ul>
+        {items}
+    </ul>
+</body>
+</html>
+""".format(pedido=pedido_label, items=items_html)
+
+    index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_key}/comprobantes/adjuntos-index-{uuid.uuid4().hex}.html"
+
+    try:
+        s3_client_instance.put_object(
+            Bucket=S3_BUCKET_NAME,
+            Key=index_key,
+            Body=html_content.encode("utf-8"),
+            ContentType="text/html",
+        )
+
+        index_url = get_s3_file_download_url(s3_client_instance, index_key)
+        if not index_url or index_url == "#":
+            index_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{index_key}"
+
+        return index_url
+    except Exception as e:
+        st.warning(
+            f"⚠️ No se pudo generar el índice de comprobantes manual para {pedido_key}: {e}"
+        )
         return None
 
 
@@ -1878,11 +2085,24 @@ with tab2:
     tab2_alert = st.empty()
     regen_summary = st.session_state.pop("_tab2_regen_links_summary", None)
     if regen_summary:
-        tab2_alert.success(
+        mensaje_regen = (
             "🧾 Regeneración completada: "
             f"{regen_summary.get('updated', 0)} enlaces actualizados, "
             f"{regen_summary.get('unchanged', 0)} ya estaban correctos."
         )
+        adjuntos_actualizados = regen_summary.get("from_adjuntos", 0)
+        if adjuntos_actualizados:
+            mensaje_regen += f" • {adjuntos_actualizados} actualizados desde Adjuntos"
+            print(
+                json.dumps(
+                    {
+                        "event": "regen_adjuntos",
+                        "updated_from_adjuntos": adjuntos_actualizados,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        tab2_alert.success(mensaje_regen)
     if st.button(
         "🔁 Actualizar Enlaces y Recargar Confirmados",
         type="primary",
@@ -2084,6 +2304,10 @@ with tab2:
                             pending_payload: list[dict] = []
                             pending_rows = 0
                             error_occurred = False
+                            adjuntos_map = build_adjuntos_map_from_pedidos(
+                                st.session_state.get("df_pedidos")
+                            )
+                            rows_updated_from_adjuntos = 0
 
                             try:
                                 with st.spinner("Regenerando enlaces de comprobantes. Esto puede tardar unos minutos..."):
@@ -2101,9 +2325,49 @@ with tab2:
                                         if sheet_row <= 0:
                                             sheet_row = df_idx + 2
 
+                                        normalized_pedido_id = normalize_id_pedido(pedido_id)
+                                        adjuntos_urls: list[str] = []
+                                        raw_adjuntos = None
+                                        if adjuntos_map:
+                                            if normalized_pedido_id:
+                                                raw_adjuntos = adjuntos_map.get(normalized_pedido_id)
+                                            if raw_adjuntos is None and pedido_id:
+                                                raw_adjuntos = adjuntos_map.get(
+                                                    normalize_id_pedido(str(pedido_id))
+                                                )
+                                        if raw_adjuntos is not None:
+                                            try:
+                                                adjuntos_urls = extract_comprobante_urls_from_adjuntos(raw_adjuntos)
+                                            except Exception as parse_err:
+                                                print(
+                                                    "[adjuntos_parser_error]",
+                                                    json.dumps(
+                                                        {
+                                                            "pedido_id": normalized_pedido_id or pedido_id,
+                                                            "error": str(parse_err),
+                                                        },
+                                                        ensure_ascii=False,
+                                                    ),
+                                                )
+                                                adjuntos_urls = []
+
+                                        link_from_adjuntos = ""
+                                        if adjuntos_urls:
+                                            if len(adjuntos_urls) == 1:
+                                                link_from_adjuntos = adjuntos_urls[0]
+                                            else:
+                                                index_url = build_and_upload_comprobante_index_from_urls(
+                                                    normalized_pedido_id or pedido_id,
+                                                    adjuntos_urls,
+                                                    s3_client,
+                                                )
+                                                link_from_adjuntos = index_url or ", ".join(adjuntos_urls)
+                                        used_adjuntos_for_link = bool(link_from_adjuntos)
+
                                         assets = discover_comprobante_assets(pedido_id, tipo_envio, s3_client)
                                         new_values = {
-                                            "Link_Comprobante": assets.get("comprobante_link", ""),
+                                            "Link_Comprobante": link_from_adjuntos
+                                            or assets.get("comprobante_link", ""),
                                             "Link_Factura": assets.get("factura_url", ""),
                                             "Link_Guia": assets.get("guia_url", ""),
                                             "Link_Refacturacion": assets.get("refact_url", ""),
@@ -2124,6 +2388,8 @@ with tab2:
                                                     }
                                                 )
                                                 df_confirmados_guardados.at[df_idx, col] = new_text
+                                                if col == "Link_Comprobante" and used_adjuntos_for_link:
+                                                    rows_updated_from_adjuntos += 1
                                                 row_changed = True
 
                                         if row_updates:
@@ -2152,6 +2418,7 @@ with tab2:
                                 st.session_state["_tab2_regen_links_summary"] = {
                                     "updated": updated_rows,
                                     "unchanged": unchanged_rows,
+                                    "from_adjuntos": rows_updated_from_adjuntos,
                                 }
                                 cargar_confirmados_guardados_cached.clear()
                                 st.session_state["tab2_reload_nonce"] += 1
