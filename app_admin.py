@@ -18,6 +18,7 @@ import uuid
 from urllib.parse import urlparse, unquote
 from contextlib import suppress
 from streamlit.runtime.scriptrunner import StopException
+import numbers
 
 # Reintentos robustos para Google Sheets
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
@@ -1996,6 +1997,24 @@ with tab2:
 
         total_filas_hoja = len(df)
 
+        def _normalizar_columna_fecha(df_in: pd.DataFrame, columna: str) -> None:
+            if columna not in df_in.columns:
+                return
+
+            def _convertir(valor):
+                if isinstance(valor, pd.Timestamp):
+                    return valor.strftime("%Y-%m-%d")
+                if isinstance(valor, numbers.Number) and not isinstance(valor, bool) and not pd.isna(valor):
+                    fecha = pd.to_datetime(valor, unit="D", origin="1899-12-30", errors="coerce")
+                    if pd.isna(fecha):
+                        return ""
+                    return fecha.strftime("%Y-%m-%d")
+                if valor is None or pd.isna(valor):
+                    return ""
+                return str(valor)
+
+            df_in[columna] = df_in[columna].apply(_convertir)
+
         # Normalización mínima / columnas clave
         campos_clave = ['ID_Pedido', 'Cliente', 'Folio_Factura']
         for c in campos_clave:
@@ -2015,6 +2034,8 @@ with tab2:
             df["Folio_Factura"] = df["Folio_Factura"].apply(normalize_folio_factura)
             df = df[df["ID_Pedido"] != ""]
             df = df.drop_duplicates(subset=["ID_Pedido", "Folio_Factura"], keep="last").reset_index(drop=True)
+            for columna_fecha in ("Fecha_Pago_Comprobante", "Fecha_Entrega"):
+                _normalizar_columna_fecha(df, columna_fecha)
         deduplicados = max(registros_antes_deduplicado - len(df), 0)
 
         # Snapshot "último bueno"
