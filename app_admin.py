@@ -379,7 +379,7 @@ def build_adjuntos_map_from_pedidos(df: pd.DataFrame) -> dict[str, object]:
 def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
     """Extrae todas las URLs disponibles desde el campo Adjuntos."""
 
-    url_pattern = re.compile(r"https?://[^\s,;\"'<>)}\]]+", re.IGNORECASE)
+    url_pattern = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
     results: list[str] = []
     seen: set[str] = set()
 
@@ -387,9 +387,6 @@ def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
         if not url:
             return
         url_text = str(url).strip()
-        if not url_text:
-            return
-        url_text = url_text.rstrip("\"'>)}]")
         if not url_text:
             return
         lowered = url_text.lower()
