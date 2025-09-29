@@ -79,15 +79,15 @@ def _register_quota_hit() -> int:
     return hits
 
 
-def expand_link_comprobante_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Expande la columna Link_Comprobante en columnas individuales ordenadas y únicas."""
+def expand_link_adjuntos_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Expande la columna Link_Adjuntos en columnas individuales ordenadas y únicas."""
     df_expanded = df.copy()
 
-    columnas_expandidas_existentes = [c for c in df_expanded.columns if c.startswith("Link_Comprobante_")]
+    columnas_expandidas_existentes = [c for c in df_expanded.columns if c.startswith("Link_Adjuntos_")]
     if columnas_expandidas_existentes:
         df_expanded = df_expanded.drop(columns=columnas_expandidas_existentes)
 
-    if "Link_Comprobante" not in df_expanded.columns:
+    if "Link_Adjuntos" not in df_expanded.columns:
         return df_expanded, []
 
     def _split_links(valor: str) -> list[str]:
@@ -95,12 +95,12 @@ def expand_link_comprobante_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, lis
         partes = [p.strip() for p in bruto.replace("\n", ",").split(",") if p and p.strip()]
         return list(dict.fromkeys(partes))
 
-    enlaces_por_fila = df_expanded["Link_Comprobante"].fillna("").apply(_split_links)
+    enlaces_por_fila = df_expanded["Link_Adjuntos"].fillna("").apply(_split_links)
     max_enlaces = int(enlaces_por_fila.map(len).max() or 0) if not enlaces_por_fila.empty else 0
 
     columnas_creadas: list[str] = []
     for idx in range(max_enlaces):
-        nombre_columna = f"Link_Comprobante_{idx + 1}"
+        nombre_columna = f"Link_Adjuntos_{idx + 1}"
         columnas_creadas.append(nombre_columna)
         df_expanded[nombre_columna] = enlaces_por_fila.apply(
             lambda enlaces, i=idx: enlaces[i] if len(enlaces) > i else ""
@@ -463,6 +463,111 @@ def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
 
     _process(value)
     return results
+
+
+def clean_cell_text(value) -> str:
+    """Normaliza valores hacia cadenas limpias para escritura en Google Sheets."""
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):  # type: ignore[arg-type]
+            return ""
+    except Exception:
+        pass
+    text = str(value)
+    if text.strip().lower() in {"nan", "none", "null"}:
+        return ""
+    return text
+
+
+def build_link_fallback_map(
+    df: pd.DataFrame | None,
+    columns: list[str],
+) -> dict[str, dict[str, str]]:
+    """Crea un mapa ID normalizado ➜ valores existentes para columnas de enlaces."""
+
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return {}
+
+    if "ID_Pedido" not in df.columns:
+        return {}
+
+    ids_normalizados = df["ID_Pedido"].apply(normalize_id_pedido)
+    resultado: dict[str, dict[str, str]] = {}
+
+    columnas_validas = [col for col in columns if col in df.columns]
+    if not columnas_validas:
+        return {}
+
+    for row_idx in df.index:
+        pedido_id_norm = ids_normalizados.get(row_idx, "")
+        if not pedido_id_norm:
+            continue
+        fila = df.loc[row_idx]
+        valores = {
+            col: clean_cell_text(fila.get(col))  # type: ignore[index]
+            for col in columnas_validas
+        }
+        if any(valores.values()):
+            resultado[pedido_id_norm] = valores
+
+    return resultado
+
+
+def resolve_adjuntos_link(
+    pedido_id: str,
+    normalized_id: str,
+    map_data: dict[str, object] | None,
+    *,
+    map_label: str,
+    category: str,
+    page_title: str,
+    s3_client_instance,
+) -> tuple[str, bool]:
+    """Construye un enlace desde los adjuntos crudos, generando un índice cuando aplica."""
+
+    if not map_data:
+        return "", False
+
+    raw_adjuntos = None
+    if normalized_id:
+        raw_adjuntos = map_data.get(normalized_id)
+    if raw_adjuntos is None and pedido_id:
+        raw_adjuntos = map_data.get(normalize_id_pedido(str(pedido_id)))
+
+    if raw_adjuntos is None:
+        return "", False
+
+    try:
+        urls = extract_comprobante_urls_from_adjuntos(raw_adjuntos)
+    except Exception as parse_err:
+        print(
+            "[adjuntos_parser_error]",
+            json.dumps(
+                {
+                    "pedido_id": normalized_id or pedido_id,
+                    "tipo": map_label,
+                    "error": str(parse_err),
+                },
+                ensure_ascii=False,
+            ),
+        )
+        return "", False
+
+    if not urls:
+        return "", False
+
+    if len(urls) == 1:
+        return urls[0], True
+
+    index_url = build_and_upload_comprobante_index_from_urls(
+        normalized_id or pedido_id,
+        urls,
+        s3_client_instance,
+        category=category,
+        page_title=page_title,
+    )
+    return (index_url or "\n".join(urls)), True
 
 
 # --- GOOGLE SHEETS CONFIGURATION ---
@@ -853,6 +958,9 @@ def build_and_upload_comprobante_index_from_urls(
     pedido_id: str,
     urls: list[str],
     s3_client_instance,
+    *,
+    category: str = "comprobantes",
+    page_title: str | None = None,
 ) -> str | None:
     """Genera y publica un índice HTML en S3 a partir de URLs externas."""
 
@@ -881,6 +989,10 @@ def build_and_upload_comprobante_index_from_urls(
         pedido_key = f"pedido-{uuid.uuid4().hex}"
 
     pedido_label = html.escape(str(pedido_key))
+    safe_category = str(category or "comprobantes").strip().lower()
+    safe_category = safe_category.replace(" ", "-").replace("/", "-")
+    safe_category = safe_category or "comprobantes"
+    display_title = page_title or safe_category.replace("-", " ").replace("_", " ").title()
     items_html = "\n        ".join(
         f'<li><a href="{url}" target="_blank" rel="noopener noreferrer">{title}</a></li>'
         for title, url in cleaned_items
@@ -890,18 +1002,18 @@ def build_and_upload_comprobante_index_from_urls(
 <html lang=\"es\">
 <head>
     <meta charset=\"utf-8\" />
-    <title>Comprobantes {pedido}</title>
+    <title>{display} {pedido}</title>
 </head>
 <body>
-    <h1>Comprobantes del pedido {pedido}</h1>
+    <h1>{display} del pedido {pedido}</h1>
     <ul>
         {items}
     </ul>
 </body>
 </html>
-""".format(pedido=pedido_label, items=items_html)
+""".format(pedido=pedido_label, items=items_html, display=html.escape(display_title))
 
-    index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_key}/comprobantes/adjuntos-index-{uuid.uuid4().hex}.html"
+    index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_key}/{safe_category}/adjuntos-index-{uuid.uuid4().hex}.html"
 
     try:
         s3_client_instance.put_object(
@@ -2240,7 +2352,7 @@ with tab2:
                     'Refacturacion_Tipo', 'Refacturacion_Subtipo',
                     'Forma_Pago_Comprobante', 'Monto_Comprobante',
                     'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-                    'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
+                    'Link_Adjuntos', 'Link_Adjuntos_Modificacion', 'Link_Adjuntos_Guia', 'Link_Refacturacion'
                 ]
 
                 nuevos_agregados = 0
@@ -2257,22 +2369,91 @@ with tab2:
                         if col not in df_nuevos.columns:
                             df_nuevos[col] = ""
 
-                    link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
+                    (
+                        adjuntos_map,
+                        adjuntos_surtido_map,
+                        adjuntos_guia_map,
+                    ) = build_adjuntos_map_from_pedidos(df_pedidos)
+
+                    fallback_columns = [
+                        'Link_Adjuntos',
+                        'Link_Adjuntos_Modificacion',
+                        'Link_Adjuntos_Guia',
+                        'Link_Refacturacion',
+                    ]
+                    links_fallback_map = build_link_fallback_map(df_pedidos, fallback_columns)
+
+                    def _fallback_link(norm_id: str, column: str) -> str:
+                        if not norm_id:
+                            return ""
+                        valores = links_fallback_map.get(norm_id)
+                        if not valores:
+                            return ""
+                        return valores.get(column, "")
+
+                    link_adjuntos, link_adjuntos_mod, link_adjuntos_guia, link_refacturaciones = [], [], [], []
 
                     for _, row in df_nuevos.iterrows():
                         pedido_id = row.get("ID_Pedido")
                         tipo_envio = row.get("Tipo_Envio")
+                        normalized_id = normalize_id_pedido(pedido_id)
 
                         assets = discover_comprobante_assets(pedido_id, tipo_envio, s3_client)
 
-                        link_comprobantes.append(assets.get("comprobante_link", ""))
-                        link_facturas.append(assets.get("factura_url", ""))
-                        link_guias.append(assets.get("guia_url", ""))
-                        link_refacturaciones.append(assets.get("refact_url", ""))
+                        link_adjuntos_value, _ = resolve_adjuntos_link(
+                            pedido_id,
+                            normalized_id,
+                            adjuntos_map,
+                            map_label="adjuntos",
+                            category="adjuntos",
+                            page_title="Adjuntos",
+                            s3_client_instance=s3_client,
+                        )
+                        if not link_adjuntos_value:
+                            link_adjuntos_value = assets.get("comprobante_link", "") or _fallback_link(
+                                normalized_id, "Link_Adjuntos"
+                            )
 
-                    df_nuevos["Link_Comprobante"] = link_comprobantes
-                    df_nuevos["Link_Factura"] = link_facturas
-                    df_nuevos["Link_Guia"] = link_guias
+                        link_adjuntos_mod_value, _ = resolve_adjuntos_link(
+                            pedido_id,
+                            normalized_id,
+                            adjuntos_surtido_map,
+                            map_label="adjuntos_modificacion",
+                            category="adjuntos-modificacion",
+                            page_title="Adjuntos de Modificación",
+                            s3_client_instance=s3_client,
+                        )
+                        if not link_adjuntos_mod_value:
+                            link_adjuntos_mod_value = _fallback_link(
+                                normalized_id, "Link_Adjuntos_Modificacion"
+                            )
+
+                        link_adjuntos_guia_value, _ = resolve_adjuntos_link(
+                            pedido_id,
+                            normalized_id,
+                            adjuntos_guia_map,
+                            map_label="adjuntos_guia",
+                            category="adjuntos-guia",
+                            page_title="Adjuntos de Guía",
+                            s3_client_instance=s3_client,
+                        )
+                        if not link_adjuntos_guia_value:
+                            link_adjuntos_guia_value = assets.get("guia_url", "") or _fallback_link(
+                                normalized_id, "Link_Adjuntos_Guia"
+                            )
+
+                        link_refacturacion_value = assets.get("refact_url", "") or _fallback_link(
+                            normalized_id, "Link_Refacturacion"
+                        )
+
+                        link_adjuntos.append(link_adjuntos_value)
+                        link_adjuntos_mod.append(link_adjuntos_mod_value)
+                        link_adjuntos_guia.append(link_adjuntos_guia_value)
+                        link_refacturaciones.append(link_refacturacion_value)
+
+                    df_nuevos["Link_Adjuntos"] = link_adjuntos
+                    df_nuevos["Link_Adjuntos_Modificacion"] = link_adjuntos_mod
+                    df_nuevos["Link_Adjuntos_Guia"] = link_adjuntos_guia
                     df_nuevos["Link_Refacturacion"] = link_refacturaciones
 
                     df_nuevos = df_nuevos.fillna("").astype(str)
@@ -2339,7 +2520,7 @@ with tab2:
     if st.button(
         "🧾 Regenerar enlaces de comprobantes existentes",
         type="secondary",
-        help="Reconstruye los enlaces de comprobantes, facturas, guías y refacturas usando S3.",
+        help="Reconstruye los enlaces de adjuntos, adjuntos de modificación, adjuntos de guía y refacturación usando S3.",
     ):
         if allow_refresh("tab2_regen_links_refresh", tab2_alert, cooldown=180):
             if df_confirmados_guardados.empty:
@@ -2351,9 +2532,9 @@ with tab2:
                     tab2_alert.error(f"❌ No se pudo acceder a la hoja de confirmados: {e}")
                 else:
                     columnas_objetivo = [
-                        "Link_Comprobante",
-                        "Link_Factura",
-                        "Link_Guia",
+                        "Link_Adjuntos",
+                        "Link_Adjuntos_Modificacion",
+                        "Link_Adjuntos_Guia",
                         "Link_Refacturacion",
                     ]
                     column_positions = {
@@ -2362,8 +2543,16 @@ with tab2:
                         if col in headers_confirmados
                     }
 
-                    if "Link_Comprobante" not in column_positions:
-                        tab2_alert.error("❌ La hoja no contiene la columna 'Link_Comprobante'.")
+                    missing_columns = [
+                        col for col in columnas_objetivo if col not in column_positions
+                    ]
+
+                    if missing_columns:
+                        tab2_alert.error(
+                            "❌ La hoja no contiene las columnas requeridas: "
+                            + ", ".join(missing_columns)
+                            + "."
+                        )
                     else:
                         total_rows = len(df_confirmados_guardados)
                         if total_rows == 0:
@@ -2397,10 +2586,29 @@ with tab2:
                                 st.session_state.get("df_pedidos")
                             )
                             # Cada mapa puede estar vacío si la columna no existe o si la celda está vacía.
+                            fallback_columns = [
+                                "Link_Adjuntos",
+                                "Link_Adjuntos_Modificacion",
+                                "Link_Adjuntos_Guia",
+                                "Link_Refacturacion",
+                            ]
+                            links_fallback_map = build_link_fallback_map(
+                                st.session_state.get("df_pedidos"),
+                                fallback_columns,
+                            )
+
+                            def _fallback_link(norm_id: str, column: str) -> str:
+                                if not norm_id:
+                                    return ""
+                                valores = links_fallback_map.get(norm_id)
+                                if not valores:
+                                    return ""
+                                return valores.get(column, "")
+
                             rows_updated_from_adjuntos = 0
 
                             try:
-                                with st.spinner("Regenerando enlaces de comprobantes. Esto puede tardar unos minutos..."):
+                                with st.spinner("Regenerando enlaces de adjuntos. Esto puede tardar unos minutos..."):
                                     for processed, (df_idx, row) in enumerate(
                                         df_confirmados_guardados.iterrows(), start=1
                                     ):
@@ -2416,53 +2624,63 @@ with tab2:
                                             sheet_row = df_idx + 2
 
                                         normalized_pedido_id = normalize_id_pedido(pedido_id)
-                                        adjuntos_urls: list[str] = []
-                                        raw_adjuntos = None
-                                        if adjuntos_map:
-                                            if normalized_pedido_id:
-                                                raw_adjuntos = adjuntos_map.get(normalized_pedido_id)
-                                            if raw_adjuntos is None and pedido_id:
-                                                raw_adjuntos = adjuntos_map.get(
-                                                    normalize_id_pedido(str(pedido_id))
-                                                )
-                                        if raw_adjuntos is not None:
-                                            try:
-                                                adjuntos_urls = extract_comprobante_urls_from_adjuntos(
-                                                    raw_adjuntos
-                                                )
-                                            except Exception as parse_err:
-                                                print(
-                                                    "[adjuntos_parser_error]",
-                                                    json.dumps(
-                                                        {
-                                                            "pedido_id": normalized_pedido_id or pedido_id,
-                                                            "error": str(parse_err),
-                                                        },
-                                                        ensure_ascii=False,
-                                                    ),
-                                                )
-                                                adjuntos_urls = []
-
-                                        link_from_adjuntos = ""
-                                        if adjuntos_urls:
-                                            if len(adjuntos_urls) == 1:
-                                                link_from_adjuntos = adjuntos_urls[0]
-                                            else:
-                                                index_url = build_and_upload_comprobante_index_from_urls(
-                                                    normalized_pedido_id or pedido_id,
-                                                    adjuntos_urls,
-                                                    s3_client,
-                                                )
-                                                link_from_adjuntos = index_url or "\n".join(adjuntos_urls)
-                                        used_adjuntos_for_link = bool(link_from_adjuntos)
-
                                         assets = discover_comprobante_assets(pedido_id, tipo_envio, s3_client)
+                                        link_adjuntos_value, used_adjuntos_link = resolve_adjuntos_link(
+                                            pedido_id,
+                                            normalized_pedido_id,
+                                            adjuntos_map,
+                                            map_label="adjuntos",
+                                            category="adjuntos",
+                                            page_title="Adjuntos",
+                                            s3_client_instance=s3_client,
+                                        )
+                                        if not link_adjuntos_value:
+                                            link_adjuntos_value = assets.get("comprobante_link", "") or _fallback_link(
+                                                normalized_pedido_id, "Link_Adjuntos"
+                                            )
+
+                                        link_adjuntos_mod_value, used_mod_link = resolve_adjuntos_link(
+                                            pedido_id,
+                                            normalized_pedido_id,
+                                            adjuntos_surtido_map,
+                                            map_label="adjuntos_modificacion",
+                                            category="adjuntos-modificacion",
+                                            page_title="Adjuntos de Modificación",
+                                            s3_client_instance=s3_client,
+                                        )
+                                        if not link_adjuntos_mod_value:
+                                            link_adjuntos_mod_value = _fallback_link(
+                                                normalized_pedido_id, "Link_Adjuntos_Modificacion"
+                                            )
+
+                                        link_adjuntos_guia_value, used_guia_link = resolve_adjuntos_link(
+                                            pedido_id,
+                                            normalized_pedido_id,
+                                            adjuntos_guia_map,
+                                            map_label="adjuntos_guia",
+                                            category="adjuntos-guia",
+                                            page_title="Adjuntos de Guía",
+                                            s3_client_instance=s3_client,
+                                        )
+                                        if not link_adjuntos_guia_value:
+                                            link_adjuntos_guia_value = assets.get("guia_url", "") or _fallback_link(
+                                                normalized_pedido_id, "Link_Adjuntos_Guia"
+                                            )
+
+                                        link_refacturacion_value = assets.get("refact_url", "") or _fallback_link(
+                                            normalized_pedido_id, "Link_Refacturacion"
+                                        )
+
                                         new_values = {
-                                            "Link_Comprobante": link_from_adjuntos
-                                            or assets.get("comprobante_link", ""),
-                                            "Link_Factura": assets.get("factura_url", ""),
-                                            "Link_Guia": assets.get("guia_url", ""),
-                                            "Link_Refacturacion": assets.get("refact_url", ""),
+                                            "Link_Adjuntos": link_adjuntos_value,
+                                            "Link_Adjuntos_Modificacion": link_adjuntos_mod_value,
+                                            "Link_Adjuntos_Guia": link_adjuntos_guia_value,
+                                            "Link_Refacturacion": link_refacturacion_value,
+                                        }
+                                        used_links_map = {
+                                            "Link_Adjuntos": used_adjuntos_link,
+                                            "Link_Adjuntos_Modificacion": used_mod_link,
+                                            "Link_Adjuntos_Guia": used_guia_link,
                                         }
 
                                         row_updates: list[dict] = []
@@ -2480,7 +2698,7 @@ with tab2:
                                                     }
                                                 )
                                                 df_confirmados_guardados.at[df_idx, col] = new_text
-                                                if col == "Link_Comprobante" and used_adjuntos_for_link:
+                                                if used_links_map.get(col):
                                                     rows_updated_from_adjuntos += 1
                                                 row_changed = True
 
@@ -2544,7 +2762,7 @@ with tab2:
         st.success(f"✅ {len(df_confirmados_guardados)} pedidos confirmados (últimos primero).")
 
         df_confirmados_visible = df_confirmados_guardados.drop(columns=["__sheet_row"], errors="ignore")
-        df_confirmados_vista, columnas_expandidas_tabla = expand_link_comprobante_columns(df_confirmados_visible)
+        df_confirmados_vista, columnas_expandidas_tabla = expand_link_adjuntos_columns(df_confirmados_visible)
 
         columnas_a_ocultar = list(dict.fromkeys([*columnas_expandidas_tabla, "Fecha_Entrega"]))
         columnas_a_ocultar_set = set(columnas_a_ocultar)
@@ -2568,7 +2786,7 @@ with tab2:
         )
 
         # Descargar Excel (desde el DF ya ordenado)
-        df_excel, columnas_expandidas_excel = expand_link_comprobante_columns(df_confirmados_visible)
+        df_excel, columnas_expandidas_excel = expand_link_adjuntos_columns(df_confirmados_visible)
         columnas_a_ocultar_excel = list(dict.fromkeys([*columnas_expandidas_excel, "Fecha_Entrega"]))
         if columnas_a_ocultar_excel:
             df_excel = df_excel.drop(columnas_a_ocultar_excel, axis=1, errors="ignore")
