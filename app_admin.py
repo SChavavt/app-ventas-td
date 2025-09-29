@@ -1954,6 +1954,41 @@ with tab2:
         st.session_state["tab2_reload_nonce"] = 0
 
     # ✅ Cache de lectura (robusta, con snapshot)
+    def dedupe_confirmados(df: pd.DataFrame) -> pd.DataFrame:
+        """Normaliza y deduplica confirmados usando ID_Pedido y Folio_Factura."""
+        if df is None or not isinstance(df, pd.DataFrame):
+            return pd.DataFrame()
+
+        if df.empty:
+            return df.copy()
+
+        trabajo = df.copy()
+
+        if "ID_Pedido" not in trabajo.columns:
+            trabajo["ID_Pedido"] = ""
+        if "Folio_Factura" not in trabajo.columns:
+            trabajo["Folio_Factura"] = ""
+
+        trabajo["ID_Pedido"] = trabajo["ID_Pedido"].apply(normalize_id_pedido)
+        trabajo["Folio_Factura"] = trabajo["Folio_Factura"].apply(normalize_folio_factura)
+        trabajo["Folio_Factura"] = trabajo["Folio_Factura"].fillna("")
+
+        trabajo["__folio_key"] = trabajo["Folio_Factura"].replace("", "__EMPTY__")
+        trabajo["__dedupe_order"] = list(range(len(trabajo)))
+
+        deduplicado = (
+            trabajo.sort_values("__dedupe_order")
+            .groupby(["ID_Pedido", "__folio_key"], as_index=False, sort=False)
+            .tail(1)
+        )
+
+        deduplicado = deduplicado.sort_values("__dedupe_order")
+        deduplicado = deduplicado[deduplicado["ID_Pedido"] != ""]
+        deduplicado = deduplicado.drop(columns=["__folio_key", "__dedupe_order"], errors="ignore")
+        deduplicado.reset_index(drop=True, inplace=True)
+
+        return deduplicado
+
     @st.cache_data(show_spinner=False)
     def cargar_confirmados_guardados_cached(sheet_id: str, ws_name: str, _nonce: int):
         """
@@ -2002,10 +2037,7 @@ with tab2:
 
         if not df.empty:
             df["__sheet_row"] = df.index + 2
-            df["ID_Pedido"] = df["ID_Pedido"].apply(normalize_id_pedido)
-            df["Folio_Factura"] = df["Folio_Factura"].apply(normalize_folio_factura)
-            df = df[df["ID_Pedido"] != ""]
-            df = df.drop_duplicates(subset=["ID_Pedido", "Folio_Factura"], keep="last").reset_index(drop=True)
+            df = dedupe_confirmados(df)
             for columna_fecha in ("Fecha_Pago_Comprobante", "Fecha_Entrega"):
                 _normalizar_columna_fecha(df, columna_fecha)
         deduplicados = max(registros_antes_deduplicado - len(df), 0)
@@ -2179,6 +2211,18 @@ with tab2:
                     df_nuevos.loc[:, 'Folio_Factura'] = serie_folios_normalizados.loc[df_nuevos.index]
                     df_nuevos = df_nuevos[(df_nuevos['ID_Pedido'] != "")]
 
+                columnas_guardar = [
+                    'ID_Pedido', 'Folio_Factura', 'Folio_Factura_Refacturada',
+                    'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
+                    'Estado', 'Estado_Pago', 'Comprobante_Confirmado',
+                    'Refacturacion_Tipo', 'Refacturacion_Subtipo',
+                    'Forma_Pago_Comprobante', 'Monto_Comprobante',
+                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
+                    'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
+                ]
+
+                nuevos_agregados = 0
+
                 if df_nuevos.empty:
                     tab2_alert.info("✅ No hay pedidos confirmados nuevos por registrar. Se recargará la tabla igualmente…")
                 else:
@@ -2187,15 +2231,9 @@ with tab2:
                         subset=['ID_Pedido', 'Folio_Factura'], keep='first'
                     )
 
-                    columnas_guardar = [
-                        'ID_Pedido', 'Folio_Factura', 'Folio_Factura_Refacturada',
-                        'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-                        'Estado', 'Estado_Pago', 'Comprobante_Confirmado',
-                        'Refacturacion_Tipo', 'Refacturacion_Subtipo',
-                        'Forma_Pago_Comprobante', 'Monto_Comprobante',
-                        'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-                        'Link_Comprobante', 'Link_Factura', 'Link_Refacturacion', 'Link_Guia'
-                    ]
+                    for col in columnas_guardar:
+                        if col not in df_nuevos.columns:
+                            df_nuevos[col] = ""
 
                     link_comprobantes, link_facturas, link_guias, link_refacturaciones = [], [], [], []
 
@@ -2215,23 +2253,55 @@ with tab2:
                     df_nuevos["Link_Guia"] = link_guias
                     df_nuevos["Link_Refacturacion"] = link_refacturaciones
 
-                    df_nuevos = df_nuevos[[col for col in columnas_guardar if col in df_nuevos.columns]].fillna("").astype(str)
+                    df_nuevos = df_nuevos.fillna("").astype(str)
 
-                    # Escribir en la hoja
+                    df_existente_merge = df_confirmados_guardados.drop(columns=["__sheet_row"], errors="ignore")
+                    df_existente_merge = dedupe_confirmados(df_existente_merge)
+
+                    df_combined = pd.concat(
+                        [df_existente_merge, df_nuevos],
+                        ignore_index=True,
+                        sort=False,
+                    )
+                    df_combined = dedupe_confirmados(df_combined)
+                    nuevos_agregados = max(len(df_combined) - len(df_existente_merge), 0)
+
+                    for col in columnas_guardar:
+                        if col not in df_combined.columns:
+                            df_combined[col] = ""
+
+                    columnas_existentes = [
+                        col for col in (headers_confirmados or []) if col and col != "__sheet_row"
+                    ]
+                    columnas_finales: list[str] = []
+                    for col in columnas_existentes + columnas_guardar:
+                        if col not in columnas_finales:
+                            columnas_finales.append(col)
+                    for col in df_combined.columns:
+                        if col not in columnas_finales and col != "__sheet_row":
+                            columnas_finales.append(col)
+
+                    df_guardar = df_combined.drop(columns=["__sheet_row"], errors="ignore")
+                    if columnas_finales:
+                        df_guardar = df_guardar.reindex(columns=columnas_finales, fill_value="")
+                    df_guardar = df_guardar.fillna("").astype(str)
+
+                    valores_actualizados = [columnas_finales]
+                    if not df_guardar.empty:
+                        valores_actualizados += df_guardar.values.tolist()
+
                     spreadsheet = get_spreadsheet(GOOGLE_SHEET_ID)
                     try:
                         hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
                     except gspread.exceptions.WorksheetNotFound:
                         hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
 
-                    datos_existentes = hoja_confirmados.get_all_values()
-                    if not datos_existentes:
-                        hoja_confirmados.append_row(columnas_guardar, value_input_option="USER_ENTERED")
+                    hoja_confirmados.clear()
+                    hoja_confirmados.update("A1", valores_actualizados, value_input_option="USER_ENTERED")
 
-                    filas_nuevas = df_nuevos[columnas_guardar].values.tolist()
-                    hoja_confirmados.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
-
-                tab2_alert.success(f"✅ {len(df_nuevos)} nuevos pedidos confirmados agregados a la hoja.")
+                tab2_alert.success(
+                    f"✅ {nuevos_agregados} nuevos pedidos confirmados agregados a la hoja."
+                )
 
                 # Recargar
                 st.session_state["tab2_reload_nonce"] += 1
