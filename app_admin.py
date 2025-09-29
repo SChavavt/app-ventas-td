@@ -377,9 +377,9 @@ def build_adjuntos_map_from_pedidos(df: pd.DataFrame) -> dict[str, object]:
 
 
 def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
-    """Extrae URLs de comprobantes desde el campo Adjuntos (JSON/lista/texto)."""
+    """Extrae todas las URLs disponibles desde el campo Adjuntos."""
 
-    keyword = "comprobante"
+    url_pattern = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
     results: list[str] = []
     seen: set[str] = set()
 
@@ -396,56 +396,30 @@ def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
             seen.add(url_text)
             results.append(url_text)
 
+    def _extract_from_text(text: str) -> None:
+        for match in url_pattern.findall(text):
+            _add(match)
+
     def _process(obj) -> None:
         if obj is None:
             return
 
         if isinstance(obj, dict):
-            lowered_keys = {str(k).lower(): v for k, v in obj.items()}
-            url_candidates = [
-                lowered_keys.get("url"),
-                lowered_keys.get("link"),
-                lowered_keys.get("href"),
-                lowered_keys.get("download_url"),
-                lowered_keys.get("value"),
-            ]
-            name_candidates = [
-                lowered_keys.get("name"),
-                lowered_keys.get("nombre"),
-                lowered_keys.get("title"),
-                lowered_keys.get("filename"),
-                lowered_keys.get("file_name"),
-                lowered_keys.get("label"),
-                lowered_keys.get("descripcion"),
-                lowered_keys.get("description"),
-            ]
-
-            descriptor = " ".join(
-                str(candidate).strip()
-                for candidate in name_candidates
-                if candidate is not None and str(candidate).strip()
-            ).lower()
-
-            if not descriptor:
-                descriptor = " ".join(
-                    str(candidate).strip()
-                    for candidate in url_candidates
-                    if candidate is not None and str(candidate).strip()
-                ).lower()
-
-            for candidate in url_candidates:
-                if candidate is None:
-                    continue
-                candidate_text = str(candidate).strip()
-                if not candidate_text:
-                    continue
-                if keyword in descriptor or keyword in candidate_text.lower():
-                    _add(candidate_text)
+            for value in obj.values():
+                _process(value)
             return
 
         if isinstance(obj, (list, tuple, set)):
             for item in obj:
                 _process(item)
+            return
+
+        if isinstance(obj, bytes):
+            try:
+                decoded = obj.decode("utf-8", errors="ignore")
+            except Exception:
+                return
+            _process(decoded)
             return
 
         if isinstance(obj, str):
@@ -455,17 +429,15 @@ def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
             try:
                 parsed = json.loads(text_value)
             except Exception:
-                urls = re.findall(r"https?://[^\s,;]+", text_value)
-                text_lower = text_value.lower()
-                for url in urls:
-                    if keyword in text_lower or keyword in url.lower():
-                        _add(url)
+                _extract_from_text(text_value)
                 return
             else:
                 _process(parsed)
                 return
 
-        _process(str(obj))
+        stringified = str(obj)
+        if stringified and stringified.lower() not in {"nan", "none", "null"}:
+            _extract_from_text(stringified)
 
     _process(value)
     return results
@@ -2358,7 +2330,9 @@ with tab2:
                                                 )
                                         if raw_adjuntos is not None:
                                             try:
-                                                adjuntos_urls = extract_comprobante_urls_from_adjuntos(raw_adjuntos)
+                                                adjuntos_urls = extract_comprobante_urls_from_adjuntos(
+                                                    raw_adjuntos
+                                                )
                                             except Exception as parse_err:
                                                 print(
                                                     "[adjuntos_parser_error]",
@@ -2382,7 +2356,7 @@ with tab2:
                                                     adjuntos_urls,
                                                     s3_client,
                                                 )
-                                                link_from_adjuntos = index_url or ", ".join(adjuntos_urls)
+                                                link_from_adjuntos = index_url or "\n".join(adjuntos_urls)
                                         used_adjuntos_for_link = bool(link_from_adjuntos)
 
                                         assets = discover_comprobante_assets(pedido_id, tipo_envio, s3_client)
