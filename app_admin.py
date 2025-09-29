@@ -343,37 +343,59 @@ def normalize_folio_factura(value) -> str:
 # --- Helpers de Adjuntos --------------------------------------------------
 
 
-def build_adjuntos_map_from_pedidos(df: pd.DataFrame) -> dict[str, object]:
-    """Crea un mapa ID_Pedido normalizado ➜ Adjuntos para consultas rápidas."""
+def build_adjuntos_map_from_pedidos(
+    df: pd.DataFrame | None,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    """Regresa tres mapas ID_Pedido normalizado ➜ adjuntos por cada columna conocida.
 
-    mapping: dict[str, object] = {}
+    El contrato espera un ``pd.DataFrame`` con ``ID_Pedido`` y, opcionalmente, las
+    columnas ``Adjuntos``, ``Adjuntos_Surtido`` y ``Adjuntos_Guia``. Cada mapa es
+    independiente y se omite cuando la columna no existe o la celda está vacía.
+    """
+
+    empty_result: tuple[dict[str, object], dict[str, object], dict[str, object]] = ({}, {}, {})
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        return mapping
+        return empty_result
 
-    if "ID_Pedido" not in df.columns or "Adjuntos" not in df.columns:
-        return mapping
+    if "ID_Pedido" not in df.columns:
+        return empty_result
 
     ids_normalizados = df["ID_Pedido"].apply(normalize_id_pedido)
-    adjuntos_series = df["Adjuntos"]
 
-    for idx, pedido_id in ids_normalizados.items():
-        if not pedido_id:
-            continue
+    def _build_for_column(column_name: str) -> dict[str, object]:
+        column_map: dict[str, object] = {}
+        if column_name not in df.columns:
+            return column_map
 
-        try:
-            raw_adjuntos = adjuntos_series.iloc[idx]
-        except IndexError:
-            continue
+        series = df[column_name]
+        for row_idx in df.index:
+            pedido_id = ids_normalizados.get(row_idx, "")
+            if not pedido_id:
+                continue
 
-        if pd.isna(raw_adjuntos):
-            continue
+            try:
+                raw_value = series.loc[row_idx]
+            except KeyError:
+                continue
 
-        if isinstance(raw_adjuntos, str) and not raw_adjuntos.strip():
-            continue
+            try:
+                if pd.isna(raw_value):
+                    continue
+            except Exception:
+                pass
 
-        mapping[pedido_id] = raw_adjuntos
+            if isinstance(raw_value, str) and not raw_value.strip():
+                continue
 
-    return mapping
+            column_map[pedido_id] = raw_value
+
+        return column_map
+
+    adjuntos_map = _build_for_column("Adjuntos")
+    adjuntos_surtido_map = _build_for_column("Adjuntos_Surtido")
+    adjuntos_guia_map = _build_for_column("Adjuntos_Guia")
+
+    return adjuntos_map, adjuntos_surtido_map, adjuntos_guia_map
 
 
 def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
@@ -2367,9 +2389,14 @@ with tab2:
                             pending_payload: list[dict] = []
                             pending_rows = 0
                             error_occurred = False
-                            adjuntos_map = build_adjuntos_map_from_pedidos(
+                            (
+                                adjuntos_map,
+                                adjuntos_surtido_map,
+                                adjuntos_guia_map,
+                            ) = build_adjuntos_map_from_pedidos(
                                 st.session_state.get("df_pedidos")
                             )
+                            # Cada mapa puede estar vacío si la columna no existe o si la celda está vacía.
                             rows_updated_from_adjuntos = 0
 
                             try:
