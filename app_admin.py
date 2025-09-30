@@ -1960,9 +1960,19 @@ with tab1:
     
                             col_pago = st.columns(4)
                             with col_pago[0]:
+                                fecha_raw = fecha_list[i] if i < len(fecha_list) else ""
+                                parsed_fecha = None
+                                if fecha_raw:
+                                    parsed_fecha = pd.to_datetime(fecha_raw, errors="coerce")
+
+                                if parsed_fecha is not None and not pd.isna(parsed_fecha):
+                                    fecha_value = parsed_fecha.date()
+                                else:
+                                    fecha_value = None
+
                                 fecha_i = st.date_input(
                                     f"📅 Fecha Pago {i+1}",
-                                    value=pd.to_datetime(fecha_list[i], errors='coerce').date() if fecha_list[i] else None,
+                                    value=fecha_value,
                                     key=f"fecha_pago_{i}"
                                 )
                             with col_pago[1]:
@@ -2007,7 +2017,7 @@ with tab1:
                                 key=f"ref_pago_{i}"
                             )
     
-                            fecha_list[i] = str(fecha_i)
+                            fecha_list[i] = fecha_i.strftime("%Y-%m-%d") if fecha_i else ""
                             forma_list[i] = forma_i
                             banco_list[i] = banco_i
                             terminal_list[i] = terminal_i
