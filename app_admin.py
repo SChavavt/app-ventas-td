@@ -38,40 +38,6 @@ REFRESH_COOLDOWN = 60
 QUOTA_ERROR_THRESHOLD = 5
 
 
-COLUMNAS_CONFIRMADOS_BASE = [
-    "ID_Pedido",
-    "Hora_Registro",
-    "Folio_Factura",
-    "Folio_Factura_Refacturada",
-    "Cliente",
-    "Vendedor_Registro",
-    "Tipo_Envio",
-    "Fecha_Entrega",
-    "Modificacion_Surtido",
-    "Estado",
-    "Estado_Pago",
-    "Comprobante_Confirmado",
-    "Refacturacion_Tipo",
-    "Refacturacion_Subtipo",
-    "Forma_Pago_Comprobante",
-    "Monto_Comprobante",
-    "Fecha_Pago_Comprobante",
-    "Banco_Destino_Pago",
-    "Terminal",
-    "Referencia_Comprobante",
-    "Link_Refacturacion",
-    "Link_Adjuntos",
-    "Link_Adjuntos_Modificacion",
-    "Link_Adjuntos_Guia",
-]
-
-
-def columnas_confirmados_ordenadas(df: pd.DataFrame) -> list[str]:
-    """Devuelve las columnas ordenadas según la convención de negocio."""
-    extras = [col for col in df.columns if col not in COLUMNAS_CONFIRMADOS_BASE]
-    return COLUMNAS_CONFIRMADOS_BASE + extras
-
-
 if "pedidos_reload_nonce" not in st.session_state:
     st.session_state["pedidos_reload_nonce"] = 0
 
@@ -2359,7 +2325,31 @@ with tab2:
                     df_nuevos.loc[:, 'Folio_Factura'] = serie_folios_normalizados.loc[df_nuevos.index]
                     df_nuevos = df_nuevos[(df_nuevos['ID_Pedido'] != "")]
 
-                columnas_objetivo_confirmados = COLUMNAS_CONFIRMADOS_BASE[:]
+                columnas_objetivo_confirmados = [
+                    "ID_Pedido",
+                    "Hora_Registro",
+                    "Folio_Factura",
+                    "Folio_Factura_Refacturada",
+                    "Cliente",
+                    "Vendedor_Registro",
+                    "Tipo_Envio",
+                    "Fecha_Entrega",
+                    "Estado",
+                    "Estado_Pago",
+                    "Comprobante_Confirmado",
+                    "Refacturacion_Tipo",
+                    "Refacturacion_Subtipo",
+                    "Forma_Pago_Comprobante",
+                    "Monto_Comprobante",
+                    "Fecha_Pago_Comprobante",
+                    "Banco_Destino_Pago",
+                    "Terminal",
+                    "Referencia_Comprobante",
+                    "Link_Refacturacion",
+                    "Link_Adjuntos",
+                    "Link_Adjuntos_Modificacion",
+                    "Link_Adjuntos_Guia",
+                ]
 
                 nuevos_agregados = 0
 
@@ -2548,19 +2538,34 @@ with tab2:
         st.success(f"✅ {len(df_confirmados_guardados)} pedidos confirmados (últimos primero).")
 
         df_confirmados_visible = df_confirmados_guardados.drop(columns=["__sheet_row"], errors="ignore")
-        df_confirmados_vista, _ = expand_link_adjuntos_columns(df_confirmados_visible)
-        columnas_vista = columnas_confirmados_ordenadas(df_confirmados_vista)
-        df_confirmados_vista = df_confirmados_vista.reindex(columns=columnas_vista, fill_value="")
+        df_confirmados_vista, columnas_expandidas_tabla = expand_link_adjuntos_columns(df_confirmados_visible)
+
+        columnas_a_ocultar = list(dict.fromkeys([*columnas_expandidas_tabla, "Fecha_Entrega"]))
+        columnas_a_ocultar_set = set(columnas_a_ocultar)
+        columnas_prioritarias = [
+            'Folio_Factura', 'Folio_Factura_Refacturada', 'Cliente', 'Vendedor_Registro',
+            'Tipo_Envio', 'Estado', 'Estado_Pago', 'Refacturacion_Tipo',
+            'Refacturacion_Subtipo', 'Forma_Pago_Comprobante', 'Monto_Comprobante',
+            'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante'
+        ]
+
+        columnas_para_tabla = [
+            col for col in df_confirmados_vista.columns
+            if col not in columnas_a_ocultar_set and (
+                col.startswith("Link_") or col in columnas_prioritarias
+            )
+        ]
 
         st.dataframe(
-            df_confirmados_vista,
+            df_confirmados_vista[columnas_para_tabla] if columnas_para_tabla else df_confirmados_vista,
             use_container_width=True, hide_index=True
         )
 
         # Descargar Excel (desde el DF ya ordenado)
-        df_excel, _ = expand_link_adjuntos_columns(df_confirmados_visible)
-        columnas_excel = columnas_confirmados_ordenadas(df_excel)
-        df_excel = df_excel.reindex(columns=columnas_excel, fill_value="")
+        df_excel, columnas_expandidas_excel = expand_link_adjuntos_columns(df_confirmados_visible)
+        columnas_a_ocultar_excel = list(dict.fromkeys([*columnas_expandidas_excel, "Fecha_Entrega"]))
+        if columnas_a_ocultar_excel:
+            df_excel = df_excel.drop(columnas_a_ocultar_excel, axis=1, errors="ignore")
 
         output_confirmados = BytesIO()
         with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
