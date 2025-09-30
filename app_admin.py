@@ -2325,14 +2325,30 @@ with tab2:
                     df_nuevos.loc[:, 'Folio_Factura'] = serie_folios_normalizados.loc[df_nuevos.index]
                     df_nuevos = df_nuevos[(df_nuevos['ID_Pedido'] != "")]
 
-                columnas_guardar = [
-                    'ID_Pedido', 'Folio_Factura', 'Folio_Factura_Refacturada',
-                    'Cliente', 'Vendedor_Registro', 'Tipo_Envio', 'Fecha_Entrega',
-                    'Estado', 'Estado_Pago', 'Comprobante_Confirmado',
-                    'Refacturacion_Tipo', 'Refacturacion_Subtipo',
-                    'Forma_Pago_Comprobante', 'Monto_Comprobante',
-                    'Fecha_Pago_Comprobante', 'Banco_Destino_Pago', 'Terminal', 'Referencia_Comprobante',
-                    'Link_Adjuntos', 'Link_Adjuntos_Modificacion', 'Link_Adjuntos_Guia', 'Link_Refacturacion'
+                columnas_objetivo_confirmados = [
+                    "ID_Pedido",
+                    "Hora_Registro",
+                    "Folio_Factura",
+                    "Folio_Factura_Refacturada",
+                    "Cliente",
+                    "Vendedor_Registro",
+                    "Tipo_Envio",
+                    "Fecha_Entrega",
+                    "Estado",
+                    "Estado_Pago",
+                    "Comprobante_Confirmado",
+                    "Refacturacion_Tipo",
+                    "Refacturacion_Subtipo",
+                    "Forma_Pago_Comprobante",
+                    "Monto_Comprobante",
+                    "Fecha_Pago_Comprobante",
+                    "Banco_Destino_Pago",
+                    "Terminal",
+                    "Referencia_Comprobante",
+                    "Link_Refacturacion",
+                    "Link_Adjuntos",
+                    "Link_Adjuntos_Modificacion",
+                    "Link_Adjuntos_Guia",
                 ]
 
                 nuevos_agregados = 0
@@ -2345,7 +2361,7 @@ with tab2:
                         subset=['ID_Pedido', 'Folio_Factura'], keep='first'
                     )
 
-                    for col in columnas_guardar:
+                    for col in columnas_objetivo_confirmados:
                         if col not in df_nuevos.columns:
                             df_nuevos[col] = ""
 
@@ -2449,24 +2465,21 @@ with tab2:
                     df_combined = dedupe_confirmados(df_combined)
                     nuevos_agregados = max(len(df_combined) - len(df_existente_merge), 0)
 
-                    for col in columnas_guardar:
+                    for col in columnas_objetivo_confirmados:
                         if col not in df_combined.columns:
                             df_combined[col] = ""
-
-                    columnas_existentes = [
-                        col for col in (headers_confirmados or []) if col and col != "__sheet_row"
+                    columnas_a_descartar = [
+                        col
+                        for col in df_combined.columns
+                        if col not in columnas_objetivo_confirmados and col != "__sheet_row"
                     ]
-                    columnas_finales: list[str] = []
-                    for col in columnas_existentes + columnas_guardar:
-                        if col not in columnas_finales:
-                            columnas_finales.append(col)
-                    for col in df_combined.columns:
-                        if col not in columnas_finales and col != "__sheet_row":
-                            columnas_finales.append(col)
+                    if columnas_a_descartar:
+                        df_combined = df_combined.drop(columns=columnas_a_descartar, errors="ignore")
+
+                    columnas_finales = columnas_objetivo_confirmados[:]
 
                     df_guardar = df_combined.drop(columns=["__sheet_row"], errors="ignore")
-                    if columnas_finales:
-                        df_guardar = df_guardar.reindex(columns=columnas_finales, fill_value="")
+                    df_guardar = df_guardar.reindex(columns=columnas_finales, fill_value="")
                     df_guardar = df_guardar.fillna("").astype(str)
 
                     valores_actualizados = [columnas_finales]
