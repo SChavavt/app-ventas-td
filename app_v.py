@@ -1818,166 +1818,172 @@ with tab2:
 
                     if modify_button:
                         message_placeholder_tab2.empty()
-                        try:
-                            # 1) Enrutar a la hoja correcta según la fuente
-                            client = build_gspread_client()
-                            sh = client.open_by_key(GOOGLE_SHEET_ID)
-                            hoja_objetivo = "datos_pedidos" if selected_source == "datos_pedidos" else "casos_especiales"
-                            worksheet = sh.worksheet(hoja_objetivo)
+                        if not new_modificacion_surtido_input.strip():
+                            message_placeholder_tab2.error(
+                                "⚠️ El campo 'Notas de Modificación/Surtido' es obligatorio para procesar la modificación."
+                            )
+                        else:
+                            try:
+                                # 1) Enrutar a la hoja correcta según la fuente
+                                client = build_gspread_client()
+                                sh = client.open_by_key(GOOGLE_SHEET_ID)
+                                hoja_objetivo = "datos_pedidos" if selected_source == "datos_pedidos" else "casos_especiales"
+                                worksheet = sh.worksheet(hoja_objetivo)
 
-                            headers = worksheet.row_values(1)
-                            df_actual = df_pedidos[df_pedidos["Fuente"] == selected_source].reset_index(drop=True)
+                                headers = worksheet.row_values(1)
+                                df_actual = df_pedidos[df_pedidos["Fuente"] == selected_source].reset_index(drop=True)
 
-                            if df_actual.empty or 'ID_Pedido' not in df_actual.columns:
-                                message_placeholder_tab2.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
-                                st.stop()
+                                if df_actual.empty or 'ID_Pedido' not in df_actual.columns:
+                                    message_placeholder_tab2.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
+                                    st.stop()
 
-                            if selected_order_id not in df_actual['ID_Pedido'].values:
-                                message_placeholder_tab2.error(f"❌ El ID {selected_order_id} no existe en {hoja_objetivo}.")
-                                st.stop()
+                                if selected_order_id not in df_actual['ID_Pedido'].values:
+                                    message_placeholder_tab2.error(f"❌ El ID {selected_order_id} no existe en {hoja_objetivo}.")
+                                    st.stop()
 
-                            gsheet_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0] + 2
-                            changes_made = False
+                                gsheet_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0] + 2
+                                changes_made = False
 
-                            cell_updates = []
+                                cell_updates = []
 
-                            def col_exists(col):
-                                return col in headers
-                            def col_idx(col):
-                                return headers.index(col) + 1
+                                def col_exists(col):
+                                    return col in headers
 
-                            # 2) Guardar Modificacion_Surtido (si cambió)
-                            if col_exists("Modificacion_Surtido"):
-                                if new_modificacion_surtido_input.strip() != current_modificacion_surtido_value.strip():
+                                def col_idx(col):
+                                    return headers.index(col) + 1
+
+                                # 2) Guardar Modificacion_Surtido (si cambió)
+                                if col_exists("Modificacion_Surtido"):
+                                    if new_modificacion_surtido_input.strip() != current_modificacion_surtido_value.strip():
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index,
+                                                col_idx("Modificacion_Surtido"),
+                                            ),
+                                            "values": [[new_modificacion_surtido_input.strip()]],
+                                        })
+                                        changes_made = True
+
+                                # 3) Subida de archivos de Surtido -> Adjuntos_Surtido
+                                new_adjuntos_surtido_urls = []
+                                if uploaded_files_surtido:
+                                    for f in uploaded_files_surtido:
+                                        ext = os.path.splitext(f.name)[1]
+                                        s3_key = f"{selected_order_id}/surtido_{f.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
+                                        success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, f, s3_key)
+                                        if success:
+                                            new_adjuntos_surtido_urls.append(url)
+                                            changes_made = True
+                                        else:
+                                            message_placeholder_tab2.warning(
+                                                f"⚠️ Falló la subida de {f.name}: {error_msg or 'Error desconocido'}"
+                                            )
+
+                                if new_adjuntos_surtido_urls and col_exists("Adjuntos_Surtido"):
+                                    actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
+                                    current_urls = [x.strip() for x in str(actual_row.get("Adjuntos_Surtido","")).split(",") if x.strip()]
+                                    updated_str = ", ".join(current_urls + new_adjuntos_surtido_urls)
                                     cell_updates.append({
                                         "range": rowcol_to_a1(
                                             gsheet_row_index,
-                                            col_idx("Modificacion_Surtido"),
+                                            col_idx("Adjuntos_Surtido"),
                                         ),
-                                        "values": [[new_modificacion_surtido_input.strip()]],
+                                        "values": [[updated_str]],
+                                    })
+
+                                # 4) Comprobantes extra -> concatenar en 'Adjuntos'
+                                comprobante_urls = []
+                                if uploaded_comprobantes_extra:
+                                    for archivo in uploaded_comprobantes_extra:
+                                        ext = os.path.splitext(archivo.name)[1]
+                                        s3_key = f"{selected_order_id}/comprobante_{selected_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                        success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
+                                        if success:
+                                            comprobante_urls.append(url)
+                                            changes_made = True
+                                        else:
+                                            message_placeholder_tab2.warning(
+                                                f"⚠️ Falló la subida del comprobante {archivo.name}: {error_msg or 'Error desconocido'}"
+                                            )
+
+                                    if comprobante_urls and col_exists("Adjuntos"):
+                                        actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
+                                        current_adjuntos = [x.strip() for x in str(actual_row.get("Adjuntos","")).split(",") if x.strip()]
+                                        updated_adjuntos = ", ".join(current_adjuntos + comprobante_urls)
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index,
+                                                col_idx("Adjuntos"),
+                                            ),
+                                            "values": [[updated_adjuntos]],
+                                        })
+
+                                # 5) Refacturación (si las columnas existen en ESA hoja)
+                                if tipo_modificacion_seleccionada == "Refacturación":
+                                    campos_refact = {
+                                        "Refacturacion_Tipo": refact_tipo,
+                                        "Refacturacion_Subtipo": refact_subtipo_val,
+                                        "Folio_Factura_Refacturada": refact_folio_nuevo
+                                    }
+                                    for campo, valor in campos_refact.items():
+                                        if col_exists(campo):
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(
+                                                    gsheet_row_index,
+                                                    col_idx(campo),
+                                                ),
+                                                "values": [[valor]],
+                                            })
+                                    st.toast("🧾 Refacturación registrada.")
+                                else:
+                                    for campo in ["Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada"]:
+                                        if col_exists(campo):
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(
+                                                    gsheet_row_index,
+                                                    col_idx(campo),
+                                                ),
+                                                "values": [[""]],
+                                            })
+
+                                # 6) Cambiar estado del pedido a 'En Proceso'
+                                if col_exists("Estado"):
+                                    cell_updates.append({
+                                        "range": rowcol_to_a1(
+                                            gsheet_row_index,
+                                            col_idx("Estado"),
+                                        ),
+                                        "values": [["🔵 En Proceso"]],
                                     })
                                     changes_made = True
-
-                            # 3) Subida de archivos de Surtido -> Adjuntos_Surtido
-                            new_adjuntos_surtido_urls = []
-                            if uploaded_files_surtido:
-                                for f in uploaded_files_surtido:
-                                    ext = os.path.splitext(f.name)[1]
-                                    s3_key = f"{selected_order_id}/surtido_{f.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
-                                    success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, f, s3_key)
-                                    if success:
-                                        new_adjuntos_surtido_urls.append(url)
-                                        changes_made = True
-                                    else:
-                                        message_placeholder_tab2.warning(
-                                            f"⚠️ Falló la subida de {f.name}: {error_msg or 'Error desconocido'}"
-                                        )
-
-                            if new_adjuntos_surtido_urls and col_exists("Adjuntos_Surtido"):
-                                actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
-                                current_urls = [x.strip() for x in str(actual_row.get("Adjuntos_Surtido","")).split(",") if x.strip()]
-                                updated_str = ", ".join(current_urls + new_adjuntos_surtido_urls)
-                                cell_updates.append({
-                                    "range": rowcol_to_a1(
-                                        gsheet_row_index,
-                                        col_idx("Adjuntos_Surtido"),
-                                    ),
-                                    "values": [[updated_str]],
-                                })
-
-                            # 4) Comprobantes extra -> concatenar en 'Adjuntos'
-                            comprobante_urls = []
-                            if uploaded_comprobantes_extra:
-                                for archivo in uploaded_comprobantes_extra:
-                                    ext = os.path.splitext(archivo.name)[1]
-                                    s3_key = f"{selected_order_id}/comprobante_{selected_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
-                                    success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
-                                    if success:
-                                        comprobante_urls.append(url)
-                                        changes_made = True
-                                    else:
-                                        message_placeholder_tab2.warning(
-                                            f"⚠️ Falló la subida del comprobante {archivo.name}: {error_msg or 'Error desconocido'}"
-                                        )
-
-                                if comprobante_urls and col_exists("Adjuntos"):
-                                    actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
-                                    current_adjuntos = [x.strip() for x in str(actual_row.get("Adjuntos","")).split(",") if x.strip()]
-                                    updated_adjuntos = ", ".join(current_adjuntos + comprobante_urls)
+                                    message_placeholder_tab2.info("🔵 El estado del pedido se cambió a 'En Proceso'.")
+                                if selected_source == "datos_pedidos" and col_exists("Fecha_Completado"):
                                     cell_updates.append({
                                         "range": rowcol_to_a1(
                                             gsheet_row_index,
-                                            col_idx("Adjuntos"),
+                                            col_idx("Fecha_Completado"),
                                         ),
-                                        "values": [[updated_adjuntos]],
+                                        "values": [[""]],
                                     })
 
-                            # 5) Refacturación (si las columnas existen en ESA hoja)
-                            if tipo_modificacion_seleccionada == "Refacturación":
-                                campos_refact = {
-                                    "Refacturacion_Tipo": refact_tipo,
-                                    "Refacturacion_Subtipo": refact_subtipo_val,
-                                    "Folio_Factura_Refacturada": refact_folio_nuevo
-                                }
-                                for campo, valor in campos_refact.items():
-                                    if col_exists(campo):
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(
-                                                gsheet_row_index,
-                                                col_idx(campo),
-                                            ),
-                                            "values": [[valor]],
-                                        })
-                                st.toast("🧾 Refacturación registrada.")
-                            else:
-                                for campo in ["Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada"]:
-                                    if col_exists(campo):
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(
-                                                gsheet_row_index,
-                                                col_idx(campo),
-                                            ),
-                                            "values": [[""]],
-                                        })
+                                if cell_updates:
+                                    safe_batch_update(worksheet, cell_updates)
 
-                            # 6) Cambiar estado del pedido a 'En Proceso'
-                            if col_exists("Estado"):
-                                cell_updates.append({
-                                    "range": rowcol_to_a1(
-                                        gsheet_row_index,
-                                        col_idx("Estado"),
-                                    ),
-                                    "values": [["🔵 En Proceso"]],
-                                })
-                                changes_made = True
-                                message_placeholder_tab2.info("🔵 El estado del pedido se cambió a 'En Proceso'.")
-                            if selected_source == "datos_pedidos" and col_exists("Fecha_Completado"):
-                                cell_updates.append({
-                                    "range": rowcol_to_a1(
-                                        gsheet_row_index,
-                                        col_idx("Fecha_Completado"),
-                                    ),
-                                    "values": [[""]],
-                                })
+                                # 7) Mensajes y limpieza de inputs
+                                if changes_made:
+                                    st.session_state["reset_inputs_tab2"] = True
+                                    st.session_state["show_success_message"] = True
+                                    st.session_state["last_updated_order_id"] = selected_order_id
+                                    st.session_state["new_modificacion_surtido_input"] = ""   # limpiar textarea
+                                    st.session_state["uploaded_files_surtido"] = []           # limpiar uploader
+                                    if tab2_is_active and st.session_state.get("current_tab_index") == 1:
+                                        st.query_params.update({"tab": "1"})  # mantener UX actual
+                                    st.rerun()
+                                else:
+                                    message_placeholder_tab2.info("ℹ️ No se detectaron cambios nuevos para guardar.")
 
-                            if cell_updates:
-                                safe_batch_update(worksheet, cell_updates)
-
-                            # 7) Mensajes y limpieza de inputs
-                            if changes_made:
-                                st.session_state["reset_inputs_tab2"] = True
-                                st.session_state["show_success_message"] = True
-                                st.session_state["last_updated_order_id"] = selected_order_id
-                                st.session_state["new_modificacion_surtido_input"] = ""   # limpiar textarea
-                                st.session_state["uploaded_files_surtido"] = []           # limpiar uploader
-                                if tab2_is_active and st.session_state.get("current_tab_index") == 1:
-                                    st.query_params.update({"tab": "1"})  # mantener UX actual
-                                st.rerun()
-                            else:
-                                message_placeholder_tab2.info("ℹ️ No se detectaron cambios nuevos para guardar.")
-
-                        except Exception as e:
-                            message_placeholder_tab2.error(f"❌ Error inesperado al guardar: {e}")
+                            except Exception as e:
+                                message_placeholder_tab2.error(f"❌ Error inesperado al guardar: {e}")
 
     # ----------------- Mensaje de éxito persistente -----------------
     if (
