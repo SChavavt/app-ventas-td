@@ -767,6 +767,30 @@ except KeyError as e:
 
 S3_ATTACHMENT_PREFIX = 'adjuntos_pedidos/'
 
+
+def _coerce_secret_bool(value) -> bool:
+    """Normaliza valores booleanos provenientes de secrets.toml."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, numbers.Number):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "y", "si", "sí"}
+    return False
+
+
+S3_PUBLIC_BASE_URL = str(st.secrets.get("s3_public_base_url", "") or "").strip().rstrip("/")
+S3_USE_PERMANENT_URLS = _coerce_secret_bool(st.secrets.get("s3_use_permanent_urls", False))
+
+if S3_PUBLIC_BASE_URL:
+    S3_USE_PERMANENT_URLS = True
+
+if S3_USE_PERMANENT_URLS and not S3_PUBLIC_BASE_URL:
+    # Fallback al dominio por defecto del bucket. Requiere que los objetos sean públicos.
+    S3_PUBLIC_BASE_URL = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
+
+S3_PUBLIC_BASE_URL = S3_PUBLIC_BASE_URL.rstrip("/")
+
 st.title("👨‍💼 App de Administración TD")
 st.write("Panel de administración para revisar y confirmar comprobantes de pago.")
 
@@ -861,13 +885,23 @@ def get_files_in_s3_prefix(s3_client_instance, prefix): # Acepta s3_client_insta
         return []
 
 def get_s3_file_download_url(s3_client_instance, object_key): # Acepta s3_client_instance
-    if not s3_client_instance or not object_key:
+    if not object_key:
         return "#"
-    
+
+    key_path = str(object_key).lstrip("/")
+    if not key_path:
+        return "#"
+
+    if S3_USE_PERMANENT_URLS and S3_PUBLIC_BASE_URL:
+        return f"{S3_PUBLIC_BASE_URL}/{key_path}"
+
+    if not s3_client_instance:
+        return "#"
+
     try:
         url = s3_client_instance.generate_presigned_url( # Usa s3_client_instance
             'get_object',
-            Params={'Bucket': S3_BUCKET_NAME, 'Key': object_key},
+            Params={'Bucket': S3_BUCKET_NAME, 'Key': key_path},
             ExpiresIn=7200
         )
         return url
@@ -882,8 +916,12 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     """
     try:
         file_obj.seek(0)  # Rebobina el archivo para iniciar la carga desde el inicio
-        s3_client.upload_fileobj(file_obj, bucket_name, s3_key)
-        url = f"https://{bucket_name}.s3.amazonaws.com/{s3_key}"
+        extra_args = {"ACL": "public-read"} if S3_USE_PERMANENT_URLS else None
+        if extra_args:
+            s3_client.upload_fileobj(file_obj, bucket_name, s3_key, ExtraArgs=extra_args)
+        else:
+            s3_client.upload_fileobj(file_obj, bucket_name, s3_key)
+        url = get_s3_file_download_url(s3_client, s3_key)
         return True, url
     except Exception as e:
         print(f"Error uploading to S3: {e}")
@@ -907,8 +945,6 @@ def build_and_upload_comprobante_index_html(
                 continue
 
             archivo_url = get_s3_file_download_url(s3_client_instance, key)
-            if not archivo_url or archivo_url == "#":
-                archivo_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
 
             titulo = comprobante.get("title") or key.split("/")[-1]
             titulo = html.escape(str(titulo))
@@ -937,16 +973,18 @@ def build_and_upload_comprobante_index_html(
 """.format(pedido=pedido_label, items="\n        ".join(items_html))
 
         index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/comprobantes/index.html"
-        s3_client_instance.put_object(
-            Bucket=S3_BUCKET_NAME,
-            Key=index_key,
-            Body=html_content.encode("utf-8"),
-            ContentType="text/html",
-        )
+        put_kwargs = {
+            "Bucket": S3_BUCKET_NAME,
+            "Key": index_key,
+            "Body": html_content.encode("utf-8"),
+            "ContentType": "text/html",
+        }
+        if S3_USE_PERMANENT_URLS:
+            put_kwargs["ACL"] = "public-read"
+
+        s3_client_instance.put_object(**put_kwargs)
 
         index_url = get_s3_file_download_url(s3_client_instance, index_key)
-        if not index_url or index_url == "#":
-            index_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{index_key}"
 
         return index_url
     except Exception as e:
@@ -1016,16 +1054,18 @@ def build_and_upload_comprobante_index_from_urls(
     index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_key}/{safe_category}/adjuntos-index-{uuid.uuid4().hex}.html"
 
     try:
-        s3_client_instance.put_object(
-            Bucket=S3_BUCKET_NAME,
-            Key=index_key,
-            Body=html_content.encode("utf-8"),
-            ContentType="text/html",
-        )
+        put_kwargs = {
+            "Bucket": S3_BUCKET_NAME,
+            "Key": index_key,
+            "Body": html_content.encode("utf-8"),
+            "ContentType": "text/html",
+        }
+        if S3_USE_PERMANENT_URLS:
+            put_kwargs["ACL"] = "public-read"
+
+        s3_client_instance.put_object(**put_kwargs)
 
         index_url = get_s3_file_download_url(s3_client_instance, index_key)
-        if not index_url or index_url == "#":
-            index_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{index_key}"
 
         return index_url
     except Exception as e:
@@ -1111,8 +1151,6 @@ def discover_comprobante_assets(
         if not key:
             continue
         url = get_s3_file_download_url(s3_client_instance, key)
-        if not url or url == "#":
-            url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{key}"
         if url:
             comprobante_urls.append(url)
 
@@ -1144,7 +1182,9 @@ def discover_comprobante_assets(
         f for f in files if "factura" in str(f.get("title", "")).lower()
     ]
     if facturas:
-        result["factura_url"] = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{facturas[0]['key']}"
+        result["factura_url"] = get_s3_file_download_url(
+            s3_client_instance, facturas[0]["key"]
+        )
 
     tipo_envio_text = str(tipo_envio or "").strip().lower()
     tipo_envio_text_flat = tipo_envio_text.replace("ó", "o")
@@ -1165,13 +1205,17 @@ def discover_comprobante_assets(
             f for f in guias_filtradas if "surtido" in str(f.get("title", "")).lower()
         ]
         guia_final = guias_con_surtido[0] if guias_con_surtido else guias_filtradas[0]
-        result["guia_url"] = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{guia_final['key']}"
+        result["guia_url"] = get_s3_file_download_url(
+            s3_client_instance, guia_final["key"]
+        )
 
     refacturas = [
         f for f in files if "surtido_factura" in str(f.get("title", "")).lower()
     ]
     if refacturas:
-        result["refact_url"] = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com/{refacturas[0]['key']}"
+        result["refact_url"] = get_s3_file_download_url(
+            s3_client_instance, refacturas[0]["key"]
+        )
 
     return result
 
