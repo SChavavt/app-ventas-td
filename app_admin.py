@@ -2286,6 +2286,29 @@ with tab2:
             df = dedupe_confirmados(df)
             for columna_fecha in ("Fecha_Pago_Comprobante", "Fecha_Entrega"):
                 _normalizar_columna_fecha(df, columna_fecha)
+            if "Hora_Registro" in df.columns:
+                def _formatear_hora_registro(valor):
+                    if isinstance(valor, pd.Timestamp):
+                        return valor.strftime("%d/%m/%Y %H:%M")
+                    if (
+                        isinstance(valor, numbers.Number)
+                        and not isinstance(valor, bool)
+                        and not pd.isna(valor)
+                    ):
+                        ts = pd.to_datetime(
+                            valor,
+                            unit="D",
+                            origin="1899-12-30",
+                            errors="coerce",
+                        )
+                        if pd.isna(ts):
+                            return valor
+                        return ts.strftime("%d/%m/%Y %H:%M")
+                    if valor is None or pd.isna(valor):
+                        return ""
+                    return valor if isinstance(valor, str) else str(valor)
+
+                df["Hora_Registro"] = df["Hora_Registro"].apply(_formatear_hora_registro)
         deduplicados = max(registros_antes_deduplicado - len(df), 0)
 
         # Snapshot "último bueno"
