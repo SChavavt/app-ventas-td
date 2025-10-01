@@ -1815,11 +1815,13 @@ with tab2:
 
                     # Botón para procesar la modificación del pedido
                     modify_button = st.form_submit_button("✅ Procesar Modificación")
+                    feedback_slot = st.empty()
 
                     if modify_button:
-                        message_placeholder_tab2.empty()
+                        feedback_slot.empty()
                         if not new_modificacion_surtido_input.strip():
-                            message_placeholder_tab2.error(
+                            feedback_slot.empty()
+                            feedback_slot.error(
                                 "⚠️ El campo 'Notas de Modificación/Surtido' es obligatorio para procesar la modificación."
                             )
                         else:
@@ -1834,11 +1836,13 @@ with tab2:
                                 df_actual = df_pedidos[df_pedidos["Fuente"] == selected_source].reset_index(drop=True)
 
                                 if df_actual.empty or 'ID_Pedido' not in df_actual.columns:
-                                    message_placeholder_tab2.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
+                                    feedback_slot.empty()
+                                    feedback_slot.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
                                     st.stop()
 
                                 if selected_order_id not in df_actual['ID_Pedido'].values:
-                                    message_placeholder_tab2.error(f"❌ El ID {selected_order_id} no existe en {hoja_objetivo}.")
+                                    feedback_slot.empty()
+                                    feedback_slot.error(f"❌ El ID {selected_order_id} no existe en {hoja_objetivo}.")
                                     st.stop()
 
                                 gsheet_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0] + 2
@@ -1875,7 +1879,8 @@ with tab2:
                                             new_adjuntos_surtido_urls.append(url)
                                             changes_made = True
                                         else:
-                                            message_placeholder_tab2.warning(
+                                            feedback_slot.empty()
+                                            feedback_slot.warning(
                                                 f"⚠️ Falló la subida de {f.name}: {error_msg or 'Error desconocido'}"
                                             )
 
@@ -1902,7 +1907,8 @@ with tab2:
                                             comprobante_urls.append(url)
                                             changes_made = True
                                         else:
-                                            message_placeholder_tab2.warning(
+                                            feedback_slot.empty()
+                                            feedback_slot.warning(
                                                 f"⚠️ Falló la subida del comprobante {archivo.name}: {error_msg or 'Error desconocido'}"
                                             )
 
@@ -1956,7 +1962,8 @@ with tab2:
                                         "values": [["🔵 En Proceso"]],
                                     })
                                     changes_made = True
-                                    message_placeholder_tab2.info("🔵 El estado del pedido se cambió a 'En Proceso'.")
+                                    feedback_slot.empty()
+                                    feedback_slot.info("🔵 El estado del pedido se cambió a 'En Proceso'.")
                                 if selected_source == "datos_pedidos" and col_exists("Fecha_Completado"):
                                     cell_updates.append({
                                         "range": rowcol_to_a1(
@@ -1980,10 +1987,12 @@ with tab2:
                                         st.query_params.update({"tab": "1"})  # mantener UX actual
                                     st.rerun()
                                 else:
-                                    message_placeholder_tab2.info("ℹ️ No se detectaron cambios nuevos para guardar.")
+                                    feedback_slot.empty()
+                                    feedback_slot.info("ℹ️ No se detectaron cambios nuevos para guardar.")
 
                             except Exception as e:
-                                message_placeholder_tab2.error(f"❌ Error inesperado al guardar: {e}")
+                                feedback_slot.empty()
+                                feedback_slot.error(f"❌ Error inesperado al guardar: {e}")
 
     # ----------------- Mensaje de éxito persistente -----------------
     if (
