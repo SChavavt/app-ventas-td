@@ -7,6 +7,7 @@ import html
 import re
 import pandas as pd
 import boto3
+from botocore.exceptions import ClientError
 import gspread
 from gspread.exceptions import APIError
 from gspread.utils import rowcol_to_a1
@@ -927,6 +928,14 @@ def get_s3_file_download_url(s3_client_instance, object_key): # Acepta s3_client
     st.error("❌ No se pudo construir una URL pública de S3 porque falta la configuración base.")
     return "#"
     
+def _is_acl_not_supported_error(error: Exception) -> bool:
+    """Return True if the boto error corresponds to AccessControlListNotSupported."""
+    if not isinstance(error, ClientError):
+        return False
+    error_info = error.response.get("Error", {}) if hasattr(error, "response") else {}
+    return error_info.get("Code") == "AccessControlListNotSupported"
+
+
 def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     """
     Uploads a file-like object to S3.
@@ -936,7 +945,14 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
         file_obj.seek(0)  # Rebobina el archivo para iniciar la carga desde el inicio
         extra_args = {"ACL": "public-read"} if S3_USE_PERMANENT_URLS else None
         if extra_args:
-            s3_client.upload_fileobj(file_obj, bucket_name, s3_key, ExtraArgs=extra_args)
+            try:
+                s3_client.upload_fileobj(file_obj, bucket_name, s3_key, ExtraArgs=extra_args)
+            except ClientError as err:
+                if _is_acl_not_supported_error(err):
+                    file_obj.seek(0)
+                    s3_client.upload_fileobj(file_obj, bucket_name, s3_key)
+                else:
+                    raise
         else:
             s3_client.upload_fileobj(file_obj, bucket_name, s3_key)
         url = get_s3_file_download_url(s3_client, s3_key)
@@ -1000,7 +1016,16 @@ def build_and_upload_comprobante_index_html(
         if S3_USE_PERMANENT_URLS:
             put_kwargs["ACL"] = "public-read"
 
-        s3_client_instance.put_object(**put_kwargs)
+        try:
+            s3_client_instance.put_object(**put_kwargs)
+        except ClientError as err:
+            acl_value = put_kwargs.pop("ACL", None)
+            if acl_value and _is_acl_not_supported_error(err):
+                s3_client_instance.put_object(**put_kwargs)
+            else:
+                if acl_value:
+                    put_kwargs["ACL"] = acl_value
+                raise
 
         index_url = get_s3_file_download_url(s3_client_instance, index_key)
 
@@ -1081,7 +1106,16 @@ def build_and_upload_comprobante_index_from_urls(
         if S3_USE_PERMANENT_URLS:
             put_kwargs["ACL"] = "public-read"
 
-        s3_client_instance.put_object(**put_kwargs)
+        try:
+            s3_client_instance.put_object(**put_kwargs)
+        except ClientError as err:
+            acl_value = put_kwargs.pop("ACL", None)
+            if acl_value and _is_acl_not_supported_error(err):
+                s3_client_instance.put_object(**put_kwargs)
+            else:
+                if acl_value:
+                    put_kwargs["ACL"] = acl_value
+                raise
 
         index_url = get_s3_file_download_url(s3_client_instance, index_key)
 
