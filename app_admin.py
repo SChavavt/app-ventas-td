@@ -808,16 +808,17 @@ def _coerce_secret_bool(value) -> bool:
 
 
 S3_PUBLIC_BASE_URL = str(st.secrets.get("s3_public_base_url", "") or "").strip().rstrip("/")
-S3_USE_PERMANENT_URLS = _coerce_secret_bool(st.secrets.get("s3_use_permanent_urls", False))
 
-if S3_PUBLIC_BASE_URL:
-    S3_USE_PERMANENT_URLS = True
-
-if S3_USE_PERMANENT_URLS and not S3_PUBLIC_BASE_URL:
+if not S3_PUBLIC_BASE_URL and S3_BUCKET_NAME and AWS_REGION_NAME:
     # Fallback al dominio por defecto del bucket. Requiere que los objetos sean públicos.
     S3_PUBLIC_BASE_URL = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
 
 S3_PUBLIC_BASE_URL = S3_PUBLIC_BASE_URL.rstrip("/")
+
+S3_USE_PERMANENT_URLS = _coerce_secret_bool(st.secrets.get("s3_use_permanent_urls", False))
+
+if S3_PUBLIC_BASE_URL:
+    S3_USE_PERMANENT_URLS = True
 
 st.title("👨‍💼 App de Administración TD")
 st.write("Panel de administración para revisar y confirmar comprobantes de pago.")
@@ -920,22 +921,11 @@ def get_s3_file_download_url(s3_client_instance, object_key): # Acepta s3_client
     if not key_path:
         return "#"
 
-    if S3_USE_PERMANENT_URLS and S3_PUBLIC_BASE_URL:
+    if S3_PUBLIC_BASE_URL:
         return f"{S3_PUBLIC_BASE_URL}/{key_path}"
 
-    if not s3_client_instance:
-        return "#"
-
-    try:
-        url = s3_client_instance.generate_presigned_url( # Usa s3_client_instance
-            'get_object',
-            Params={'Bucket': S3_BUCKET_NAME, 'Key': key_path},
-            ExpiresIn=7200
-        )
-        return url
-    except Exception as e:
-        st.error(f"❌ Error al generar URL pre-firmada para '{object_key}': {e}")
-        return "#"
+    st.error("❌ No se pudo construir una URL pública de S3 porque falta la configuración base.")
+    return "#"
     
 def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     """
