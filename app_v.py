@@ -2001,11 +2001,25 @@ with tab2:
         'last_updated_order_id' in st.session_state
     ):
         pedido_id = st.session_state.last_updated_order_id
-        message_placeholder_tab2.success(f"🎉 ¡Cambios guardados con éxito para el pedido **{pedido_id}**!")
-        st.balloons()
-        st.toast(f"✅ Pedido {pedido_id} actualizado", icon="📦")
-        del st.session_state.show_success_message
-        del st.session_state.last_updated_order_id
+        with message_placeholder_tab2.container():
+            st.success(
+                f"🎉 ¡Cambios guardados con éxito para el pedido **{pedido_id}**!"
+            )
+            if st.button("Aceptar", key="ack_mod_success"):
+                for state_key in (
+                    "show_success_message",
+                    "last_updated_order_id",
+                    "_mod_tab2_success_feedback_sent",
+                ):
+                    st.session_state.pop(state_key, None)
+                message_placeholder_tab2.empty()
+        if (
+            st.session_state.get("show_success_message")
+            and not st.session_state.get("_mod_tab2_success_feedback_sent")
+        ):
+            st.balloons()
+            st.toast(f"✅ Pedido {pedido_id} actualizado", icon="📦")
+            st.session_state["_mod_tab2_success_feedback_sent"] = True
 
 
 # --- TAB 3: PENDING PROOF OF PAYMENT ---
