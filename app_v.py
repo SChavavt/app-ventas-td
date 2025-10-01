@@ -1753,8 +1753,8 @@ with tab2:
                 # ----------------- Tipo de modificación -----------------
                 tipo_modificacion_seleccionada = st.selectbox(
                     "📌 ¿Qué tipo de modificación estás registrando?",
-                    ["Refacturación", "Nueva Ruta", "Otro"],
-                    index=0,
+                    ["Otro", "Nueva Ruta", "Refacturación"],
+                    index=2,
                     key="tipo_modificacion_mod"
                 )
 
