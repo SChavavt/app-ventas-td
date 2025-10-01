@@ -112,7 +112,9 @@ def expand_link_adjuntos_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[s
     """Expande la columna Link_Adjuntos en columnas individuales ordenadas y únicas."""
     df_expanded = df.copy()
 
-    columnas_expandidas_existentes = [c for c in df_expanded.columns if c.startswith("Link_Adjuntos_")]
+    columnas_expandidas_existentes = [
+        c for c in df_expanded.columns if re.fullmatch(r"Link_Adjuntos_\d+", c)
+    ]
     if columnas_expandidas_existentes:
         df_expanded = df_expanded.drop(columns=columnas_expandidas_existentes)
 
@@ -127,6 +129,8 @@ def expand_link_adjuntos_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[s
     enlaces_por_fila = df_expanded["Link_Adjuntos"].fillna("").apply(_split_links)
     max_enlaces = int(enlaces_por_fila.map(len).max() or 0) if not enlaces_por_fila.empty else 0
 
+    patron_columna_adjuntos = re.compile(r"Link_Adjuntos_\d+")
+
     columnas_creadas: list[str] = []
     for idx in range(max_enlaces):
         nombre_columna = f"Link_Adjuntos_{idx + 1}"
@@ -134,6 +138,8 @@ def expand_link_adjuntos_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[s
         df_expanded[nombre_columna] = enlaces_por_fila.apply(
             lambda enlaces, i=idx: enlaces[i] if len(enlaces) > i else ""
         )
+
+    columnas_creadas = [col for col in columnas_creadas if patron_columna_adjuntos.fullmatch(col)]
 
     return df_expanded, columnas_creadas
 
