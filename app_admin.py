@@ -7,6 +7,7 @@ import html
 import re
 import pandas as pd
 import boto3
+from botocore.exceptions import ClientError
 import gspread
 from gspread.exceptions import APIError
 from gspread.utils import rowcol_to_a1
@@ -912,6 +913,20 @@ def get_files_in_s3_prefix(s3_client_instance, prefix): # Acepta s3_client_insta
         st.error(f"❌ Error al obtener archivos del prefijo S3 '{prefix}': {e}")
         return []
 
+def build_public_s3_url(key: str) -> str:
+    """Genera una URL pública utilizando el dominio configurado o el dominio estándar de S3."""
+    if not key:
+        return "#"
+
+    key_path = str(key).lstrip("/")
+    if not key_path:
+        return "#"
+
+    base_url = S3_PUBLIC_BASE_URL or f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
+    base_url = str(base_url).rstrip("/")
+    return f"{base_url}/{key_path}"
+
+
 def get_s3_file_download_url(s3_client_instance, object_key): # Acepta s3_client_instance
     if not object_key:
         return "#"
@@ -1006,18 +1021,33 @@ def build_and_upload_comprobante_index_html(
             "Key": index_key,
             "Body": html_content.encode("utf-8"),
             "ContentType": "text/html",
+            "ACL": "public-read",
         }
-        if S3_USE_PERMANENT_URLS:
-            put_kwargs["ACL"] = "public-read"
 
-        s3_client_instance.put_object(**put_kwargs)
-
-        index_url = get_s3_file_download_url(s3_client_instance, index_key)
-
-        return index_url
     except Exception as e:
         st.warning(f"⚠️ No se pudo generar el índice de comprobantes para {pedido_id}: {e}")
         return None
+
+    try:
+        s3_client_instance.put_object(**put_kwargs)
+    except ClientError as e:
+        error_code = (e.response or {}).get("Error", {}).get("Code") if hasattr(e, "response") else None
+        if error_code in {"AccessDenied", "InvalidRequest"}:
+            st.error(
+                "❌ No se pudo publicar el índice de comprobantes porque el bucket no permite ACL públicas."
+            )
+        else:
+            st.warning(
+                f"⚠️ Error al subir el índice de comprobantes para {pedido_id}: {e}"
+            )
+        return None
+    except Exception as e:  # noqa: BLE001
+        st.warning(
+            f"⚠️ Error inesperado al subir el índice de comprobantes para {pedido_id}: {e}"
+        )
+        return None
+
+    return build_public_s3_url(index_key)
 
 
 def build_and_upload_comprobante_index_from_urls(
@@ -1064,7 +1094,8 @@ def build_and_upload_comprobante_index_from_urls(
         for title, url in cleaned_items
     )
 
-    html_content = """<!DOCTYPE html>
+    try:
+        html_content = """<!DOCTYPE html>
 <html lang=\"es\">
 <head>
     <meta charset=\"utf-8\" />
@@ -1079,28 +1110,40 @@ def build_and_upload_comprobante_index_from_urls(
 </html>
 """.format(pedido=pedido_label, items=items_html, display=html.escape(display_title))
 
-    index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_key}/{safe_category}/adjuntos-index-{uuid.uuid4().hex}.html"
-
-    try:
+        index_key = f"{S3_ATTACHMENT_PREFIX}{pedido_key}/{safe_category}/adjuntos-index-{uuid.uuid4().hex}.html"
         put_kwargs = {
             "Bucket": S3_BUCKET_NAME,
             "Key": index_key,
             "Body": html_content.encode("utf-8"),
             "ContentType": "text/html",
+            "ACL": "public-read",
         }
-        if S3_USE_PERMANENT_URLS:
-            put_kwargs["ACL"] = "public-read"
-
-        s3_client_instance.put_object(**put_kwargs)
-
-        index_url = get_s3_file_download_url(s3_client_instance, index_key)
-
-        return index_url
     except Exception as e:
         st.warning(
             f"⚠️ No se pudo generar el índice de comprobantes manual para {pedido_key}: {e}"
         )
         return None
+
+    try:
+        s3_client_instance.put_object(**put_kwargs)
+    except ClientError as e:
+        error_code = (e.response or {}).get("Error", {}).get("Code") if hasattr(e, "response") else None
+        if error_code in {"AccessDenied", "InvalidRequest"}:
+            st.error(
+                "❌ No se pudo publicar el índice manual porque el bucket no permite ACL públicas."
+            )
+        else:
+            st.warning(
+                f"⚠️ Error al subir el índice manual de comprobantes para {pedido_key}: {e}"
+            )
+        return None
+    except Exception as e:  # noqa: BLE001
+        st.warning(
+            f"⚠️ Error inesperado al subir el índice manual de comprobantes para {pedido_key}: {e}"
+        )
+        return None
+
+    return build_public_s3_url(index_key)
 
 
 def discover_comprobante_assets(
