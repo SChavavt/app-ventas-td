@@ -780,7 +780,11 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
     st.session_state.df_pedidos = df_pedidos
     st.session_state.headers = headers
     if 'Comprobante_Confirmado' in df_pedidos.columns:
-        st.session_state.pedidos_pagados_no_confirmados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
+        pedidos_filtrados = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
+        if 'Tipo_Envio' in pedidos_filtrados.columns:
+            tipo_envio_normalizado = pedidos_filtrados['Tipo_Envio'].fillna('').astype(str).str.strip()
+            pedidos_filtrados = pedidos_filtrados[tipo_envio_normalizado != 'Solicitudes de Guía'].copy()
+        st.session_state.pedidos_pagados_no_confirmados = pedidos_filtrados
 
 df_pedidos = st.session_state.df_pedidos
 headers = st.session_state.headers
@@ -1400,9 +1404,15 @@ with tab1:
             st.session_state.df_pedidos = df_pedidos
             st.session_state.headers = headers
             if 'Comprobante_Confirmado' in df_pedidos.columns:
-                st.session_state.pedidos_pagados_no_confirmados = df_pedidos[
+                pedidos_filtrados = df_pedidos[
                     df_pedidos['Comprobante_Confirmado'] != 'Sí'
                 ].copy()
+                if 'Tipo_Envio' in pedidos_filtrados.columns:
+                    tipo_envio_normalizado = pedidos_filtrados['Tipo_Envio'].fillna('').astype(str).str.strip()
+                    pedidos_filtrados = pedidos_filtrados[
+                        tipo_envio_normalizado != 'Solicitudes de Guía'
+                    ].copy()
+                st.session_state.pedidos_pagados_no_confirmados = pedidos_filtrados
             st.toast("Pedidos recargados", icon="🔄")
 
     if df_pedidos.empty:
