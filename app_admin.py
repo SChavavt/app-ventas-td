@@ -763,7 +763,9 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
     )
     # Excluir pedidos de cursos y eventos para que no aparezcan en ningún flujo
     if 'Tipo_Envio' in df_pedidos.columns:
-        df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
+        df_pedidos = df_pedidos[
+            ~df_pedidos['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
+        ].copy()
     if df_pedidos.empty:
         st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
         if st.button("🔁 Reintentar conexión", key="retry_pedidos_inicial"):
@@ -785,6 +787,11 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
 df_pedidos = st.session_state.df_pedidos
 headers = st.session_state.headers
 pedidos_pagados_no_confirmados = st.session_state.get('pedidos_pagados_no_confirmados', pd.DataFrame())
+if not pedidos_pagados_no_confirmados.empty and 'Tipo_Envio' in pedidos_pagados_no_confirmados.columns:
+    pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
+        ~pedidos_pagados_no_confirmados['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
+    ].copy()
+    st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
 
 df_casos, headers_casos = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "casos_especiales")
 
@@ -1396,7 +1403,9 @@ with tab1:
                 GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
             )
             if 'Tipo_Envio' in df_pedidos.columns:
-                df_pedidos = df_pedidos[df_pedidos['Tipo_Envio'] != '🎓 Cursos y Eventos'].copy()
+                df_pedidos = df_pedidos[
+                    ~df_pedidos['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
+                ].copy()
             st.session_state.df_pedidos = df_pedidos
             st.session_state.headers = headers
             if 'Comprobante_Confirmado' in df_pedidos.columns:
