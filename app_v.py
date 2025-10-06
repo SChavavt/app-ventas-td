@@ -1567,8 +1567,20 @@ def cargar_pedidos_combinados():
 
             
 # --- TAB 2: MODIFY EXISTING ORDER ---
-if "reset_inputs_tab2" in st.session_state:
-    del st.session_state["reset_inputs_tab2"]
+reset_inputs_tab2_flag = st.session_state.pop("reset_inputs_tab2", False)
+if reset_inputs_tab2_flag:
+    # Limpiar entradas controladas por widgets antes de instanciarlos
+    for key in [
+        "new_modificacion_surtido_input",
+        "uploaded_files_surtido",
+        "uploaded_comprobantes_extra",
+        "tipo_modificacion_mod",
+        "refact_tipo_mod_outside",
+        "subtipo_datos_outside",
+        "subtipo_material_outside",
+        "folio_refact_outside",
+    ]:
+        st.session_state.pop(key, None)
 
 with tab2:
     tab2_is_active = default_tab == 1
@@ -1789,7 +1801,7 @@ with tab2:
 
                 # ----------------- Formulario de modificación -----------------
                 with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
-                    default_modificacion_text = "" if st.session_state.get("reset_inputs_tab2") else current_modificacion_surtido_value
+                    default_modificacion_text = "" if reset_inputs_tab2_flag else current_modificacion_surtido_value
 
                     new_modificacion_surtido_input = st.text_area(
                         "✍️ Notas de Modificación/Surtido",
@@ -1980,8 +1992,6 @@ with tab2:
                                     st.session_state["reset_inputs_tab2"] = True
                                     st.session_state["show_success_message"] = True
                                     st.session_state["last_updated_order_id"] = selected_order_id
-                                    st.session_state["new_modificacion_surtido_input"] = ""   # limpiar textarea
-                                    st.session_state["uploaded_files_surtido"] = []           # limpiar uploader
                                     if tab2_is_active and st.session_state.get("current_tab_index") == 1:
                                         st.query_params.update({"tab": "1"})  # mantener UX actual
                                     st.rerun()
