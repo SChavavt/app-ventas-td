@@ -814,7 +814,6 @@ with tab1:
                     st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(url) for url in attachments))
                 if detail:
                     st.write(detail)
-                st.balloons()
             else:
                 error_message = status_data.get("message", "❌ Falla al subir el pedido.")
                 if detail:
@@ -2017,7 +2016,6 @@ with tab2:
             st.session_state.get("show_success_message")
             and not st.session_state.get("_mod_tab2_success_feedback_sent")
         ):
-            st.balloons()
             st.toast(f"✅ Pedido {pedido_id} actualizado", icon="📦")
             st.session_state["_mod_tab2_success_feedback_sent"] = True
 
@@ -2201,7 +2199,6 @@ with tab3:
                                     safe_batch_update(worksheet, updates)
 
                                     st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
-                                    st.balloons()
                                     st.rerun()
                                 else:
                                     st.warning("⚠️ No se subió ningún archivo correctamente.")
@@ -2238,7 +2235,6 @@ with tab3:
                         safe_batch_update(worksheet, updates)
 
                         st.success("✅ Pedido marcado como pagado sin comprobante.")
-                        st.balloons()
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
