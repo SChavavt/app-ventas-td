@@ -690,10 +690,11 @@ with tab1:
                 key="motivo_nota_venta_input",
                 help="Describe el motivo de la nota de venta, si se registró una.",
             )
-
-        # Folio normal (renombrado a 'Folio Nuevo' en devoluciones)
-        folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
-        folio_factura_input_value = st.text_input(folio_label, key="folio_factura_input")
+            st.session_state.pop("folio_factura_input", None)
+        else:
+            # Folio normal (renombrado a 'Folio Nuevo' en devoluciones)
+            folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
+            folio_factura_input_value = st.text_input(folio_label, key="folio_factura_input")
 
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
