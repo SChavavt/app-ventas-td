@@ -605,6 +605,9 @@ with tab1:
     vendedor = ""
     registro_cliente = ""
     numero_cliente_rfc = ""
+    nota_venta = ""
+    motivo_nota_venta = ""
+    folio_factura_input_value = ""
     folio_factura = ""
     folio_factura_error = ""  # 🆕 NUEVO para devoluciones
     fecha_entrega = datetime.now().date()
@@ -670,9 +673,20 @@ with tab1:
                 key="folio_factura_error_input"
             )
 
+        nota_venta = st.text_input(
+            "🧾 Nota de Venta",
+            key="nota_venta_input",
+            help="Ingresa el número de nota de venta si aplica. Se guardará en la misma columna que el folio."
+        )
+        motivo_nota_venta = st.text_area(
+            "✏️ Motivo de nota de venta",
+            key="motivo_nota_venta_input",
+            help="Describe el motivo de la nota de venta, si se registró una."
+        )
+
         # Folio normal (renombrado a 'Folio Nuevo' en devoluciones)
         folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
-        folio_factura = st.text_input(folio_label, key="folio_factura_input")
+        folio_factura_input_value = st.text_input(folio_label, key="folio_factura_input")
 
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
@@ -798,6 +812,17 @@ with tab1:
 
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
+
+    folio_factura = (nota_venta.strip() if isinstance(nota_venta, str) else "")
+    if not folio_factura:
+        folio_factura = (
+            folio_factura_input_value.strip()
+            if isinstance(folio_factura_input_value, str)
+            else ""
+        )
+    motivo_nota_venta = (
+        motivo_nota_venta.strip() if isinstance(motivo_nota_venta, str) else ""
+    )
 
     message_container = st.container()
 
@@ -1232,9 +1257,11 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Folio_Factura":
-                    values.append(folio_factura)  # en devoluciones es "Folio Nuevo"
+                    values.append(folio_factura)  # en devoluciones es "Folio Nuevo" o Nota de Venta
                 elif header == "Folio_Factura_Error":  # 🆕 mapeo adicional
                     values.append(folio_factura_error if tipo_envio == "🔁 Devolución" else "")
+                elif header == "Motivo_NotaVenta":
+                    values.append(motivo_nota_venta)
                 elif header == "Tipo_Envio":
                     values.append(tipo_envio)
                 elif header == "Tipo_Envio_Original":
@@ -1442,7 +1469,7 @@ def cargar_pedidos_combinados():
         needed_datos: list[str] = []
         needed_datos += [
             'ID_Pedido','Cliente','Folio_Factura','Vendedor_Registro','Estado','Hora_Registro','Turno','Fecha_Entrega',
-            'Comentario','Estado_Pago',
+            'Comentario','Estado_Pago','Motivo_NotaVenta',
             # archivos/adjuntos
             'Adjuntos','Adjuntos_Guia','Adjuntos_Surtido','Modificacion_Surtido',
             # refacturación
@@ -2308,7 +2335,7 @@ def cargar_casos_especiales():
         # Refacturación
         "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
         # Detalle del caso
-        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
+        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto","Motivo_NotaVenta",
         "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
         "Direccion_Guia_Retorno","Direccion_Envio",
         # ⚙️ NUEVO: Garantías
@@ -2916,6 +2943,7 @@ with tab7:
                     "Estado": row.get("Estado", ""),
                     "Vendedor": row.get("Vendedor_Registro", ""),
                     "Folio": row.get("Folio_Factura", ""),
+                    "Motivo_NotaVenta": row.get("Motivo_NotaVenta", ""),
                     "Hora_Registro": row.get("Hora_Registro", ""),
                     "Seguimiento": row.get("Seguimiento", ""),
                     # 🛠 Modificación de surtido
@@ -2958,6 +2986,7 @@ with tab7:
                     # Folios
                     "Folio": row.get("Folio_Factura",""),
                     "Folio_Factura_Error": row.get("Folio_Factura_Error",""),
+                    "Motivo_NotaVenta": row.get("Motivo_NotaVenta", ""),
                     "Hora_Registro": row.get("Hora_Registro",""),
                     "Tipo_Envio": row.get("Tipo_Envio",""),
                     "Estado": row.get("Estado",""),

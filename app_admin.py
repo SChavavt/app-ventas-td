@@ -2829,7 +2829,7 @@ with tab3, suppress(StopException):
     needed_cols = [
         "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
         "Tipo_Envio","Resultado_Esperado","Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
-        "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Tipo_Envio_Original",
+        "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta","Tipo_Envio_Original",
         "Adjuntos","Hoja_Ruta_Mensajero","Estado_Caso","Estado_Recepcion","Turno","Fecha_Entrega",
         "Numero_Serie","Fecha_Compra","Seguimiento"
     ]
@@ -2935,6 +2935,13 @@ with tab3, suppress(StopException):
                 f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
                 f"🕒 **Hora:** `{hora or 'N/A'}`"
             )
+
+        motivo_nota = __s(row.get("Motivo_NotaVenta", ""))
+        if __has(motivo_nota):
+            nota_val = __s(row.get("Folio_Factura", "")) or "N/A"
+            st.markdown(f"**🧾 Nota de Venta:** `{nota_val}`")
+            st.markdown("**✏️ Motivo de nota de venta:**")
+            st.info(motivo_nota)
 
         st.markdown(
             f"**👤 Cliente:** {row.get('Cliente','N/A')}  |  **RFC:** {row.get('Numero_Cliente_RFC','') or 'N/A'}"
@@ -3051,7 +3058,7 @@ with tab3, suppress(StopException):
             "Tipo_Envio","Folio_Factura","Cliente","Vendedor_Registro",
             "Hora_Registro","Resultado_Esperado","Numero_Cliente_RFC",
             "Area_Responsable","Nombre_Responsable",
-            "Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
+            "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta",
             "Tipo_Envio_Original","Estado_Caso","Estado_Recepcion","Seguimiento"
         ]
         existing_columns = [c for c in columns_to_show if c in df_pendientes.columns]
