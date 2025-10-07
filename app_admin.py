@@ -48,7 +48,7 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
     "Vendedor_Registro",
     "Tipo_Envio",
     "Fecha_Entrega",
-    "Estado",
+    "Estado_Surtido_Almacen",
     "Estado_Pago",
     "Comprobante_Confirmado",
     "Refacturacion_Tipo",
@@ -2212,7 +2212,7 @@ with tab2:
     def dedupe_confirmados(df: pd.DataFrame) -> pd.DataFrame:
         """Normaliza y deduplica confirmados usando ID_Pedido y Folio_Factura."""
         if df is None or not isinstance(df, pd.DataFrame):
-            return pd.DataFrame()
+            return df
 
         if df.empty:
             return df.copy()
@@ -2243,6 +2243,64 @@ with tab2:
         deduplicado.reset_index(drop=True, inplace=True)
 
         return deduplicado
+
+    def sync_estado_surtido_confirmados(
+        df: pd.DataFrame, df_pedidos_src: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Actualiza la columna Estado_Surtido_Almacen con el valor más reciente del pedido."""
+        if df is None or not isinstance(df, pd.DataFrame):
+            return df
+
+        if df.empty:
+            return df.copy()
+
+        if df_pedidos_src is None or not isinstance(df_pedidos_src, pd.DataFrame):
+            return df.copy()
+
+        if df_pedidos_src.empty:
+            return df.copy()
+
+        if "ID_Pedido" not in df.columns:
+            return df.copy()
+
+        if "ID_Pedido" not in df_pedidos_src.columns:
+            return df.copy()
+
+        if "Estado_Surtido_Almacen" not in df_pedidos_src.columns:
+            return df.copy()
+
+        trabajo = df.copy()
+        if "Estado_Surtido_Almacen" not in trabajo.columns:
+            trabajo["Estado_Surtido_Almacen"] = ""
+
+        # Construir mapa de estados con IDs normalizados (último valor prevalece)
+        pedidos_norm = df_pedidos_src.copy()
+        pedidos_norm["__norm_id"] = pedidos_norm["ID_Pedido"].apply(normalize_id_pedido)
+        pedidos_norm = pedidos_norm[pedidos_norm["__norm_id"] != ""]
+
+        if pedidos_norm.empty:
+            return trabajo
+
+        pedidos_norm = pedidos_norm.drop_duplicates(subset="__norm_id", keep="last")
+        estado_map = (
+            pedidos_norm.set_index("__norm_id")["Estado_Surtido_Almacen"]
+            .fillna("")
+            .astype(str)
+            .to_dict()
+        )
+
+        trabajo["__norm_id"] = trabajo["ID_Pedido"].apply(normalize_id_pedido)
+        mapped = trabajo["__norm_id"].map(estado_map).fillna("").astype(str)
+
+        trabajo["Estado_Surtido_Almacen"] = (
+            trabajo["Estado_Surtido_Almacen"].fillna("").astype(str)
+        )
+        mask_update = mapped.str.strip() != ""
+        trabajo.loc[mask_update, "Estado_Surtido_Almacen"] = mapped[mask_update]
+
+        trabajo.drop(columns="__norm_id", inplace=True, errors="ignore")
+
+        return trabajo
 
     @st.cache_data(show_spinner=False)
     def cargar_confirmados_guardados_cached(sheet_id: str, ws_name: str, _nonce: int):
@@ -2347,6 +2405,28 @@ with tab2:
             df_confirmados_guardados, headers_confirmados = pd.DataFrame(), []
             duplicados_eliminados = 0
             total_original = 0
+
+    if (
+        isinstance(df_confirmados_guardados, pd.DataFrame)
+        and "Estado" in df_confirmados_guardados.columns
+        and "Estado_Surtido_Almacen" not in df_confirmados_guardados.columns
+    ):
+        df_confirmados_guardados = df_confirmados_guardados.rename(
+            columns={"Estado": "Estado_Surtido_Almacen"}
+        )
+        headers_confirmados = [
+            "Estado_Surtido_Almacen" if h == "Estado" else h for h in headers_confirmados
+        ]
+
+    df_confirmados_guardados = sync_estado_surtido_confirmados(
+        df_confirmados_guardados, df_pedidos
+    )
+
+    if isinstance(df_confirmados_guardados, pd.DataFrame):
+        st.session_state["_lastgood_confirmados"] = (
+            df_confirmados_guardados.copy(),
+            headers_confirmados[:],
+        )
 
     st.session_state["_last_confirmados_dedup"] = duplicados_eliminados
     st.session_state["_last_confirmados_total"] = total_original
@@ -2584,6 +2664,9 @@ with tab2:
                         sort=False,
                     )
                     df_combined = dedupe_confirmados(df_combined)
+                    df_combined = sync_estado_surtido_confirmados(
+                        df_combined, df_pedidos
+                    )
                     nuevos_agregados = max(len(df_combined) - len(df_existente_merge), 0)
 
                     for col in columnas_objetivo_confirmados:
@@ -2682,7 +2765,7 @@ with tab2:
             "Cliente",
             "Vendedor_Registro",
             "Tipo_Envio",
-            "Estado",
+            "Estado_Surtido_Almacen",
             "Estado_Pago",
             "Comprobante_Confirmado",
             "Refacturacion_Tipo",
