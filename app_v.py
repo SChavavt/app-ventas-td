@@ -599,6 +599,12 @@ with tab1:
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
 
+    registrar_nota_venta = st.checkbox(
+        "🧾 Registrar nota de venta",
+        key="registrar_nota_venta_checkbox",
+        help="Activa para capturar los datos de una nota de venta.",
+    )
+
     # -------------------------------
     # Inicialización de variables
     # -------------------------------
@@ -673,16 +679,17 @@ with tab1:
                 key="folio_factura_error_input"
             )
 
-        nota_venta = st.text_input(
-            "🧾 Nota de Venta",
-            key="nota_venta_input",
-            help="Ingresa el número de nota de venta si aplica. Se guardará en la misma columna que el folio."
-        )
-        motivo_nota_venta = st.text_area(
-            "✏️ Motivo de nota de venta",
-            key="motivo_nota_venta_input",
-            help="Describe el motivo de la nota de venta, si se registró una."
-        )
+        if registrar_nota_venta:
+            nota_venta = st.text_input(
+                "🧾 Nota de Venta",
+                key="nota_venta_input",
+                help="Ingresa el número de nota de venta si aplica. Se guardará en la misma columna que el folio.",
+            )
+            motivo_nota_venta = st.text_area(
+                "✏️ Motivo de nota de venta",
+                key="motivo_nota_venta_input",
+                help="Describe el motivo de la nota de venta, si se registró una.",
+            )
 
         # Folio normal (renombrado a 'Folio Nuevo' en devoluciones)
         folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
@@ -813,7 +820,13 @@ with tab1:
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
 
-    folio_factura = (nota_venta.strip() if isinstance(nota_venta, str) else "")
+    if not registrar_nota_venta:
+        nota_venta = ""
+        motivo_nota_venta = ""
+
+    folio_factura = (
+        nota_venta.strip() if registrar_nota_venta and isinstance(nota_venta, str) else ""
+    )
     if not folio_factura:
         folio_factura = (
             folio_factura_input_value.strip()
@@ -821,7 +834,9 @@ with tab1:
             else ""
         )
     motivo_nota_venta = (
-        motivo_nota_venta.strip() if isinstance(motivo_nota_venta, str) else ""
+        motivo_nota_venta.strip()
+        if registrar_nota_venta and isinstance(motivo_nota_venta, str)
+        else ""
     )
 
     message_container = st.container()
