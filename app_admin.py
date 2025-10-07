@@ -67,6 +67,8 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
     "Link_Adjuntos_Modificacion",
     "Link_Refacturacion",
     "Link_Adjuntos_Guia",
+    "Motivo_NotaVenta",
+    MOTIVO_RECHAZO_CANCELACION_COL,
 ]
 
 
