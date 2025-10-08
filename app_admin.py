@@ -14,6 +14,7 @@ from gspread.utils import rowcol_to_a1
 from google.oauth2.service_account import Credentials as GoogleCredentials
 from io import BytesIO
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 import os
 import uuid
 from urllib.parse import urlparse, unquote
@@ -40,6 +41,8 @@ QUOTA_ERROR_THRESHOLD = 5
 
 
 MOTIVO_RECHAZO_CANCELACION_COL = "Motivo_Rechazo/Cancelacion"
+FECHA_CONFIRMADO_COL = "Fecha_Confirmado"
+CDMX_TIMEZONE = ZoneInfo("America/Mexico_City")
 
 
 COLUMNAS_OBJETIVO_CONFIRMADOS = [
@@ -54,6 +57,7 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
     "Estado_Surtido_Almacen",
     "Estado_Pago",
     "Comprobante_Confirmado",
+    FECHA_CONFIRMADO_COL,
     "Refacturacion_Tipo",
     "Refacturacion_Subtipo",
     "Forma_Pago_Comprobante",
@@ -70,6 +74,47 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
     "Motivo_NotaVenta",
     MOTIVO_RECHAZO_CANCELACION_COL,
 ]
+
+
+def obtener_fecha_confirmado_cdmx() -> str:
+    """Devuelve la fecha-hora actual en CDMX con formato legible para la hoja."""
+    return datetime.now(CDMX_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def ensure_sheet_column(worksheet, headers: list[str], column_name: str) -> list[str]:
+    """Garantiza que exista una columna en la hoja de Google Sheets."""
+    headers_list = list(headers) if headers else []
+    if column_name in headers_list:
+        return headers_list
+
+    desired_index = len(headers_list) + 1
+
+    try:
+        col_count = getattr(worksheet, "col_count", desired_index - 1) or 0
+    except Exception:
+        col_count = desired_index - 1
+
+    if col_count < desired_index:
+        with suppress(Exception):
+            worksheet.add_cols(desired_index - col_count)
+
+    try:
+        safe_batch_update(
+            worksheet,
+            [
+                {
+                    "range": rowcol_to_a1(1, desired_index),
+                    "values": [[column_name]],
+                }
+            ],
+        )
+        headers_list.append(column_name)
+    except Exception as err:
+        st.warning(
+            f"⚠️ No se pudo asegurar la columna '{column_name}' en la hoja: {err}"
+        )
+
+    return headers_list
 
 
 def _filter_cancelled_pedidos(df: pd.DataFrame) -> pd.DataFrame:
@@ -806,6 +851,8 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
                 st.toast("Reintentando...", icon="🔄")
                 rerun_current_tab()
         # No st.stop(): deja que otras pestañas/partes sigan funcionando
+    if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
+        df_pedidos[FECHA_CONFIRMADO_COL] = ""
     st.session_state.df_pedidos = df_pedidos
     st.session_state.headers = headers
     if 'Comprobante_Confirmado' in df_pedidos.columns:
@@ -816,6 +863,8 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
 df_pedidos = st.session_state.df_pedidos
 headers = st.session_state.headers
 pedidos_pagados_no_confirmados = st.session_state.get('pedidos_pagados_no_confirmados', pd.DataFrame())
+if not pedidos_pagados_no_confirmados.empty and FECHA_CONFIRMADO_COL not in pedidos_pagados_no_confirmados.columns:
+    pedidos_pagados_no_confirmados[FECHA_CONFIRMADO_COL] = ""
 if not pedidos_pagados_no_confirmados.empty and 'Tipo_Envio' in pedidos_pagados_no_confirmados.columns:
     pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
         ~pedidos_pagados_no_confirmados['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
@@ -1589,10 +1638,19 @@ with tab1:
 
                                 # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                                 worksheet = _get_ws_datos()
+                                headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
+                                st.session_state.headers = headers
 
                                 # Actualizaciones
                                 updates = []
                                 local_updates = {}
+                                if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
+                                    df_pedidos[FECHA_CONFIRMADO_COL] = ""
+                                fecha_confirmado = (
+                                    obtener_fecha_confirmado_cdmx()
+                                    if confirmacion_credito == "Sí"
+                                    else ""
+                                )
                                 if "Comprobante_Confirmado" in headers:
                                     updates.append({
                                         "range": rowcol_to_a1(
@@ -1602,6 +1660,16 @@ with tab1:
                                         "values": [[confirmacion_credito]],
                                     })
                                     local_updates["Comprobante_Confirmado"] = confirmacion_credito
+
+                                if FECHA_CONFIRMADO_COL in headers:
+                                    updates.append({
+                                        "range": rowcol_to_a1(
+                                            gsheet_row_index,
+                                            headers.index(FECHA_CONFIRMADO_COL) + 1,
+                                        ),
+                                        "values": [[fecha_confirmado]],
+                                    })
+                                    local_updates[FECHA_CONFIRMADO_COL] = fecha_confirmado
 
                                 if "Comentario" in headers:
                                     comentario_existente = selected_pedido_data.get("Comentario", "")
@@ -1909,9 +1977,14 @@ with tab1:
                             except Exception:
                                 monto_val = 0.0
     
+                            if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
+                                df_pedidos[FECHA_CONFIRMADO_COL] = ""
+                            fecha_confirmado = obtener_fecha_confirmado_cdmx()
+
                             updates = {
                                 "Estado_Pago": "✅ Pagado",
                                 "Comprobante_Confirmado": "Sí",
+                                FECHA_CONFIRMADO_COL: fecha_confirmado,
                                 "Fecha_Pago_Comprobante": fecha_pago_str,
                                 "Forma_Pago_Comprobante": forma_pago,
                                 "Monto_Comprobante": monto_val,
@@ -1922,6 +1995,8 @@ with tab1:
     
                             # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                             worksheet = _get_ws_datos()
+                            headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
+                            st.session_state.headers = headers
     
                             cell_updates = []
                             nuevo_valor_adjuntos = None
@@ -2177,8 +2252,13 @@ with tab1:
                                 try:
                                     gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0] + 2
     
+                                    if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
+                                        df_pedidos[FECHA_CONFIRMADO_COL] = ""
+                                    fecha_confirmado = obtener_fecha_confirmado_cdmx()
+
                                     updates = {
                                         'Comprobante_Confirmado': 'Sí',
+                                        FECHA_CONFIRMADO_COL: fecha_confirmado,
                                         'Fecha_Pago_Comprobante': " y ".join(fecha_list),
                                         'Forma_Pago_Comprobante': ", ".join(forma_list),
                                         'Monto_Comprobante': sum(monto_list),
@@ -2189,6 +2269,8 @@ with tab1:
     
                                     # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                                     worksheet = _get_ws_datos()
+                                    headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
+                                    st.session_state.headers = headers
     
                                     cell_updates = []
                                     for col, val in updates.items():
@@ -2255,13 +2337,19 @@ with tab1:
                                                 + 2
                                             )
 
+                                            if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
+                                                df_pedidos[FECHA_CONFIRMADO_COL] = ""
+
                                             updates = {
                                                 'Estado_Pago': '🔴 No Pagado',
                                                 MOTIVO_RECHAZO_CANCELACION_COL: prefijo,
                                                 'Comprobante_Confirmado': 'No',
+                                                FECHA_CONFIRMADO_COL: '',
                                             }
 
                                             worksheet = _get_ws_datos()
+                                            headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
+                                            st.session_state.headers = headers
 
                                             cell_updates = []
                                             for col, val in updates.items():
@@ -2966,6 +3054,7 @@ with tab2:
             "Estado_Surtido_Almacen",
             "Estado_Pago",
             "Comprobante_Confirmado",
+            FECHA_CONFIRMADO_COL,
             "Refacturacion_Tipo",
             "Refacturacion_Subtipo",
             "Forma_Pago_Comprobante",
