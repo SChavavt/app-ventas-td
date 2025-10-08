@@ -45,6 +45,13 @@ FECHA_CONFIRMADO_COL = "Fecha_Confirmado"
 CDMX_TIMEZONE = ZoneInfo("America/Mexico_City")
 
 
+CONFIRMADOS_SYNC_COLUMN_MAP = {
+    "Estado_Surtido_Almacen": "Estado_Surtido_Almacen",
+    "Fecha_Entrega": "Fecha_Entrega",
+    FECHA_CONFIRMADO_COL: FECHA_CONFIRMADO_COL,
+}
+
+
 COLUMNAS_OBJETIVO_CONFIRMADOS = [
     "ID_Pedido",
     "Hora_Registro",
@@ -2533,7 +2540,7 @@ with tab2:
     def sync_estado_surtido_confirmados(
         df: pd.DataFrame, df_pedidos_src: pd.DataFrame
     ) -> pd.DataFrame:
-        """Actualiza la columna Estado_Surtido_Almacen con el valor más reciente del pedido."""
+        """Actualiza columnas clave en confirmados usando los últimos datos de pedidos."""
         if df is None or not isinstance(df, pd.DataFrame):
             return df
 
@@ -2552,14 +2559,8 @@ with tab2:
         if "ID_Pedido" not in df_pedidos_src.columns:
             return df.copy()
 
-        if "Estado_Surtido_Almacen" not in df_pedidos_src.columns:
-            return df.copy()
-
         trabajo = df.copy()
-        if "Estado_Surtido_Almacen" not in trabajo.columns:
-            trabajo["Estado_Surtido_Almacen"] = ""
 
-        # Construir mapa de estados con IDs normalizados (último valor prevalece)
         pedidos_norm = df_pedidos_src.copy()
         pedidos_norm["__norm_id"] = pedidos_norm["ID_Pedido"].apply(normalize_id_pedido)
         pedidos_norm = pedidos_norm[pedidos_norm["__norm_id"] != ""]
@@ -2568,21 +2569,30 @@ with tab2:
             return trabajo
 
         pedidos_norm = pedidos_norm.drop_duplicates(subset="__norm_id", keep="last")
-        estado_map = (
-            pedidos_norm.set_index("__norm_id")["Estado_Surtido_Almacen"]
-            .fillna("")
-            .astype(str)
-            .to_dict()
-        )
-
         trabajo["__norm_id"] = trabajo["ID_Pedido"].apply(normalize_id_pedido)
-        mapped = trabajo["__norm_id"].map(estado_map).fillna("").astype(str)
 
-        trabajo["Estado_Surtido_Almacen"] = (
-            trabajo["Estado_Surtido_Almacen"].fillna("").astype(str)
-        )
-        mask_update = mapped.str.strip() != ""
-        trabajo.loc[mask_update, "Estado_Surtido_Almacen"] = mapped[mask_update]
+        pedidos_norm = pedidos_norm.set_index("__norm_id")
+
+        columnas_disponibles = {
+            destino: origen
+            for destino, origen in CONFIRMADOS_SYNC_COLUMN_MAP.items()
+            if origen in pedidos_norm.columns
+        }
+
+        if not columnas_disponibles:
+            trabajo.drop(columns="__norm_id", inplace=True, errors="ignore")
+            return trabajo
+
+        for col_destino, col_origen in columnas_disponibles.items():
+            if col_destino not in trabajo.columns:
+                trabajo[col_destino] = pd.NA
+
+            serie_origen = pedidos_norm[col_origen]
+            mapped = trabajo["__norm_id"].map(serie_origen)
+            mask_update = mapped.notna()
+
+            if mask_update.any():
+                trabajo.loc[mask_update, col_destino] = mapped.loc[mask_update]
 
         trabajo.drop(columns="__norm_id", inplace=True, errors="ignore")
 
@@ -2694,15 +2704,22 @@ with tab2:
 
     if (
         isinstance(df_confirmados_guardados, pd.DataFrame)
-        and "Estado" in df_confirmados_guardados.columns
         and "Estado_Surtido_Almacen" not in df_confirmados_guardados.columns
     ):
-        df_confirmados_guardados = df_confirmados_guardados.rename(
-            columns={"Estado": "Estado_Surtido_Almacen"}
-        )
-        headers_confirmados = [
-            "Estado_Surtido_Almacen" if h == "Estado" else h for h in headers_confirmados
-        ]
+        alias_estado = None
+        for posible in ("Estado", "Estafo"):
+            if posible in df_confirmados_guardados.columns:
+                alias_estado = posible
+                break
+
+        if alias_estado:
+            df_confirmados_guardados = df_confirmados_guardados.rename(
+                columns={alias_estado: "Estado_Surtido_Almacen"}
+            )
+            headers_confirmados = [
+                "Estado_Surtido_Almacen" if h == alias_estado else h
+                for h in headers_confirmados
+            ]
 
     df_confirmados_guardados = sync_estado_surtido_confirmados(
         df_confirmados_guardados, df_pedidos
