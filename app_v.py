@@ -39,6 +39,15 @@ def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> b
     return True
 
 
+def clear_app_caches() -> None:
+    """Reinicia las conexiones y datos cacheados para forzar una recarga completa."""
+    st.cache_data.clear()
+    cargar_pedidos.clear()
+    get_google_sheets_client.clear()
+    get_worksheet.clear()
+    get_s3_client.clear()
+
+
 def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
     """Realiza ``batch_update`` con reintentos ante errores de cuota."""
     for attempt in range(retries):
@@ -225,10 +234,7 @@ def cargar_pedidos():
 
 if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
     if allow_refresh("main_last_refresh"):
-        cargar_pedidos.clear()
-        get_google_sheets_client.clear()
-        get_worksheet.clear()
-        get_s3_client.clear()
+        clear_app_caches()
         st.rerun()
 
 st.title("🛒 App de Vendedores TD")
@@ -862,7 +868,11 @@ with tab1:
                 st.error(error_message)
 
             if st.button("Aceptar", key="acknowledge_pedido_status"):
-                del st.session_state["pedido_submission_status"]
+                # Al confirmar aplicamos el mismo reinicio completo que el botón
+                # de recarga para garantizar que el siguiente pedido comience en
+                # un estado fresco y sin caches obsoletos.
+                clear_app_caches()
+                st.session_state.pop("pedido_submission_status", None)
                 st.rerun()
 
     # -------------------------------
