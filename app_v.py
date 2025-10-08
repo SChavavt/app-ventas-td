@@ -11,6 +11,8 @@ import unicodedata
 from io import BytesIO
 import time
 import re
+import base64
+import html
 import gspread
 from urllib.parse import quote
 from oauth2client.service_account import ServiceAccountCredentials
@@ -193,6 +195,94 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
         return True, file_url, None
     except Exception as e:
         return False, None, str(e)
+
+
+# --- FILE PREVIEW HELPERS ---
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+PDF_EXTENSIONS = {".pdf"}
+
+
+def _get_extension(name: str) -> str:
+    return os.path.splitext(name or "")[1].lower()
+
+
+def _sanitize_url(url: str) -> str:
+    return html.escape(url or "", quote=True)
+
+
+def render_uploaded_file_preview(uploaded_file, key_suffix: str) -> None:
+    """Render a preview for an uploaded file without consuming the buffer."""
+
+    if not uploaded_file:
+        return
+
+    ext = _get_extension(uploaded_file.name)
+    if ext in IMAGE_EXTENSIONS:
+        st.image(uploaded_file.getvalue(), caption=uploaded_file.name, use_column_width=True)
+    elif ext in PDF_EXTENSIONS:
+        b64_pdf = base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
+        pdf_html = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+        components.html(pdf_html, height=600, scrolling=True, key=f"pdf-upload-preview-{key_suffix}")
+    else:
+        st.info("🔍 No hay previsualización disponible para este tipo de archivo.")
+
+    uploaded_file.seek(0)
+
+
+def render_remote_file_preview(file_name: str, url: str, key_suffix: str) -> None:
+    """Render a preview for a remote file stored in S3."""
+
+    if not url:
+        return
+
+    ext = _get_extension(file_name)
+    if ext in IMAGE_EXTENSIONS:
+        st.image(url, caption=file_name, use_column_width=True)
+    elif ext in PDF_EXTENSIONS:
+        safe_url = _sanitize_url(url)
+        iframe_html = f'<iframe src="{safe_url}#toolbar=0" width="100%" height="600" type="application/pdf"></iframe>'
+        components.html(iframe_html, height=600, scrolling=True, key=f"pdf-remote-preview-{key_suffix}")
+    else:
+        st.info("🔍 Este formato no cuenta con previsualización integrada. Usa el enlace para descargarlo.")
+
+
+def show_uploaded_files_previews(files, title: str, key_prefix: str) -> None:
+    if not files:
+        return
+
+    st.markdown(f"#### 👀 {title}")
+    for idx, file in enumerate(files):
+        nombre = file.name or f"Archivo {idx + 1}"
+        with st.expander(f"👀 {nombre}", expanded=False):
+            render_uploaded_file_preview(file, f"{key_prefix}-{idx}")
+
+
+def _extract_filename_from_url(url: str) -> str:
+    if not url:
+        return "archivo"
+    nombre = url.split("/")[-1]
+    if "?" in nombre:
+        nombre = nombre.split("?")[0]
+    return nombre or "archivo"
+
+
+def show_remote_files_list(files, section_title: str, key_prefix: str, *, label_prefix: str = "") -> None:
+    if not files:
+        return
+
+    st.markdown(section_title)
+    for idx, data in enumerate(files):
+        if isinstance(data, (tuple, list)) and len(data) >= 2:
+            key_name, url = data[0], data[1]
+            nombre = key_name.split("/")[-1] or _extract_filename_from_url(url)
+        else:
+            url = data
+            nombre = _extract_filename_from_url(url)
+
+        display_name = f"{label_prefix}{nombre}" if label_prefix else nombre
+        st.markdown(f"- [{display_name}]({url})")
+        with st.expander(f"👀 Previsualizar {nombre}", expanded=False):
+            render_remote_file_preview(nombre, url, f"{key_prefix}-{idx}")
     
 # --- Función para actualizar una celda de Google Sheets de forma segura ---
 def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
@@ -783,6 +873,7 @@ with tab1:
             type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
             accept_multiple_files=True
         )
+        show_uploaded_files_previews(uploaded_files, "Previsualización de adjuntos del pedido", "pedido-adjuntos")
 
         # --- Evidencias/Comprobantes PARA DEVOLUCIONES y GARANTÍAS ---
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
@@ -794,6 +885,11 @@ with tab1:
                 accept_multiple_files=True,
                 key="comprobante_cliente",
                 help="Sube archivos relacionados con esta devolución o garantía"
+            )
+            show_uploaded_files_previews(
+                comprobante_cliente,
+                "Previsualización de evidencias",
+                "comprobantes-caso"
             )
 
         # AL FINAL DEL FORMULARIO: botón submit
@@ -859,6 +955,11 @@ with tab1:
                     key="comprobante_uploader_final"
                 )
                 st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
+                show_uploaded_files_previews(
+                    comprobante_pago_files,
+                    "Previsualización de comprobantes de pago",
+                    "comprobantes-pago"
+                )
 
                 with st.expander("🧾 Detalles del Pago (opcional)"):
                     col1, col2, col3 = st.columns(3)
@@ -899,6 +1000,7 @@ with tab1:
             elif pago_doble:
                 st.markdown("### 1️⃣ Primer Pago")
                 comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                show_uploaded_files_previews(comp1, "Previsualización comprobante 1", "cp1-doble")
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
                 monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
@@ -924,6 +1026,7 @@ with tab1:
 
                 st.markdown("### 2️⃣ Segundo Pago")
                 comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                show_uploaded_files_previews(comp2, "Previsualización comprobante 2", "cp2-doble")
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
                 monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
@@ -959,6 +1062,7 @@ with tab1:
             elif pago_triple:
                 st.markdown("### 1️⃣ Primer Pago")
                 comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                show_uploaded_files_previews(comp1, "Previsualización comprobante 1", "cp1-triple")
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
                 monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
@@ -984,6 +1088,7 @@ with tab1:
 
                 st.markdown("### 2️⃣ Segundo Pago")
                 comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                show_uploaded_files_previews(comp2, "Previsualización comprobante 2", "cp2-triple")
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
                 monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
@@ -1009,6 +1114,7 @@ with tab1:
 
                 st.markdown("### 3️⃣ Tercer Pago")
                 comp3 = st.file_uploader("💳 Comprobante 3", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago3")
+                show_uploaded_files_previews(comp3, "Previsualización comprobante 3", "cp3-triple")
                 fecha3 = st.date_input("📅 Fecha 3", value=datetime.today().date(), key="fecha_pago3")
                 forma3 = st.selectbox("💳 Forma 3", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago3")
                 monto3 = st.number_input("💲 Monto 3", min_value=0.0, format="%.2f", key="monto_pago3")
@@ -3162,22 +3268,28 @@ with tab7:
                         if mod_txt:
                             st.info(mod_txt)
                         if mod_urls:
-                            st.markdown("**Archivos de modificación:**")
-                            for u in mod_urls:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
+                            show_remote_files_list(
+                                mod_urls,
+                                "**Archivos de modificación:**",
+                                f"caso-mod-{res.get('ID_Pedido','sin-id')}"
+                            )
 
                     with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
                         adj = res.get("Adjuntos_urls", []) or []
                         guia = res.get("Guia_url", "")
                         if adj:
-                            st.markdown("**Adjuntos:**")
-                            for u in adj:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
+                            show_remote_files_list(
+                                adj,
+                                "**Adjuntos:**",
+                                f"caso-adj-{res.get('ID_Pedido','sin-id')}"
+                            )
                         if guia and guia.lower() not in ("nan","none","n/a"):
-                            st.markdown("**Guía:**")
-                            st.markdown(f"- [Abrir guía]({guia})")
+                            show_remote_files_list(
+                                [guia],
+                                "**Guía:**",
+                                f"caso-guia-{res.get('ID_Pedido','sin-id')}",
+                                label_prefix="📄 "
+                            )
                         if not adj and not guia:
                             st.info("Sin archivos registrados en la hoja.")
 
@@ -3204,25 +3316,33 @@ with tab7:
 
                     with st.expander("📁 Archivos del Pedido", expanded=True):
                         if res.get("Coincidentes"):
-                            st.markdown("#### 🔍 Guías:")
-                            for key, url in res["Coincidentes"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [🔍 {nombre}]({url})")
+                            show_remote_files_list(
+                                res["Coincidentes"],
+                                "#### 🔍 Guías:",
+                                f"pedido-guias-{res.get('ID_Pedido','sin-id')}",
+                                label_prefix="🔍 "
+                            )
                         if res.get("Comprobantes"):
-                            st.markdown("#### 🧾 Comprobantes:")
-                            for key, url in res["Comprobantes"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
+                            show_remote_files_list(
+                                res["Comprobantes"],
+                                "#### 🧾 Comprobantes:",
+                                f"pedido-comprobantes-{res.get('ID_Pedido','sin-id')}",
+                                label_prefix="📄 "
+                            )
                         if res.get("Facturas"):
-                            st.markdown("#### 📁 Facturas:")
-                            for key, url in res["Facturas"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
+                            show_remote_files_list(
+                                res["Facturas"],
+                                "#### 📁 Facturas:",
+                                f"pedido-facturas-{res.get('ID_Pedido','sin-id')}",
+                                label_prefix="📄 "
+                            )
                         if res.get("Otros"):
-                            st.markdown("#### 📂 Otros Archivos:")
-                            for key, url in res["Otros"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [📌 {nombre}]({url})")
+                            show_remote_files_list(
+                                res["Otros"],
+                                "#### 📂 Otros Archivos:",
+                                f"pedido-otros-{res.get('ID_Pedido','sin-id')}",
+                                label_prefix="📌 "
+                            )
 
                         # 🛠 Modificación de surtido (si existe)
                         mod_txt = res.get("Modificacion_Surtido", "") or ""
@@ -3232,10 +3352,11 @@ with tab7:
                             if mod_txt:
                                 st.info(mod_txt)
                             if mod_urls:
-                                st.markdown("**Archivos de modificación:**")
-                                for u in mod_urls:
-                                    nombre = u.split("/")[-1]
-                                    st.markdown(f"- [{nombre}]({u})")
+                                show_remote_files_list(
+                                    mod_urls,
+                                    "**Archivos de modificación:**",
+                                    f"pedido-mod-{res.get('ID_Pedido','sin-id')}"
+                                )
 
         else:
             mensaje = (
