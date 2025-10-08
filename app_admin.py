@@ -53,7 +53,6 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
     "Fecha_Entrega",
     "Estado_Surtido_Almacen",
     "Estado_Pago",
-    "Estado_Entrega",
     "Comprobante_Confirmado",
     "Refacturacion_Tipo",
     "Refacturacion_Subtipo",
@@ -70,13 +69,6 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
     "Link_Adjuntos_Guia",
     "Motivo_NotaVenta",
     MOTIVO_RECHAZO_CANCELACION_COL,
-]
-
-
-ESTADO_ENTREGA_PLACEHOLDER = ""
-ESTADO_ENTREGA_OPCIONES = [
-    "📦 Entregado",
-    "🚚 No entregado",
 ]
 
 
@@ -1547,9 +1539,6 @@ with tab1:
                         st.write(f"**📅 Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
                         st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
-                        estado_entrega_display = selected_pedido_data.get('Estado_Entrega', '')
-                        estado_entrega_display = estado_entrega_display or 'Sin registrar'
-                        st.write(f"**Estado de Entrega:** {estado_entrega_display}")
 
                     with col2:
                         st.subheader("📎 Archivos y Comprobantes")
@@ -1663,41 +1652,12 @@ with tab1:
 
                 else:
                     # ✅ Continuar con lógica normal para pedidos no-crédito
-                    es_pedido_local = (
-                        selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
-                    )
                     if (
                         selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
-                        es_pedido_local
+                        selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
                     ):
                         st.subheader("🧾 Subir Comprobante de Pago")
-
-                    estado_entrega_valor = str(selected_pedido_data.get("Estado_Entrega", "") or "").strip()
-                    if es_pedido_local:
-                        estado_entrega_inicial = estado_entrega_valor
-                        if estado_entrega_inicial and estado_entrega_inicial not in ESTADO_ENTREGA_OPCIONES:
-                            estado_lower = estado_entrega_inicial.lower()
-                            if "no" in estado_lower:
-                                estado_entrega_inicial = ESTADO_ENTREGA_OPCIONES[1]
-                            elif "entregado" in estado_lower:
-                                estado_entrega_inicial = ESTADO_ENTREGA_OPCIONES[0]
-                            else:
-                                estado_entrega_inicial = ESTADO_ENTREGA_PLACEHOLDER
-
-                        opciones_estado = [ESTADO_ENTREGA_PLACEHOLDER, *ESTADO_ENTREGA_OPCIONES]
-                        estado_index = (
-                            opciones_estado.index(estado_entrega_inicial)
-                            if estado_entrega_inicial in opciones_estado
-                            else 0
-                        )
-                        estado_entrega_valor = st.selectbox(
-                            "🚚 Estado de Entrega",
-                            options=opciones_estado,
-                            index=estado_index,
-                            key=_comprobante_form_key("estado_entrega_local"),
-                            format_func=lambda opt: "Selecciona estado…" if opt == ESTADO_ENTREGA_PLACEHOLDER else opt,
-                        )
-
+    
                     pago_doble = st.checkbox(
                         "✅ Pago en dos partes distintas",
                         key=_comprobante_form_key("pago_doble_admin"),
@@ -1949,14 +1909,6 @@ with tab1:
                             except Exception:
                                 monto_val = 0.0
     
-                            estado_entrega_para_guardar = None
-                            if es_pedido_local:
-                                estado_entrega_para_guardar = (
-                                    ""
-                                    if estado_entrega_valor == ESTADO_ENTREGA_PLACEHOLDER
-                                    else estado_entrega_valor
-                                )
-
                             updates = {
                                 "Estado_Pago": "✅ Pagado",
                                 "Comprobante_Confirmado": "Sí",
@@ -1967,9 +1919,6 @@ with tab1:
                                 "Terminal": terminal,
                                 "Banco_Destino_Pago": banco_destino,
                             }
-
-                            if es_pedido_local and estado_entrega_para_guardar is not None:
-                                updates["Estado_Entrega"] = estado_entrega_para_guardar
     
                             # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                             worksheet = _get_ws_datos()
@@ -2064,9 +2013,6 @@ with tab1:
                         st.write(f"**Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
                         st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
-                        estado_entrega_display = selected_pedido_data.get('Estado_Entrega', '')
-                        estado_entrega_display = estado_entrega_display or 'Sin registrar'
-                        st.write(f"**Estado de Entrega:** {estado_entrega_display}")
     
                     with col2:
                         st.subheader("📎 Archivos y Comprobantes")
@@ -3019,7 +2965,6 @@ with tab2:
             "Tipo_Envio",
             "Estado_Surtido_Almacen",
             "Estado_Pago",
-            "Estado_Entrega",
             "Comprobante_Confirmado",
             "Refacturacion_Tipo",
             "Refacturacion_Subtipo",
