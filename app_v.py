@@ -282,6 +282,98 @@ def generar_url_s3(s3_key):
         ExpiresIn=3600
     )
 
+# --- Utilidades para mostrar archivos con vista previa ---
+IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "bmp", "webp"}
+VIDEO_EXTENSIONS = {"mp4", "webm", "ogg", "mov", "m4v"}
+AUDIO_EXTENSIONS = {"mp3", "wav", "ogg", "m4a"}
+PDF_EXTENSIONS = {"pdf"}
+
+
+def _detect_preview_type(file_name: str) -> str:
+    """Regresa el tipo de vista previa soportada según la extensión."""
+    if not file_name:
+        return ""
+    if "." in file_name:
+        ext = file_name.rsplit(".", 1)[-1].lower()
+    else:
+        ext = ""
+    if ext in IMAGE_EXTENSIONS:
+        return "image"
+    if ext in PDF_EXTENSIONS:
+        return "pdf"
+    if ext in VIDEO_EXTENSIONS:
+        return "video"
+    if ext in AUDIO_EXTENSIONS:
+        return "audio"
+    return ""
+
+
+def _normalize_file_entry(entry):
+    """Convierte tuplas o cadenas en una tupla (nombre_archivo, url)."""
+    if isinstance(entry, (list, tuple)):
+        if len(entry) >= 2:
+            raw_name = str(entry[0])
+            url = str(entry[1])
+        elif len(entry) == 1:
+            raw_name = str(entry[0])
+            url = str(entry[0])
+        else:
+            return None, None
+    else:
+        raw_name = str(entry)
+        url = str(entry)
+    name = raw_name.split("/")[-1] or raw_name
+    if "?" in name:
+        name = name.split("?")[0]
+    return name, url
+
+
+def render_file_preview(url: str, file_name: str, preview_type: str) -> None:
+    """Muestra el componente adecuado para previsualizar un archivo."""
+    if preview_type == "image":
+        st.image(url, caption=file_name, use_column_width=True)
+    elif preview_type == "pdf":
+        components.html(
+            f'<iframe src="{url}" width="100%" height="600" style="border:none;"></iframe>',
+            height=600,
+        )
+    elif preview_type == "video":
+        st.video(url)
+    elif preview_type == "audio":
+        st.audio(url)
+    else:
+        st.info("Vista previa no disponible para este tipo de archivo. Usa el enlace para descargarlo.")
+
+
+def render_file_section(files, heading: str = None, icon: str = "📄") -> None:
+    """Dibuja una lista de archivos con enlaces y vista previa opcional."""
+    if not files:
+        return
+
+    entries = list(files)
+    normalized_entries = []
+    for entry in entries:
+        name, url = _normalize_file_entry(entry)
+        if not url:
+            continue
+        normalized_entries.append((name, url))
+
+    if not normalized_entries:
+        return
+
+    if heading:
+        st.markdown(heading)
+
+    for name, url in normalized_entries:
+        label = f"{icon} {name}" if icon else name
+        st.markdown(f"- [{label}]({url})")
+        preview_type = _detect_preview_type(name)
+        if preview_type:
+            with st.expander(f"👁️ Vista previa – {name}", expanded=False):
+                render_file_preview(url, name, preview_type)
+        else:
+            st.caption("↳ Vista previa no disponible para este tipo de archivo.")
+
 # --- Utilidades y renderizado de casos especiales ---
 def partir_urls(value):
     """Normaliza campos de adjuntos que pueden venir como JSON o texto separado."""
@@ -437,9 +529,7 @@ def render_caso_especial(row):
         if __has(mod_txt):
             st.info(mod_txt)
         if adj_mod:
-            st.markdown("**Archivos de modificación:**")
-            for u in adj_mod:
-                st.markdown(f"- {__link(u)}")
+            render_file_section(adj_mod, "**Archivos de modificación:**", icon="🛠")
 
     with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
         adj_raw = row.get("Adjuntos","")
@@ -448,13 +538,10 @@ def render_caso_especial(row):
         has_any = False
         if adj:
             has_any = True
-            st.markdown("**Adjuntos:**")
-            for u in adj:
-                st.markdown(f"- {__link(u)}")
+            render_file_section(adj, "**Adjuntos:**", icon="📎")
         if __has(guia) and __is_url(guia):
             has_any = True
-            st.markdown("**Guía:**")
-            st.markdown(f"- {__link(guia, 'Abrir guía')}")
+            render_file_section([guia], "**Guía:**", icon="🧾")
         if not has_any:
             st.info("Sin archivos registrados en la hoja.")
     st.markdown("---")
@@ -1725,16 +1812,12 @@ with tab2:
                     current_adjuntos_surtido_list_basic = [f.strip() for f in str(current_adjuntos_surtido_str_basic).split(',') if f.strip()]
 
                     if current_adjuntos_list_basic:
-                        st.write("**Adjuntos Originales:**")
-                        for adj in current_adjuntos_list_basic:
-                            st.markdown(f"- [{os.path.basename(adj)}]({adj})")
+                        render_file_section(current_adjuntos_list_basic, "**Adjuntos Originales:**", icon="📎")
                     else:
                         st.write("**Adjuntos Originales:** Ninguno")
 
                     if current_adjuntos_surtido_list_basic:
-                        st.write("**Adjuntos de Modificación/Surtido:**")
-                        for adj_surtido in current_adjuntos_surtido_list_basic:
-                            st.markdown(f"- [{os.path.basename(adj_surtido)}]({adj_surtido})")
+                        render_file_section(current_adjuntos_surtido_list_basic, "**Adjuntos de Modificación/Surtido:**", icon="🛠")
                     else:
                         st.write("**Adjuntos de Modificación/Surtido:** Ninguno")
 
@@ -2630,11 +2713,7 @@ with tab5:
             st.markdown("### 📎 Última Guía Subida")
             if ultima_guia:
                 url_encoded = quote(ultima_guia, safe=':/')
-                if fuente == "casos_especiales":
-                    st.markdown(f"[{ultima_guia}]({url_encoded})")
-                else:
-                    nombre = ultima_guia.split("/")[-1]
-                    st.markdown(f"- [📄 {nombre}]({url_encoded})")
+                render_file_section([(ultima_guia, url_encoded)], None, icon="📄")
             else:
                 st.warning("⚠️ No se encontró una URL válida para la guía.")
 
@@ -3166,22 +3245,15 @@ with tab7:
                         if mod_txt:
                             st.info(mod_txt)
                         if mod_urls:
-                            st.markdown("**Archivos de modificación:**")
-                            for u in mod_urls:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
+                            render_file_section(mod_urls, "**Archivos de modificación:**", icon="🛠")
 
                     with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
                         adj = res.get("Adjuntos_urls", []) or []
                         guia = res.get("Guia_url", "")
                         if adj:
-                            st.markdown("**Adjuntos:**")
-                            for u in adj:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
+                            render_file_section(adj, "**Adjuntos:**", icon="📎")
                         if guia and guia.lower() not in ("nan","none","n/a"):
-                            st.markdown("**Guía:**")
-                            st.markdown(f"- [Abrir guía]({guia})")
+                            render_file_section([guia], "**Guía:**", icon="🧾")
                         if not adj and not guia:
                             st.info("Sin archivos registrados en la hoja.")
 
@@ -3208,25 +3280,13 @@ with tab7:
 
                     with st.expander("📁 Archivos del Pedido", expanded=True):
                         if res.get("Coincidentes"):
-                            st.markdown("#### 🔍 Guías:")
-                            for key, url in res["Coincidentes"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [🔍 {nombre}]({url})")
+                            render_file_section(res["Coincidentes"], "#### 🔍 Guías:", icon="🔍")
                         if res.get("Comprobantes"):
-                            st.markdown("#### 🧾 Comprobantes:")
-                            for key, url in res["Comprobantes"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
+                            render_file_section(res["Comprobantes"], "#### 🧾 Comprobantes:", icon="🧾")
                         if res.get("Facturas"):
-                            st.markdown("#### 📁 Facturas:")
-                            for key, url in res["Facturas"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
+                            render_file_section(res["Facturas"], "#### 📁 Facturas:", icon="📁")
                         if res.get("Otros"):
-                            st.markdown("#### 📂 Otros Archivos:")
-                            for key, url in res["Otros"]:
-                                nombre = key.split("/")[-1]
-                                st.markdown(f"- [📌 {nombre}]({url})")
+                            render_file_section(res["Otros"], "#### 📂 Otros Archivos:", icon="📂")
 
                         # 🛠 Modificación de surtido (si existe)
                         mod_txt = res.get("Modificacion_Surtido", "") or ""
@@ -3236,10 +3296,7 @@ with tab7:
                             if mod_txt:
                                 st.info(mod_txt)
                             if mod_urls:
-                                st.markdown("**Archivos de modificación:**")
-                                for u in mod_urls:
-                                    nombre = u.split("/")[-1]
-                                    st.markdown(f"- [{nombre}]({u})")
+                                render_file_section(mod_urls, "**Archivos de modificación:**", icon="🛠")
 
         else:
             mensaje = (
