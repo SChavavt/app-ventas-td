@@ -42,6 +42,7 @@ QUOTA_ERROR_THRESHOLD = 5
 
 MOTIVO_RECHAZO_CANCELACION_COL = "Motivo_Rechazo/Cancelacion"
 FECHA_CONFIRMADO_COL = "Fecha_Confirmado"
+ESTADO_ENTREGA_COL = "Estado_Entrega"
 CDMX_TIMEZONE = ZoneInfo("America/Mexico_City")
 
 
@@ -49,6 +50,7 @@ CONFIRMADOS_SYNC_COLUMN_MAP = {
     "Estado_Surtido_Almacen": "Estado_Surtido_Almacen",
     "Fecha_Entrega": "Fecha_Entrega",
     FECHA_CONFIRMADO_COL: FECHA_CONFIRMADO_COL,
+    ESTADO_ENTREGA_COL: ESTADO_ENTREGA_COL,
 }
 
 
@@ -62,6 +64,7 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
     "Tipo_Envio",
     "Fecha_Entrega",
     "Estado_Surtido_Almacen",
+    ESTADO_ENTREGA_COL,
     "Estado_Pago",
     "Comprobante_Confirmado",
     FECHA_CONFIRMADO_COL,
@@ -83,9 +86,32 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
 ]
 
 
+ESTADO_ENTREGA_OPCIONES = ["📦 Entregado", "⏳ No Entregado"]
+ESTADO_ENTREGA_DEFAULT = ESTADO_ENTREGA_OPCIONES[1]
+
+
 def obtener_fecha_confirmado_cdmx() -> str:
     """Devuelve la fecha-hora actual en CDMX con formato legible para la hoja."""
     return datetime.now(CDMX_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def normalize_estado_entrega(value) -> str:
+    """Normaliza valores del estado de entrega al formato con emoji."""
+    raw = str(value or "").strip()
+    if not raw or raw.lower() == "nan":
+        return ""
+
+    raw_lower = raw.lower()
+    for opcion in ESTADO_ENTREGA_OPCIONES:
+        if raw_lower == opcion.lower():
+            return opcion
+
+    if "entregado" in raw_lower and "no" not in raw_lower:
+        return ESTADO_ENTREGA_OPCIONES[0]
+    if "no entreg" in raw_lower:
+        return ESTADO_ENTREGA_OPCIONES[1]
+
+    return raw
 
 
 def ensure_sheet_column(worksheet, headers: list[str], column_name: str) -> list[str]:
@@ -312,6 +338,7 @@ def clear_comprobante_form_state():
         "terminal2_admin",
         "banco2_admin",
         "ref2_admin",
+        "estado_entrega_local",
     }
 
     current_nonce = st.session_state.get("comprobante_form_nonce", 0)
@@ -845,6 +872,8 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
         ].copy()
     if MOTIVO_RECHAZO_CANCELACION_COL not in df_pedidos.columns:
         df_pedidos[MOTIVO_RECHAZO_CANCELACION_COL] = ""
+    if ESTADO_ENTREGA_COL not in df_pedidos.columns:
+        df_pedidos[ESTADO_ENTREGA_COL] = ""
     if df_pedidos.empty:
         st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
         if st.button("🔁 Reintentar conexión", key="retry_pedidos_inicial"):
@@ -1495,6 +1524,8 @@ with tab1:
                 ].copy()
             if MOTIVO_RECHAZO_CANCELACION_COL not in df_pedidos.columns:
                 df_pedidos[MOTIVO_RECHAZO_CANCELACION_COL] = ""
+            if ESTADO_ENTREGA_COL not in df_pedidos.columns:
+                df_pedidos[ESTADO_ENTREGA_COL] = ""
             st.session_state.df_pedidos = df_pedidos
             st.session_state.headers = headers
             if 'Comprobante_Confirmado' in df_pedidos.columns:
@@ -1575,6 +1606,19 @@ with tab1:
                     selected_pedido_data.get("Modificacion_Surtido", "")
                 )
 
+                is_pedido_local = (
+                    str(selected_pedido_data.get("Tipo_Envio", "")).strip()
+                    == "📍 Pedido Local"
+                )
+                estado_entrega_stored = normalize_estado_entrega(
+                    selected_pedido_data.get(ESTADO_ENTREGA_COL, "")
+                )
+                if estado_entrega_stored not in ESTADO_ENTREGA_OPCIONES:
+                    estado_entrega_stored = ESTADO_ENTREGA_DEFAULT
+                estado_entrega_index = ESTADO_ENTREGA_OPCIONES.index(estado_entrega_stored)
+                estado_entrega_value = estado_entrega_stored
+                estado_entrega_widget_key = _comprobante_form_key("estado_entrega_local")
+
                 # 🚨 Lógica especial si es pedido a crédito
                 if selected_pedido_data.get("Estado_Pago", "").strip() == "💳 CREDITO":
                     st.subheader("📝 Confirmación de Pedido a Crédito")
@@ -1595,6 +1639,13 @@ with tab1:
                         st.write(f"**📅 Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
                         st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
+                        if is_pedido_local:
+                            estado_entrega_value = st.selectbox(
+                                "🚚 Estado de entrega",
+                                ESTADO_ENTREGA_OPCIONES,
+                                index=estado_entrega_index,
+                                key=estado_entrega_widget_key,
+                            )
 
                     with col2:
                         st.subheader("📎 Archivos y Comprobantes")
@@ -1646,6 +1697,8 @@ with tab1:
                                 # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                                 worksheet = _get_ws_datos()
                                 headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
+                                if is_pedido_local:
+                                    headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
                                 st.session_state.headers = headers
 
                                 # Actualizaciones
@@ -1677,6 +1730,16 @@ with tab1:
                                         "values": [[fecha_confirmado]],
                                     })
                                     local_updates[FECHA_CONFIRMADO_COL] = fecha_confirmado
+
+                                if is_pedido_local and ESTADO_ENTREGA_COL in headers:
+                                    updates.append({
+                                        "range": rowcol_to_a1(
+                                            gsheet_row_index,
+                                            headers.index(ESTADO_ENTREGA_COL) + 1,
+                                        ),
+                                        "values": [[estado_entrega_value]],
+                                    })
+                                    local_updates[ESTADO_ENTREGA_COL] = estado_entrega_value
 
                                 if "Comentario" in headers:
                                     comentario_existente = selected_pedido_data.get("Comentario", "")
@@ -1732,7 +1795,15 @@ with tab1:
                         selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
                     ):
                         st.subheader("🧾 Subir Comprobante de Pago")
-    
+
+                    if is_pedido_local:
+                        estado_entrega_value = st.selectbox(
+                            "🚚 Estado de entrega",
+                            ESTADO_ENTREGA_OPCIONES,
+                            index=estado_entrega_index,
+                            key=estado_entrega_widget_key,
+                        )
+
                     pago_doble = st.checkbox(
                         "✅ Pago en dos partes distintas",
                         key=_comprobante_form_key("pago_doble_admin"),
@@ -1999,15 +2070,19 @@ with tab1:
                                 "Terminal": terminal,
                                 "Banco_Destino_Pago": banco_destino,
                             }
+                            if is_pedido_local:
+                                updates[ESTADO_ENTREGA_COL] = estado_entrega_value
     
                             # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                             worksheet = _get_ws_datos()
                             headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
+                            if is_pedido_local:
+                                headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
                             st.session_state.headers = headers
-    
+
                             cell_updates = []
                             nuevo_valor_adjuntos = None
-    
+
                             # Escribir columnas principales
                             for col, val in updates.items():
                                 if col in headers:
@@ -2273,10 +2348,14 @@ with tab1:
                                         'Terminal': ", ".join([t for t in terminal_list if t]),
                                         'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
                                     }
-    
+                                    if is_pedido_local:
+                                        updates[ESTADO_ENTREGA_COL] = estado_entrega_value
+
                                     # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                                     worksheet = _get_ws_datos()
                                     headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
+                                    if is_pedido_local:
+                                        headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
                                     st.session_state.headers = headers
     
                                     cell_updates = []
@@ -3069,6 +3148,7 @@ with tab2:
             "Vendedor_Registro",
             "Tipo_Envio",
             "Estado_Surtido_Almacen",
+            ESTADO_ENTREGA_COL,
             "Estado_Pago",
             "Comprobante_Confirmado",
             FECHA_CONFIRMADO_COL,
