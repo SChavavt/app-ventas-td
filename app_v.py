@@ -226,46 +226,6 @@ def set_pedido_submission_status(status: str, message: str, detail: str | None =
         "attachments": attachments or [],
     }
 
-
-def collect_special_case_missing_fields(
-    tipo_envio: str,
-    resultado_esperado: str,
-    material_devuelto: str,
-    monto_devuelto: float,
-    motivo_detallado: str,
-    area_responsable: str,
-    nombre_responsable: str,
-    g_descripcion_falla: str,
-    g_resultado_esperado: str,
-    g_area_responsable: str,
-    g_nombre_responsable: str,
-) -> list[str]:
-    """Devuelve una lista con los campos obligatorios pendientes para devoluciones y garantías."""
-
-    missing_fields: list[str] = []
-
-    if tipo_envio == "🔁 Devolución":
-        if not resultado_esperado:
-            missing_fields.append("Resultado esperado")
-        if not material_devuelto.strip():
-            missing_fields.append("Material a devolver")
-        if monto_devuelto == 0:
-            missing_fields.append("Total de materiales a devolver")
-        if not motivo_detallado.strip():
-            missing_fields.append("Explicación detallada del caso")
-        if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable.strip():
-            missing_fields.append("Nombre del responsable")
-
-    elif tipo_envio == "🛠 Garantía":
-        if not g_descripcion_falla.strip():
-            missing_fields.append("Descripción de la falla")
-        if not g_resultado_esperado:
-            missing_fields.append("Resultado esperado")
-        if g_area_responsable in ["Vendedor", "Almacén"] and not g_nombre_responsable.strip():
-            missing_fields.append("Nombre del responsable")
-
-    return missing_fields
-
 @st.cache_data(ttl=300)
 def cargar_pedidos():
     sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet("datos_pedidos")
@@ -651,10 +611,6 @@ with tab1:
         help="Activa para capturar los datos de una nota de venta.",
     )
 
-    st.session_state.setdefault("pending_submit", False)
-    st.session_state.setdefault("force_submit_missing", False)
-    st.session_state.setdefault("missing_fields_warning", [])
-
     # -------------------------------
     # Inicialización de variables
     # -------------------------------
@@ -695,7 +651,7 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
-    with st.form(key="new_pedido_form", clear_on_submit=False):
+    with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
@@ -870,41 +826,6 @@ with tab1:
 
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
-
-    if submit_button:
-        st.session_state["pending_submit"] = True
-
-    current_missing_fields = collect_special_case_missing_fields(
-        tipo_envio,
-        resultado_esperado,
-        material_devuelto,
-        monto_devuelto,
-        motivo_detallado,
-        area_responsable,
-        nombre_responsable,
-        g_descripcion_falla,
-        g_resultado_esperado,
-        g_area_responsable,
-        g_nombre_responsable,
-    )
-
-    if st.session_state.get("missing_fields_warning"):
-        if not current_missing_fields:
-            st.session_state["missing_fields_warning"] = []
-            st.session_state["force_submit_missing"] = False
-        else:
-            st.session_state["missing_fields_warning"] = current_missing_fields
-            warning_message = (
-                "⚠️ Estás por enviar el pedido sin completar los siguientes campos obligatorios: "
-                + ", ".join(current_missing_fields)
-                + ".\nSi deseas continuar así, presiona 'Continuar de todos modos' o completa los campos indicados."
-            )
-            st.warning(warning_message)
-            if st.button("Continuar de todos modos", key="continue_with_missing_fields"):
-                st.session_state["force_submit_missing"] = True
-                st.session_state["pending_submit"] = True
-                st.session_state["missing_fields_warning"] = []
-                st.rerun()
 
     if not registrar_nota_venta:
         nota_venta = ""
@@ -1173,36 +1094,30 @@ with tab1:
     # -------------------------------
     # Registro del Pedido
     # -------------------------------
-    if st.session_state.get("pending_submit"):
+    if submit_button:
         st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
-                st.session_state["pending_submit"] = False
                 st.stop()
 
-            missing_fields_required = collect_special_case_missing_fields(
-                tipo_envio,
-                resultado_esperado,
-                material_devuelto,
-                monto_devuelto,
-                motivo_detallado,
-                area_responsable,
-                nombre_responsable,
-                g_descripcion_falla,
-                g_resultado_esperado,
-                g_area_responsable,
-                g_nombre_responsable,
-            )
+            # Validación Devolución
+            if tipo_envio == "🔁 Devolución":
+                if not resultado_esperado or not material_devuelto or monto_devuelto == 0 or not motivo_detallado:
+                    st.warning("⚠️ Completa todos los campos obligatorios de devolución.")
+                    st.stop()
+                if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
+                    st.warning("⚠️ Debes especificar el nombre del responsable.")
+                    st.stop()
 
-            if missing_fields_required and not st.session_state.get("force_submit_missing", False):
-                st.session_state["missing_fields_warning"] = missing_fields_required
-                st.session_state["pending_submit"] = False
-                st.rerun()
-            else:
-                st.session_state["missing_fields_warning"] = []
-                if st.session_state.get("force_submit_missing", False):
-                    st.session_state["force_submit_missing"] = False
+            # Validación Garantía
+            if tipo_envio == "🛠 Garantía":
+                if not g_descripcion_falla or not g_resultado_esperado:
+                    st.warning("⚠️ Completa 'Descripción de la Falla' y 'Resultado Esperado' en garantía.")
+                    st.stop()
+                if g_area_responsable in ["Vendedor", "Almacén"] and not g_nombre_responsable:
+                    st.warning("⚠️ Debes especificar el nombre del responsable en garantía.")
+                    st.stop()
 
             # Validar comprobante de pago para tipos normales
             if tipo_envio in [
@@ -1212,7 +1127,6 @@ with tab1:
                 "🎓 Cursos y Eventos",
             ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
-                st.session_state["pending_submit"] = False
                 st.stop()
 
             # Acceso a la hoja
@@ -1226,7 +1140,6 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             "No fue posible acceder a la hoja de casos especiales.",
                         )
-                        st.session_state["pending_submit"] = False
                         st.rerun()
 
                     headers = worksheet.row_values(1)
@@ -1244,7 +1157,6 @@ with tab1:
                                 "❌ Falla al subir el pedido.",
                                 f"No se pudieron preparar las columnas de direcciones: {header_error}",
                             )
-                            st.session_state["pending_submit"] = False
                             st.rerun()
                 else:
                     worksheet = get_worksheet()
@@ -1254,7 +1166,6 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             "No fue posible acceder a la hoja de pedidos.",
                         )
-                        st.session_state["pending_submit"] = False
                         st.rerun()
                     headers = worksheet.row_values(1)
                     required_headers = []
@@ -1274,7 +1185,6 @@ with tab1:
                                     "❌ Falla al subir el pedido.",
                                     f"No se pudieron preparar las columnas de direcciones: {header_error}",
                                 )
-                                st.session_state["pending_submit"] = False
                                 st.rerun()
 
                 if not headers:
@@ -1283,7 +1193,6 @@ with tab1:
                         "❌ Falla al subir el pedido.",
                         "La hoja de cálculo está vacía.",
                     )
-                    st.session_state["pending_submit"] = False
                     st.rerun()
 
                 # Hora local de CDMX para ID y Hora_Registro
@@ -1297,7 +1206,6 @@ with tab1:
                     st.warning("⚠️ Cuota de Google Sheets alcanzada. Reintentando...")
                     st.cache_resource.clear()
                     time.sleep(6)
-                    st.session_state["pending_submit"] = False
                     st.rerun()
                 else:
                     set_pedido_submission_status(
@@ -1305,7 +1213,6 @@ with tab1:
                         "❌ Falla al subir el pedido.",
                         f"Error al acceder a Google Sheets: {e}",
                     )
-                    st.session_state["pending_submit"] = False
                     st.rerun()
 
             # Subida de adjuntos (pedido + pagos + evidencias)
@@ -1324,7 +1231,6 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             f"No se pudo subir {file.name} a S3: {error_msg or 'Error desconocido'}",
                         )
-                        st.session_state["pending_submit"] = False
                         st.rerun()
 
             if comprobante_pago_files:
@@ -1340,7 +1246,6 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             f"No se pudo subir {archivo.name} a S3: {error_msg_cp or 'Error desconocido'}",
                         )
-                        st.session_state["pending_submit"] = False
                         st.rerun()
 
             # Evidencias de Casos Especiales (Devolución/Garantía)
@@ -1357,7 +1262,6 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             f"No se pudo subir {archivo_cc.name} a S3: {error_msg_cc or 'Error desconocido'}",
                         )
-                        st.session_state["pending_submit"] = False
                         st.rerun()
 
             adjuntos_str = ", ".join(adjuntos_urls)
@@ -1524,7 +1428,6 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             f"Error al registrar el pedido: {e}",
                         )
-                        st.session_state["pending_submit"] = False
                         st.rerun()
                         break
             if exito:
@@ -1547,7 +1450,6 @@ with tab1:
                     "❌ Falla al subir el pedido.",
                     "No se pudo registrar el pedido después de varios intentos.",
                 )
-                st.session_state["pending_submit"] = False
                 st.rerun()
 
         except Exception as e:
@@ -1556,7 +1458,6 @@ with tab1:
                 "❌ Falla al subir el pedido.",
                 f"Error inesperado al registrar el pedido: {e}",
             )
-            st.session_state["pending_submit"] = False
             st.rerun()
 
 
