@@ -12,7 +12,6 @@ from io import BytesIO
 import time
 import re
 import gspread
-from typing import List
 from urllib.parse import quote
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
@@ -47,47 +46,6 @@ def clear_app_caches() -> None:
     get_google_sheets_client.clear()
     get_worksheet.clear()
     get_s3_client.clear()
-
-
-def get_missing_special_fields(
-    tipo_envio: str,
-    *,
-    resultado_esperado: str = "",
-    material_devuelto: str = "",
-    monto_devuelto: float = 0.0,
-    motivo_detallado: str = "",
-    area_responsable: str = "",
-    nombre_responsable: str = "",
-    g_resultado_esperado: str = "",
-    g_descripcion_falla: str = "",
-    g_area_responsable: str = "",
-    g_nombre_responsable: str = "",
-) -> List[str]:
-    """Identifica campos obligatorios faltantes para devoluciones o garantías."""
-
-    missing_fields: List[str] = []
-
-    if tipo_envio == "🔁 Devolución":
-        if not resultado_esperado:
-            missing_fields.append("🎯 Resultado Esperado")
-        if not (material_devuelto or "").strip():
-            missing_fields.append("📦 Material a Devolver")
-        if monto_devuelto == 0:
-            missing_fields.append("💲 Total de Materiales a Devolver")
-        if not (motivo_detallado or "").strip():
-            missing_fields.append("📝 Explicación Detallada del Caso")
-        if area_responsable in ["Vendedor", "Almacén"] and not (nombre_responsable or "").strip():
-            missing_fields.append("👤 Nombre del Empleado Responsable")
-
-    elif tipo_envio == "🛠 Garantía":
-        if not (g_descripcion_falla or "").strip():
-            missing_fields.append("🧩 Descripción de la Falla")
-        if not g_resultado_esperado:
-            missing_fields.append("🎯 Resultado Esperado")
-        if g_area_responsable in ["Vendedor", "Almacén"] and not (g_nombre_responsable or "").strip():
-            missing_fields.append("👤 Nombre del Empleado Responsable")
-
-    return missing_fields
 
 
 def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
@@ -693,7 +651,7 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
-    with st.form(key="new_pedido_form", clear_on_submit=False):
+    with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
@@ -887,58 +845,6 @@ with tab1:
         if registrar_nota_venta and isinstance(motivo_nota_venta, str)
         else ""
     )
-
-    if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
-        st.session_state.pop("special_missing_fields", None)
-        st.session_state.pop("special_confirmation_required", None)
-        st.session_state.pop("special_force_submit", None)
-
-    special_warning_container = st.container()
-
-    pending_confirmation = (
-        tipo_envio in ["🔁 Devolución", "🛠 Garantía"]
-        and st.session_state.get("special_confirmation_required", False)
-    )
-
-    if pending_confirmation:
-        current_missing = get_missing_special_fields(
-            tipo_envio,
-            resultado_esperado=resultado_esperado,
-            material_devuelto=material_devuelto,
-            monto_devuelto=monto_devuelto,
-            motivo_detallado=motivo_detallado,
-            area_responsable=area_responsable,
-            nombre_responsable=nombre_responsable,
-            g_resultado_esperado=g_resultado_esperado,
-            g_descripcion_falla=g_descripcion_falla,
-            g_area_responsable=g_area_responsable,
-            g_nombre_responsable=g_nombre_responsable,
-        )
-
-        if current_missing:
-            st.session_state["special_missing_fields"] = current_missing
-            missing_lines = "\n".join(f"• {campo}" for campo in current_missing)
-            warning_title = (
-                "Completa los campos obligatorios de devolución."
-                if tipo_envio == "🔁 Devolución"
-                else "Completa los campos obligatorios de garantía."
-            )
-
-            with special_warning_container:
-                st.warning(
-                    f"⚠️ {warning_title}\n\nFaltan:\n{missing_lines}\n\n"
-                    "Si deseas continuar sin completarlos, presiona 'Continuar de todos modos'."
-                )
-                if st.button("Continuar de todos modos", key="continue_special_submit"):
-                    st.session_state["special_force_submit"] = True
-                    st.session_state["special_confirmation_required"] = False
-                    st.session_state.pop("special_missing_fields", None)
-                    st.rerun()
-        else:
-            st.session_state.pop("special_missing_fields", None)
-            st.session_state.pop("special_confirmation_required", None)
-
-    force_submit = st.session_state.pop("special_force_submit", False)
 
     message_container = st.container()
 
@@ -1188,9 +1094,7 @@ with tab1:
     # -------------------------------
     # Registro del Pedido
     # -------------------------------
-    submission_triggered = submit_button or force_submit
-
-    if submission_triggered:
+    if submit_button:
         st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
@@ -1198,28 +1102,22 @@ with tab1:
                 st.stop()
 
             # Validación Devolución
-            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                missing_fields = get_missing_special_fields(
-                    tipo_envio,
-                    resultado_esperado=resultado_esperado,
-                    material_devuelto=material_devuelto,
-                    monto_devuelto=monto_devuelto,
-                    motivo_detallado=motivo_detallado,
-                    area_responsable=area_responsable,
-                    nombre_responsable=nombre_responsable,
-                    g_resultado_esperado=g_resultado_esperado,
-                    g_descripcion_falla=g_descripcion_falla,
-                    g_area_responsable=g_area_responsable,
-                    g_nombre_responsable=g_nombre_responsable,
-                )
+            if tipo_envio == "🔁 Devolución":
+                if not resultado_esperado or not material_devuelto or monto_devuelto == 0 or not motivo_detallado:
+                    st.warning("⚠️ Completa todos los campos obligatorios de devolución.")
+                    st.stop()
+                if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
+                    st.warning("⚠️ Debes especificar el nombre del responsable.")
+                    st.stop()
 
-                if missing_fields and not force_submit:
-                    st.session_state["special_missing_fields"] = missing_fields
-                    st.session_state["special_confirmation_required"] = True
-                    st.rerun()
-                else:
-                    st.session_state.pop("special_missing_fields", None)
-                    st.session_state.pop("special_confirmation_required", None)
+            # Validación Garantía
+            if tipo_envio == "🛠 Garantía":
+                if not g_descripcion_falla or not g_resultado_esperado:
+                    st.warning("⚠️ Completa 'Descripción de la Falla' y 'Resultado Esperado' en garantía.")
+                    st.stop()
+                if g_area_responsable in ["Vendedor", "Almacén"] and not g_nombre_responsable:
+                    st.warning("⚠️ Debes especificar el nombre del responsable en garantía.")
+                    st.stop()
 
             # Validar comprobante de pago para tipos normales
             if tipo_envio in [
