@@ -28,6 +28,25 @@ st.set_page_config(page_title="App Vendedores TD", layout="wide")
 REFRESH_COOLDOWN = 60
 
 
+def normalize_case_text(value, placeholder: str = "N/A") -> str:
+    """Return a clean string for optional case fields."""
+    if value is None:
+        return placeholder
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned if cleaned else placeholder
+    return str(value)
+
+
+def normalize_case_amount(value, placeholder: str = "N/A") -> str:
+    """Format optional numeric fields, falling back to ``placeholder`` if empty."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return placeholder
+    return f"{amount:.2f}" if amount > 0 else placeholder
+
+
 def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
     """Rate-limit manual reloads to avoid hitting services too often."""
     now = time.time()
@@ -1101,23 +1120,21 @@ with tab1:
                 st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
 
-            # Validación Devolución
+            # Normalización de campos para Casos Especiales
             if tipo_envio == "🔁 Devolución":
-                if not resultado_esperado or not material_devuelto or monto_devuelto == 0 or not motivo_detallado:
-                    st.warning("⚠️ Completa todos los campos obligatorios de devolución.")
-                    st.stop()
-                if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
-                    st.warning("⚠️ Debes especificar el nombre del responsable.")
-                    st.stop()
-
-            # Validación Garantía
+                resultado_esperado = normalize_case_text(resultado_esperado)
+                material_devuelto = normalize_case_text(material_devuelto)
+                motivo_detallado = normalize_case_text(motivo_detallado)
+                nombre_responsable = normalize_case_text(nombre_responsable)
             if tipo_envio == "🛠 Garantía":
-                if not g_descripcion_falla or not g_resultado_esperado:
-                    st.warning("⚠️ Completa 'Descripción de la Falla' y 'Resultado Esperado' en garantía.")
-                    st.stop()
-                if g_area_responsable in ["Vendedor", "Almacén"] and not g_nombre_responsable:
-                    st.warning("⚠️ Debes especificar el nombre del responsable en garantía.")
-                    st.stop()
+                g_resultado_esperado = normalize_case_text(g_resultado_esperado)
+                g_descripcion_falla = normalize_case_text(g_descripcion_falla)
+                g_piezas_afectadas = normalize_case_text(g_piezas_afectadas)
+                g_nombre_responsable = normalize_case_text(g_nombre_responsable)
+                g_numero_serie = normalize_case_text(g_numero_serie)
+            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                direccion_guia_retorno = normalize_case_text(direccion_guia_retorno)
+                direccion_envio_destino = normalize_case_text(direccion_envio_destino)
 
             # Validar comprobante de pago para tipos normales
             if tipo_envio in [
@@ -1362,9 +1379,9 @@ with tab1:
                         values.append("")
                 elif header == "Monto_Devuelto":
                     if tipo_envio == "🔁 Devolución":
-                        values.append(f"{monto_devuelto:.2f}")
+                        values.append(normalize_case_amount(monto_devuelto))
                     elif tipo_envio == "🛠 Garantía":
-                        values.append(f"{g_monto_estimado:.2f}" if g_monto_estimado > 0 else "")
+                        values.append(normalize_case_amount(g_monto_estimado))
                     else:
                         values.append("")
                 elif header == "Motivo_Detallado":
