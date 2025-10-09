@@ -846,6 +846,12 @@ with tab1:
         else ""
     )
 
+    override_missing_submission = False
+    if st.session_state.pop("trigger_submit_missing", False):
+        override_missing_submission = True
+        submit_button = True
+
+    missing_fields_container = st.container()
     message_container = st.container()
 
     with message_container:
@@ -1101,77 +1107,90 @@ with tab1:
                 st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
 
-            # Validación Devolución
+            proceed_with_submission = True
+            missing_fields: list[str] = []
+
             if tipo_envio == "🔁 Devolución":
-                if not resultado_esperado or not material_devuelto or monto_devuelto == 0 or not motivo_detallado:
-                    st.warning("⚠️ Completa todos los campos obligatorios de devolución.")
-                    st.stop()
-                if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
-                    st.warning("⚠️ Debes especificar el nombre del responsable.")
-                    st.stop()
+                if not resultado_esperado:
+                    missing_fields.append("Resultado esperado")
+                if not material_devuelto or not str(material_devuelto).strip():
+                    missing_fields.append("Material a devolver")
+                if monto_devuelto == 0:
+                    missing_fields.append("Total de materiales a devolver")
+                if not motivo_detallado or not str(motivo_detallado).strip():
+                    missing_fields.append("Explicación detallada del caso")
+                if area_responsable in ["Vendedor", "Almacén"] and not str(nombre_responsable).strip():
+                    missing_fields.append("Nombre del empleado responsable")
 
-            # Validación Garantía
             if tipo_envio == "🛠 Garantía":
-                if not g_descripcion_falla or not g_resultado_esperado:
-                    st.warning("⚠️ Completa 'Descripción de la Falla' y 'Resultado Esperado' en garantía.")
+                if not g_resultado_esperado:
+                    missing_fields.append("Resultado esperado (garantía)")
+                if not g_descripcion_falla or not str(g_descripcion_falla).strip():
+                    missing_fields.append("Descripción de la falla")
+                if g_area_responsable in ["Vendedor", "Almacén"] and not str(g_nombre_responsable).strip():
+                    missing_fields.append("Nombre del responsable en garantía")
+
+            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                if missing_fields:
+                    if override_missing_submission:
+                        st.session_state.pop("pending_missing_submission", None)
+                        if tipo_envio == "🔁 Devolución":
+                            if not resultado_esperado:
+                                resultado_esperado = "N/A"
+                            if not material_devuelto or not str(material_devuelto).strip():
+                                material_devuelto = "N/A"
+                            if monto_devuelto == 0:
+                                monto_devuelto = 0.0
+                            if not motivo_detallado or not str(motivo_detallado).strip():
+                                motivo_detallado = "N/A"
+                            if area_responsable in ["Vendedor", "Almacén"] and not str(nombre_responsable).strip():
+                                nombre_responsable = "N/A"
+                        else:
+                            if not g_resultado_esperado:
+                                g_resultado_esperado = "N/A"
+                            if not g_descripcion_falla or not str(g_descripcion_falla).strip():
+                                g_descripcion_falla = "N/A"
+                            if g_monto_estimado == 0:
+                                g_monto_estimado = 0.0
+                            if g_area_responsable in ["Vendedor", "Almacén"] and not str(g_nombre_responsable).strip():
+                                g_nombre_responsable = "N/A"
+                    else:
+                        st.session_state["pending_missing_submission"] = {
+                            "tipo": tipo_envio,
+                            "fields": missing_fields,
+                        }
+                        proceed_with_submission = False
+                else:
+                    st.session_state.pop("pending_missing_submission", None)
+            else:
+                st.session_state.pop("pending_missing_submission", None)
+
+            if proceed_with_submission:
+                # Validar comprobante de pago para tipos normales
+                if tipo_envio in [
+                    "🚚 Pedido Foráneo",
+                    "🏙️ Pedido CDMX",
+                    "📍 Pedido Local",
+                    "🎓 Cursos y Eventos",
+                ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
+                    st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                     st.stop()
-                if g_area_responsable in ["Vendedor", "Almacén"] and not g_nombre_responsable:
-                    st.warning("⚠️ Debes especificar el nombre del responsable en garantía.")
-                    st.stop()
-
-            # Validar comprobante de pago para tipos normales
-            if tipo_envio in [
-                "🚚 Pedido Foráneo",
-                "🏙️ Pedido CDMX",
-                "📍 Pedido Local",
-                "🎓 Cursos y Eventos",
-            ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
-                st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
-                st.stop()
-
-            # Acceso a la hoja
-            headers = []
-            try:
-                if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                    worksheet = get_worksheet_casos_especiales()
-                    if worksheet is None:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            "No fue posible acceder a la hoja de casos especiales.",
-                        )
-                        st.rerun()
-
-                    headers = worksheet.row_values(1)
-                    required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio"]
-                    missing_headers = [col for col in required_headers if col not in headers]
-                    if missing_headers:
-                        try:
-                            new_headers = headers + missing_headers
-                            worksheet.update('A1', [new_headers])
-                            get_sheet_headers.clear()
-                            headers = worksheet.row_values(1)
-                        except Exception as header_error:
+    
+                # Acceso a la hoja
+                headers = []
+                try:
+                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                        worksheet = get_worksheet_casos_especiales()
+                        if worksheet is None:
                             set_pedido_submission_status(
                                 "error",
                                 "❌ Falla al subir el pedido.",
-                                f"No se pudieron preparar las columnas de direcciones: {header_error}",
+                                "No fue posible acceder a la hoja de casos especiales.",
                             )
                             st.rerun()
-                else:
-                    worksheet = get_worksheet()
-                    if worksheet is None:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            "No fue posible acceder a la hoja de pedidos.",
-                        )
-                        st.rerun()
-                    headers = worksheet.row_values(1)
-                    required_headers = []
-                    if tipo_envio == "🚚 Pedido Foráneo":
-                        required_headers.append("Direccion_Guia_Retorno")
-                    if required_headers:
+    
+                        headers = worksheet.row_values(1)
+                        required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio"]
                         missing_headers = [col for col in required_headers if col not in headers]
                         if missing_headers:
                             try:
@@ -1186,272 +1205,300 @@ with tab1:
                                     f"No se pudieron preparar las columnas de direcciones: {header_error}",
                                 )
                                 st.rerun()
-
-                if not headers:
-                    set_pedido_submission_status(
-                        "error",
-                        "❌ Falla al subir el pedido.",
-                        "La hoja de cálculo está vacía.",
-                    )
-                    st.rerun()
-
-                # Hora local de CDMX para ID y Hora_Registro
-                zona_mexico = timezone("America/Mexico_City")
-                now = datetime.now(zona_mexico)
-                id_pedido = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
-                hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
-
-            except gspread.exceptions.APIError as e:
-                if "RESOURCE_EXHAUSTED" in str(e):
-                    st.warning("⚠️ Cuota de Google Sheets alcanzada. Reintentando...")
-                    st.cache_resource.clear()
-                    time.sleep(6)
-                    st.rerun()
-                else:
-                    set_pedido_submission_status(
-                        "error",
-                        "❌ Falla al subir el pedido.",
-                        f"Error al acceder a Google Sheets: {e}",
-                    )
-                    st.rerun()
-
-            # Subida de adjuntos (pedido + pagos + evidencias)
-            adjuntos_urls = []
-
-            if uploaded_files:
-                for file in uploaded_files:
-                    ext = os.path.splitext(file.name)[1]
-                    s3_key = f"{id_pedido}/{file.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
-                    success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
-                    if success:
-                        adjuntos_urls.append(url)
                     else:
+                        worksheet = get_worksheet()
+                        if worksheet is None:
+                            set_pedido_submission_status(
+                                "error",
+                                "❌ Falla al subir el pedido.",
+                                "No fue posible acceder a la hoja de pedidos.",
+                            )
+                            st.rerun()
+                        headers = worksheet.row_values(1)
+                        required_headers = []
+                        if tipo_envio == "🚚 Pedido Foráneo":
+                            required_headers.append("Direccion_Guia_Retorno")
+                        if required_headers:
+                            missing_headers = [col for col in required_headers if col not in headers]
+                            if missing_headers:
+                                try:
+                                    new_headers = headers + missing_headers
+                                    worksheet.update('A1', [new_headers])
+                                    get_sheet_headers.clear()
+                                    headers = worksheet.row_values(1)
+                                except Exception as header_error:
+                                    set_pedido_submission_status(
+                                        "error",
+                                        "❌ Falla al subir el pedido.",
+                                        f"No se pudieron preparar las columnas de direcciones: {header_error}",
+                                    )
+                                    st.rerun()
+    
+                    if not headers:
                         set_pedido_submission_status(
                             "error",
                             "❌ Falla al subir el pedido.",
-                            f"No se pudo subir {file.name} a S3: {error_msg or 'Error desconocido'}",
+                            "La hoja de cálculo está vacía.",
                         )
                         st.rerun()
-
-            if comprobante_pago_files:
-                for archivo in comprobante_pago_files:
-                    ext_cp = os.path.splitext(archivo.name)[1]
-                    s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cp}"
-                    success_cp, url_cp, error_msg_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
-                    if success_cp:
-                        adjuntos_urls.append(url_cp)
-                    else:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            f"No se pudo subir {archivo.name} a S3: {error_msg_cp or 'Error desconocido'}",
-                        )
-                        st.rerun()
-
-            # Evidencias de Casos Especiales (Devolución/Garantía)
-            if comprobante_cliente:
-                for archivo_cc in comprobante_cliente:
-                    ext_cc = os.path.splitext(archivo_cc.name)[1]
-                    s3_key_cc = f"{id_pedido}/evidencia_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
-                    success_cc, url_cc, error_msg_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
-                    if success_cc:
-                        adjuntos_urls.append(url_cc)
-                    else:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            f"No se pudo subir {archivo_cc.name} a S3: {error_msg_cc or 'Error desconocido'}",
-                        )
-                        st.rerun()
-
-            adjuntos_str = ", ".join(adjuntos_urls)
-
-            # Mapeo de columnas a valores
-            values = []
-            for header in headers:
-                if header == "ID_Pedido":
-                    values.append(id_pedido)
-                elif header == "Hora_Registro":
-                    values.append(hora_registro)
-                elif header in ["Vendedor", "Vendedor_Registro"]:
-                    values.append(vendedor)
-                elif header in ["Cliente", "RegistroCliente"]:
-                    values.append(registro_cliente)
-                elif header == "Numero_Cliente_RFC":
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        values.append(numero_cliente_rfc)
-                    else:
-                        values.append("")
-                elif header == "Folio_Factura":
-                    values.append(folio_factura)  # en devoluciones es "Folio Nuevo" o Nota de Venta
-                elif header == "Folio_Factura_Error":  # 🆕 mapeo adicional
-                    values.append(folio_factura_error if tipo_envio == "🔁 Devolución" else "")
-                elif header == "Motivo_NotaVenta":
-                    values.append(motivo_nota_venta)
-                elif header == "Tipo_Envio":
-                    values.append(tipo_envio)
-                elif header == "Tipo_Envio_Original":
-                    values.append(tipo_envio_original if tipo_envio == "🔁 Devolución" else "")
-                elif header == "Turno":
-                    values.append(subtipo_local)
-                elif header == "Fecha_Entrega":
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        values.append("")
-                    else:
-                        values.append(fecha_entrega.strftime('%Y-%m-%d'))
-                elif header == "Comentario":
-                    values.append(comentario)
-                elif header == "Adjuntos":
-                    values.append(adjuntos_str)
-                elif header == "Adjuntos_Surtido":
-                    values.append("")
-                elif header == "Estado":
-                    values.append("🟡 Pendiente")
-                elif header == "Estado_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(estado_pago)
-                    else:
-                        values.append("")
-                elif header == "Fecha_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
-                    else:
-                        values.append("")
-                elif header == "Forma_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(forma_pago)
-                    else:
-                        values.append("")
-                elif header == "Terminal":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(terminal)
-                    else:
-                        values.append("")
-                elif header == "Banco_Destino_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(banco_destino)
-                    else:
-                        values.append("")
-                elif header == "Monto_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
-                    else:
-                        values.append("")
-                elif header == "Referencia_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(referencia_pago)
-                    else:
-                        values.append("")
-                elif header in ["Fecha_Completado", "Hora_Proceso", "Modificacion_Surtido"]:
-                    values.append("")
-
-                # -------- Campos Casos Especiales (reutilizados) --------
-                elif header == "Resultado_Esperado":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(resultado_esperado)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_resultado_esperado)
-                    else:
-                        values.append("")
-                elif header == "Material_Devuelto":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(material_devuelto)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_piezas_afectadas)  # Reuso columna para piezas afectadas
-                    else:
-                        values.append("")
-                elif header == "Monto_Devuelto":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(f"{monto_devuelto:.2f}")
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(f"{g_monto_estimado:.2f}" if g_monto_estimado > 0 else "")
-                    else:
-                        values.append("")
-                elif header == "Motivo_Detallado":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(motivo_detallado)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_descripcion_falla)
-                    else:
-                        values.append("")
-                elif header == "Area_Responsable":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(area_responsable)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_area_responsable)
-                    else:
-                        values.append("")
-                elif header == "Nombre_Responsable":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(nombre_responsable)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_nombre_responsable)
-                    else:
-                        values.append("")
-                elif header == "Direccion_Guia_Retorno":
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        values.append(direccion_guia_retorno)
-                    elif tipo_envio == "🚚 Pedido Foráneo" and direccion_guia_retorno.strip():
-                        values.append(direccion_guia_retorno)
-                    else:
-                        values.append("")
-                elif header == "Direccion_Envio":
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        values.append(direccion_envio_destino)
-                    else:
-                        values.append("")
-                # -------- Opcionales si existen en la hoja --------
-                elif header == "Numero_Serie":
-                    values.append(g_numero_serie if tipo_envio == "🛠 Garantía" else "")
-                elif header in ["Fecha_Compra", "FechaCompra"]:
-                    if tipo_envio == "🛠 Garantía":
-                        values.append(g_fecha_compra.strftime('%Y-%m-%d') if g_fecha_compra else "")
-                    else:
-                        values.append("")
-                else:
-                    values.append("")
-
-            exito = False
-            for intento in range(3):
-                try:
-                    worksheet.append_row(values)
-                    exito = True
-                    break
+    
+                    # Hora local de CDMX para ID y Hora_Registro
+                    zona_mexico = timezone("America/Mexico_City")
+                    now = datetime.now(zona_mexico)
+                    id_pedido = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
+                    hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
+    
                 except gspread.exceptions.APIError as e:
-                    if "RESOURCE_EXHAUSTED" in str(e) or (
-                        hasattr(e, "response") and getattr(e.response, "status_code", None) == 429
-                    ):
-                        time.sleep(2 ** intento)
+                    if "RESOURCE_EXHAUSTED" in str(e):
+                        st.warning("⚠️ Cuota de Google Sheets alcanzada. Reintentando...")
+                        st.cache_resource.clear()
+                        time.sleep(6)
+                        st.rerun()
                     else:
                         set_pedido_submission_status(
                             "error",
                             "❌ Falla al subir el pedido.",
-                            f"Error al registrar el pedido: {e}",
+                            f"Error al acceder a Google Sheets: {e}",
                         )
                         st.rerun()
+    
+                # Subida de adjuntos (pedido + pagos + evidencias)
+                adjuntos_urls = []
+    
+                if uploaded_files:
+                    for file in uploaded_files:
+                        ext = os.path.splitext(file.name)[1]
+                        s3_key = f"{id_pedido}/{file.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
+                        success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
+                        if success:
+                            adjuntos_urls.append(url)
+                        else:
+                            set_pedido_submission_status(
+                                "error",
+                                "❌ Falla al subir el pedido.",
+                                f"No se pudo subir {file.name} a S3: {error_msg or 'Error desconocido'}",
+                            )
+                            st.rerun()
+    
+                if comprobante_pago_files:
+                    for archivo in comprobante_pago_files:
+                        ext_cp = os.path.splitext(archivo.name)[1]
+                        s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cp}"
+                        success_cp, url_cp, error_msg_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
+                        if success_cp:
+                            adjuntos_urls.append(url_cp)
+                        else:
+                            set_pedido_submission_status(
+                                "error",
+                                "❌ Falla al subir el pedido.",
+                                f"No se pudo subir {archivo.name} a S3: {error_msg_cp or 'Error desconocido'}",
+                            )
+                            st.rerun()
+    
+                # Evidencias de Casos Especiales (Devolución/Garantía)
+                if comprobante_cliente:
+                    for archivo_cc in comprobante_cliente:
+                        ext_cc = os.path.splitext(archivo_cc.name)[1]
+                        s3_key_cc = f"{id_pedido}/evidencia_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
+                        success_cc, url_cc, error_msg_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
+                        if success_cc:
+                            adjuntos_urls.append(url_cc)
+                        else:
+                            set_pedido_submission_status(
+                                "error",
+                                "❌ Falla al subir el pedido.",
+                                f"No se pudo subir {archivo_cc.name} a S3: {error_msg_cc or 'Error desconocido'}",
+                            )
+                            st.rerun()
+    
+                adjuntos_str = ", ".join(adjuntos_urls)
+    
+                # Mapeo de columnas a valores
+                values = []
+                for header in headers:
+                    if header == "ID_Pedido":
+                        values.append(id_pedido)
+                    elif header == "Hora_Registro":
+                        values.append(hora_registro)
+                    elif header in ["Vendedor", "Vendedor_Registro"]:
+                        values.append(vendedor)
+                    elif header in ["Cliente", "RegistroCliente"]:
+                        values.append(registro_cliente)
+                    elif header == "Numero_Cliente_RFC":
+                        if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                            values.append(numero_cliente_rfc)
+                        else:
+                            values.append("")
+                    elif header == "Folio_Factura":
+                        values.append(folio_factura)  # en devoluciones es "Folio Nuevo" o Nota de Venta
+                    elif header == "Folio_Factura_Error":  # 🆕 mapeo adicional
+                        values.append(folio_factura_error if tipo_envio == "🔁 Devolución" else "")
+                    elif header == "Motivo_NotaVenta":
+                        values.append(motivo_nota_venta)
+                    elif header == "Tipo_Envio":
+                        values.append(tipo_envio)
+                    elif header == "Tipo_Envio_Original":
+                        values.append(tipo_envio_original if tipo_envio == "🔁 Devolución" else "")
+                    elif header == "Turno":
+                        values.append(subtipo_local)
+                    elif header == "Fecha_Entrega":
+                        if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                            values.append("")
+                        else:
+                            values.append(fecha_entrega.strftime('%Y-%m-%d'))
+                    elif header == "Comentario":
+                        values.append(comentario)
+                    elif header == "Adjuntos":
+                        values.append(adjuntos_str)
+                    elif header == "Adjuntos_Surtido":
+                        values.append("")
+                    elif header == "Estado":
+                        values.append("🟡 Pendiente")
+                    elif header == "Estado_Pago":
+                        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                            values.append(estado_pago)
+                        else:
+                            values.append("")
+                    elif header == "Fecha_Pago_Comprobante":
+                        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                            values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
+                        else:
+                            values.append("")
+                    elif header == "Forma_Pago_Comprobante":
+                        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                            values.append(forma_pago)
+                        else:
+                            values.append("")
+                    elif header == "Terminal":
+                        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                            values.append(terminal)
+                        else:
+                            values.append("")
+                    elif header == "Banco_Destino_Pago":
+                        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                            values.append(banco_destino)
+                        else:
+                            values.append("")
+                    elif header == "Monto_Comprobante":
+                        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                            values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
+                        else:
+                            values.append("")
+                    elif header == "Referencia_Comprobante":
+                        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                            values.append(referencia_pago)
+                        else:
+                            values.append("")
+                    elif header in ["Fecha_Completado", "Hora_Proceso", "Modificacion_Surtido"]:
+                        values.append("")
+    
+                    # -------- Campos Casos Especiales (reutilizados) --------
+                    elif header == "Resultado_Esperado":
+                        if tipo_envio == "🔁 Devolución":
+                            values.append(resultado_esperado)
+                        elif tipo_envio == "🛠 Garantía":
+                            values.append(g_resultado_esperado)
+                        else:
+                            values.append("")
+                    elif header == "Material_Devuelto":
+                        if tipo_envio == "🔁 Devolución":
+                            values.append(material_devuelto)
+                        elif tipo_envio == "🛠 Garantía":
+                            values.append(g_piezas_afectadas)  # Reuso columna para piezas afectadas
+                        else:
+                            values.append("")
+                    elif header == "Monto_Devuelto":
+                        if tipo_envio == "🔁 Devolución":
+                            values.append(f"{monto_devuelto:.2f}")
+                        elif tipo_envio == "🛠 Garantía":
+                            values.append(f"{g_monto_estimado:.2f}" if g_monto_estimado > 0 else "")
+                        else:
+                            values.append("")
+                    elif header == "Motivo_Detallado":
+                        if tipo_envio == "🔁 Devolución":
+                            values.append(motivo_detallado)
+                        elif tipo_envio == "🛠 Garantía":
+                            values.append(g_descripcion_falla)
+                        else:
+                            values.append("")
+                    elif header == "Area_Responsable":
+                        if tipo_envio == "🔁 Devolución":
+                            values.append(area_responsable)
+                        elif tipo_envio == "🛠 Garantía":
+                            values.append(g_area_responsable)
+                        else:
+                            values.append("")
+                    elif header == "Nombre_Responsable":
+                        if tipo_envio == "🔁 Devolución":
+                            values.append(nombre_responsable)
+                        elif tipo_envio == "🛠 Garantía":
+                            values.append(g_nombre_responsable)
+                        else:
+                            values.append("")
+                    elif header == "Direccion_Guia_Retorno":
+                        if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                            values.append(direccion_guia_retorno)
+                        elif tipo_envio == "🚚 Pedido Foráneo" and direccion_guia_retorno.strip():
+                            values.append(direccion_guia_retorno)
+                        else:
+                            values.append("")
+                    elif header == "Direccion_Envio":
+                        if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                            values.append(direccion_envio_destino)
+                        else:
+                            values.append("")
+                    # -------- Opcionales si existen en la hoja --------
+                    elif header == "Numero_Serie":
+                        values.append(g_numero_serie if tipo_envio == "🛠 Garantía" else "")
+                    elif header in ["Fecha_Compra", "FechaCompra"]:
+                        if tipo_envio == "🛠 Garantía":
+                            values.append(g_fecha_compra.strftime('%Y-%m-%d') if g_fecha_compra else "")
+                        else:
+                            values.append("")
+                    else:
+                        values.append("")
+    
+                exito = False
+                for intento in range(3):
+                    try:
+                        worksheet.append_row(values)
+                        exito = True
                         break
-            if exito:
-                vendedor = st.session_state.get("last_selected_vendedor")
-                current_index = st.session_state.get("current_tab_index", default_tab)
-                st.session_state.clear()
-                st.session_state.current_tab_index = current_index
-                st.session_state.last_selected_vendedor = vendedor
-                set_pedido_submission_status(
-                    "success",
-                    f"✅ El pedido {id_pedido} fue subido correctamente.",
-                    attachments=adjuntos_urls,
-                )
-                if tab1_is_active and st.session_state.get("current_tab_index") == 0:
-                    st.query_params.update({"tab": "0"})
-                st.rerun()
-            else:
-                set_pedido_submission_status(
-                    "error",
-                    "❌ Falla al subir el pedido.",
-                    "No se pudo registrar el pedido después de varios intentos.",
-                )
-                st.rerun()
-
+                    except gspread.exceptions.APIError as e:
+                        if "RESOURCE_EXHAUSTED" in str(e) or (
+                            hasattr(e, "response") and getattr(e.response, "status_code", None) == 429
+                        ):
+                            time.sleep(2 ** intento)
+                        else:
+                            set_pedido_submission_status(
+                                "error",
+                                "❌ Falla al subir el pedido.",
+                                f"Error al registrar el pedido: {e}",
+                            )
+                            st.rerun()
+                            break
+                if exito:
+                    vendedor = st.session_state.get("last_selected_vendedor")
+                    current_index = st.session_state.get("current_tab_index", default_tab)
+                    st.session_state.clear()
+                    st.session_state.current_tab_index = current_index
+                    st.session_state.last_selected_vendedor = vendedor
+                    set_pedido_submission_status(
+                        "success",
+                        f"✅ El pedido {id_pedido} fue subido correctamente.",
+                        attachments=adjuntos_urls,
+                    )
+                    if tab1_is_active and st.session_state.get("current_tab_index") == 0:
+                        st.query_params.update({"tab": "0"})
+                    st.rerun()
+                else:
+                    set_pedido_submission_status(
+                        "error",
+                        "❌ Falla al subir el pedido.",
+                        "No se pudo registrar el pedido después de varios intentos.",
+                    )
+                    st.rerun()
+    
         except Exception as e:
             set_pedido_submission_status(
                 "error",
@@ -1459,7 +1506,30 @@ with tab1:
                 f"Error inesperado al registrar el pedido: {e}",
             )
             st.rerun()
+    with missing_fields_container:
+        pending_missing = st.session_state.get("pending_missing_submission")
+        if pending_missing:
+            tipo_envio_pendiente = pending_missing.get("tipo", "")
+            if tipo_envio_pendiente == "🔁 Devolución":
+                tipo_label = "devolución"
+            elif tipo_envio_pendiente == "🛠 Garantía":
+                tipo_label = "garantía"
+            else:
+                tipo_label = "caso especial"
 
+            st.warning(f"⚠️ Faltan campos obligatorios para la {tipo_label}.")
+            campos = pending_missing.get("fields", [])
+            if campos:
+                st.markdown("\n".join(f"- {campo}" for campo in campos))
+            st.info("Puedes completar los campos pendientes o continuar y se registrarán como 'N/A'.")
+
+            col_completar, col_continuar = st.columns(2)
+            with col_completar:
+                if st.button("Completar campos faltantes", key="cancel_missing_submission"):
+                    st.session_state.pop("pending_missing_submission", None)
+            with col_continuar:
+                if st.button("Continuar y enviar con campos vacíos", key="confirm_missing_submission"):
+                    st.session_state["trigger_submit_missing"] = True
 
 
 @st.cache_data(ttl=300)
