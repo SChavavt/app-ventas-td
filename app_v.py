@@ -846,6 +846,79 @@ with tab1:
         else ""
     )
 
+    override_special_submission = st.session_state.get("allow_special_override", False)
+    pending_missing_fields = st.session_state.get("pending_special_missing_fields", [])
+    pending_special_tipo = st.session_state.get("pending_special_tipo")
+
+    trigger_submission = submit_button or override_special_submission
+
+    if trigger_submission:
+        abort_special_submission = False
+        special_missing_fields = []
+
+        if tipo_envio == "🔁 Devolución":
+            if not resultado_esperado:
+                special_missing_fields.append("🎯 Resultado esperado")
+            if not material_devuelto:
+                special_missing_fields.append("📦 Material a devolver")
+            if monto_devuelto == 0:
+                special_missing_fields.append("💲 Total de materiales a devolver")
+            if not motivo_detallado:
+                special_missing_fields.append("📝 Explicación detallada del caso")
+            if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
+                special_missing_fields.append("👤 Nombre del responsable del error")
+
+        if tipo_envio == "🛠 Garantía":
+            if not g_descripcion_falla:
+                special_missing_fields.append("🧩 Descripción de la falla")
+            if not g_resultado_esperado:
+                special_missing_fields.append("🎯 Resultado esperado (garantía)")
+            if g_area_responsable in ["Vendedor", "Almacén"] and not g_nombre_responsable:
+                special_missing_fields.append("👤 Nombre del responsable en garantía")
+
+        if special_missing_fields and not override_special_submission:
+            abort_special_submission = True
+            pending_missing_fields = special_missing_fields
+            pending_special_tipo = tipo_envio
+            st.session_state["pending_special_missing_fields"] = special_missing_fields
+            st.session_state["pending_special_tipo"] = tipo_envio
+            st.session_state["allow_special_override"] = False
+
+        if abort_special_submission:
+            trigger_submission = False
+        else:
+            st.session_state.pop("pending_special_missing_fields", None)
+            st.session_state.pop("pending_special_tipo", None)
+            st.session_state.pop("allow_special_override", None)
+            pending_missing_fields = []
+            pending_special_tipo = None
+
+    if pending_missing_fields:
+        tipo_texto = "devolución"
+        if pending_special_tipo == "🛠 Garantía":
+            tipo_texto = "garantía"
+        warning_text = (
+            "⚠️ Estás intentando enviar una "
+            f"{tipo_texto} con campos obligatorios sin completar."
+        )
+        warning_box = st.warning(warning_text)
+        warning_box.markdown(
+            "**Campos faltantes:**\n" + "\n".join(f"• {campo}" for campo in pending_missing_fields)
+        )
+        col_cancelar, col_confirmar = st.columns(2)
+        with col_cancelar:
+            if st.button("Volver y completar campos", key="cancel_special_override"):
+                st.session_state.pop("pending_special_missing_fields", None)
+                st.session_state.pop("pending_special_tipo", None)
+                st.session_state.pop("allow_special_override", None)
+                st.rerun()
+        with col_confirmar:
+            if st.button("Enviar de todos modos", key="confirm_special_override"):
+                st.session_state.pop("pending_special_missing_fields", None)
+                st.session_state.pop("pending_special_tipo", None)
+                st.session_state["allow_special_override"] = True
+                st.rerun()
+
     message_container = st.container()
 
     with message_container:
@@ -1094,30 +1167,12 @@ with tab1:
     # -------------------------------
     # Registro del Pedido
     # -------------------------------
-    if submit_button:
+    if trigger_submission:
         st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
-
-            # Validación Devolución
-            if tipo_envio == "🔁 Devolución":
-                if not resultado_esperado or not material_devuelto or monto_devuelto == 0 or not motivo_detallado:
-                    st.warning("⚠️ Completa todos los campos obligatorios de devolución.")
-                    st.stop()
-                if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
-                    st.warning("⚠️ Debes especificar el nombre del responsable.")
-                    st.stop()
-
-            # Validación Garantía
-            if tipo_envio == "🛠 Garantía":
-                if not g_descripcion_falla or not g_resultado_esperado:
-                    st.warning("⚠️ Completa 'Descripción de la Falla' y 'Resultado Esperado' en garantía.")
-                    st.stop()
-                if g_area_responsable in ["Vendedor", "Almacén"] and not g_nombre_responsable:
-                    st.warning("⚠️ Debes especificar el nombre del responsable en garantía.")
-                    st.stop()
 
             # Validar comprobante de pago para tipos normales
             if tipo_envio in [
