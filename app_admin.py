@@ -3215,6 +3215,132 @@ with tab2:
             file_name=f"confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+        st.markdown("---")
+        st.subheader("🚚 Actualizar estado de entrega de pedidos locales")
+
+        if "Tipo_Envio" in df_confirmados_guardados.columns:
+            df_local_confirmados = df_confirmados_guardados[
+                df_confirmados_guardados["Tipo_Envio"].astype(str).str.strip()
+                == "📍 Pedido Local"
+            ].copy()
+        else:
+            df_local_confirmados = pd.DataFrame()
+
+        if ESTADO_ENTREGA_COL not in df_local_confirmados.columns:
+            df_local_confirmados[ESTADO_ENTREGA_COL] = ESTADO_ENTREGA_DEFAULT
+
+        if df_local_confirmados.empty:
+            st.info("ℹ️ No hay pedidos locales confirmados para actualizar.")
+        else:
+            if "ID_Pedido" in df_local_confirmados.columns:
+                df_local_confirmados = df_local_confirmados.drop_duplicates(
+                    subset="ID_Pedido", keep="last"
+                )
+
+            df_local_confirmados[ESTADO_ENTREGA_COL] = df_local_confirmados[
+                ESTADO_ENTREGA_COL
+            ].apply(normalize_estado_entrega)
+
+            def _local_display_label(row: pd.Series) -> str:
+                folio = row.get("Folio_Factura", "N/A")
+                cliente = row.get("Cliente", "N/A")
+                estado = row.get(ESTADO_ENTREGA_COL, "") or "Sin estado"
+                return f"📄 {folio} - 👤 {cliente} · {estado}"
+
+            local_options = [
+                _local_display_label(row)
+                for _, row in df_local_confirmados.iterrows()
+            ]
+
+            if not local_options:
+                st.info("ℹ️ No hay pedidos locales disponibles para actualizar.")
+            else:
+                option_keys = list(range(len(local_options)))
+                selected_idx_local = st.selectbox(
+                    "Selecciona un pedido local para ajustar su entrega",
+                    options=option_keys,
+                    format_func=lambda i: local_options[i],
+                    key="select_local_entrega_confirmados",
+                )
+
+                selected_local_row = df_local_confirmados.iloc[selected_idx_local]
+                estado_actual = normalize_estado_entrega(
+                    selected_local_row.get(ESTADO_ENTREGA_COL, "")
+                )
+                if estado_actual not in ESTADO_ENTREGA_OPCIONES:
+                    estado_actual = ESTADO_ENTREGA_DEFAULT
+                estado_nuevo = st.radio(
+                    "Estado de entrega",
+                    ESTADO_ENTREGA_OPCIONES,
+                    index=ESTADO_ENTREGA_OPCIONES.index(estado_actual),
+                    horizontal=True,
+                    key=f"radio_estado_entrega_{selected_idx_local}",
+                )
+
+                if st.button(
+                    "💾 Guardar estado de entrega",
+                    type="primary",
+                    key=f"btn_guardar_estado_entrega_{selected_idx_local}",
+                ):
+                    try:
+                        pedido_id_raw = selected_local_row.get("ID_Pedido", "")
+                        pedido_id_norm = normalize_id_pedido(pedido_id_raw)
+                        folio_norm = normalize_folio_factura(
+                            selected_local_row.get("Folio_Factura", "")
+                        )
+
+                        df_pedidos_idx = pd.Index([])
+                        if "ID_Pedido" in df_pedidos.columns and pedido_id_norm:
+                            df_pedidos_idx = df_pedidos[
+                                df_pedidos["ID_Pedido"].apply(normalize_id_pedido)
+                                == pedido_id_norm
+                            ].index
+
+                        if df_pedidos_idx.empty and "Folio_Factura" in df_pedidos.columns and folio_norm:
+                            df_pedidos_idx = df_pedidos[
+                                df_pedidos["Folio_Factura"].apply(normalize_folio_factura)
+                                == folio_norm
+                            ].index
+
+                        if df_pedidos_idx.empty:
+                            raise ValueError(
+                                "No se encontró el pedido en la hoja 'datos_pedidos'."
+                            )
+
+                        gsheet_row_index = df_pedidos_idx[0] + 2
+
+                        worksheet = _get_ws_datos()
+                        headers_local = ensure_sheet_column(
+                            worksheet, headers, ESTADO_ENTREGA_COL
+                        )
+                        st.session_state.headers = headers_local
+                        headers = headers_local
+
+                        safe_batch_update(
+                            worksheet,
+                            [
+                                {
+                                    "range": rowcol_to_a1(
+                                        gsheet_row_index,
+                                        headers_local.index(ESTADO_ENTREGA_COL) + 1,
+                                    ),
+                                    "values": [[estado_nuevo]],
+                                }
+                            ],
+                        )
+
+                        _get_ws_datos.clear()
+                        cargar_pedidos_desde_google_sheet.clear()
+
+                        df_pedidos.at[df_pedidos_idx[0], ESTADO_ENTREGA_COL] = estado_nuevo
+                        st.session_state.df_pedidos = df_pedidos
+
+                        st.success("✅ Estado de entrega actualizado correctamente.")
+                        st.toast("Estado de entrega actualizado", icon="📦")
+                        rerun_current_tab()
+                    except Exception as err:
+                        st.error(f"❌ No se pudo actualizar el estado de entrega: {err}")
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
     st.session_state["current_tab"] = "2"
