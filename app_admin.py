@@ -3503,47 +3503,12 @@ with tab3, suppress(StopException):
         st.markdown(f"### {title}")
 
         mod_txt = clean_modificacion_surtido(row.get("Modificacion_Surtido", ""))
-        adj_mod_raw = row.get("Adjuntos_Surtido", "")
-        if "partir_urls" in globals():
-            adj_mod = partir_urls(adj_mod_raw)
-        else:
-            adj_mod = [x.strip() for x in str(adj_mod_raw).split(",") if x.strip()]
+        mod_txt_message = f"🛠 Modificación de surtido: {mod_txt}" if mod_txt else ""
+        mod_txt_displayed = False
 
-        highlight_modificacion = bool(mod_txt) or bool(adj_mod)
-        if highlight_modificacion:
-            mensaje_mod = (
-                html.escape(mod_txt).replace("\n", "<br>")
-                if mod_txt
-                else "Se registró una modificación sin comentario capturado."
-            )
-            st.markdown(
-                f"""
-                <div style="
-                    border: 2px solid #ff7043;
-                    background: linear-gradient(135deg, rgba(255, 112, 67, 0.12), rgba(255, 204, 188, 0.25));
-                    padding: 1.1rem 1.3rem;
-                    border-radius: 0.9rem;
-                    margin-bottom: 1.2rem;
-                    box-shadow: 0 4px 18px rgba(255, 112, 67, 0.18);
-                ">
-                    <div style="display:flex;align-items:center;gap:0.6rem;">
-                        <span style="font-size:1.6rem;">🚨</span>
-                        <div style="font-size:1.1rem;font-weight:700;color:#bf360c;">
-                            Modificación de surtido detectada
-                        </div>
-                    </div>
-                    <p style="margin:0.8rem 0 0;color:#4e342e;line-height:1.55;font-size:1rem;">
-                        {mensaje_mod}
-                    </p>
-                </div>
-                """
-                ,
-                unsafe_allow_html=True,
-            )
-            if adj_mod:
-                st.markdown("**📎 Archivos relacionados con la modificación:**")
-                for u in adj_mod:
-                    st.markdown(f"- {__link(u)}")
+        if mod_txt_message:
+            st.info(mod_txt_message)
+            mod_txt_displayed = True
 
         vendedor = row.get("Vendedor_Registro", "") or row.get("Vendedor", "")
         hora = row.get("Hora_Registro", "")
@@ -3628,9 +3593,21 @@ with tab3, suppress(StopException):
             st.markdown("**🗒️ Comentario Administrativo:**")
             st.info(__s(row.get("Comentarios_Admin_Devolucion","")))
 
-        # Separador visual adicional cuando hubo modificación
-        if highlight_modificacion:
-            st.markdown("---")
+        adj_mod_raw = row.get("Adjuntos_Surtido","")
+        if 'partir_urls' in globals():
+            adj_mod = partir_urls(adj_mod_raw)
+        else:
+            adj_mod = [x.strip() for x in str(adj_mod_raw).split(",") if x.strip()]
+        show_mod_section = bool(adj_mod) or (mod_txt_message and not mod_txt_displayed)
+        if show_mod_section:
+            st.markdown("#### 🛠 Modificación de surtido")
+            if mod_txt_message and not mod_txt_displayed:
+                st.info(mod_txt_message)
+                mod_txt_displayed = True
+            if adj_mod:
+                st.markdown("**Archivos de modificación:**")
+                for u in adj_mod:
+                    st.markdown(f"- {__link(u)}")
 
         with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
             adj_raw = row.get("Adjuntos","")
