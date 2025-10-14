@@ -3492,8 +3492,18 @@ with tab3, suppress(StopException):
     def __link(url, label=None):
         u = __s(url)
         if __is_url(u):
-            import os
-            return f"[{label or (os.path.basename(u) or 'Abrir')}]({u})"
+            display_text = u
+            safe_display = (
+                display_text.replace("[", "\\[")
+                .replace("]", "\\]")
+                .replace("`", "\\`")
+            )
+            safe_url = (
+                u.replace(" ", "%20")
+                .replace("(", "%28")
+                .replace(")", "%29")
+            )
+            return f"[{safe_display}]({safe_url})"
         return u
 
     def render_caso_especial(row):
