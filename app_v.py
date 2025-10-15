@@ -47,6 +47,19 @@ def normalize_case_amount(value, placeholder: str = "N/A") -> str:
     return f"{amount:.2f}" if amount > 0 else placeholder
 
 
+def format_estado_entrega(value) -> str:
+    """Return delivery status text for local orders."""
+    if value is None:
+        return "Sin info de entrega"
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned if cleaned else "Sin info de entrega"
+    if pd.isna(value):
+        return "Sin info de entrega"
+    cleaned = str(value).strip()
+    return cleaned if cleaned else "Sin info de entrega"
+
+
 def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
     """Rate-limit manual reloads to avoid hitting services too often."""
     now = time.time()
@@ -1825,6 +1838,8 @@ with tab2:
                     st.write(f"**Tipo de Envío:** {selected_row_data.get('Tipo_Envio', 'N/A')}")
                     if selected_row_data.get('Tipo_Envio') == "📍 Pedido Local":
                         st.write(f"**Turno Local:** {selected_row_data.get('Turno', 'N/A')}")
+                        estado_entrega_local = format_estado_entrega(selected_row_data.get('Estado_Entrega'))
+                        st.write(f"**Estado_Entrega:** {estado_entrega_local}")
                     st.write(f"**Fecha de Entrega:** {selected_row_data.get('Fecha_Entrega', 'N/A')}")
                     st.write(f"**Comentario Original:** {selected_row_data.get('Comentario', 'N/A')}")
                     st.write(f"**Estado de Pago:** {selected_row_data.get('Estado_Pago', '🔴 No Pagado')}")
@@ -3013,6 +3028,9 @@ with tab7:
                     "ID_Pedido": pedido_id,
                     "Cliente": row.get("Cliente", ""),
                     "Estado": row.get("Estado", ""),
+                    "Tipo_Envio": row.get("Tipo_Envio", ""),
+                    "Turno": row.get("Turno", ""),
+                    "Estado_Entrega": row.get("Estado_Entrega", ""),
                     "Vendedor": row.get("Vendedor_Registro", ""),
                     "Folio": row.get("Folio_Factura", ""),
                     "Motivo_NotaVenta": row.get("Motivo_NotaVenta", ""),
@@ -3146,6 +3164,9 @@ with tab7:
                             "ID_Pedido": pedido_id,
                             "Cliente": row.get("Cliente", ""),
                             "Estado": row.get("Estado", ""),
+                            "Tipo_Envio": row.get("Tipo_Envio", ""),
+                            "Turno": row.get("Turno", ""),
+                            "Estado_Entrega": row.get("Estado_Entrega", ""),
                             "Vendedor": row.get("Vendedor_Registro", ""),
                             "Folio": row.get("Folio_Factura", ""),
                             "Hora_Registro": row.get("Hora_Registro", ""),
@@ -3301,6 +3322,12 @@ with tab7:
                         f"📄 **Folio:** `{res['Folio'] or 'N/D'}`  |  🔍 **Estado:** `{res['Estado'] or 'N/D'}`  |  "
                         f"🧑‍💼 **Vendedor:** `{res['Vendedor'] or 'N/D'}`  |  🕒 **Hora:** `{res['Hora_Registro'] or 'N/D'}`"
                     )
+                    if res.get("Tipo_Envio") == "📍 Pedido Local":
+                        turno_local = normalize_case_text(res.get("Turno"), "N/A")
+                        estado_entrega_local = format_estado_entrega(res.get("Estado_Entrega"))
+                        st.markdown(
+                            f"**📍 Pedido Local:** Turno `{turno_local}`  |  Estado_Entrega `{estado_entrega_local}`"
+                        )
                     st.markdown(f"**📌 Seguimiento:** {res.get('Seguimiento','N/A')}")
 
                     # ♻️ Refacturación (si hay)
