@@ -1186,7 +1186,8 @@ with tab1:
                     del st.session_state[key]
 
                 for key, value in preserved_keys.items():
-                    st.session_state[key] = value
+                    if key not in st.session_state:
+                        st.session_state[key] = value
 
                 clear_app_caches()
                 st.session_state.pop("pedido_submission_status", None)
