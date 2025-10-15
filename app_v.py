@@ -1099,15 +1099,22 @@ with tab1:
                 preserved_keys = {"last_selected_vendedor", "tipo_envio_selector_global"}
                 preserved_values = {k: st.session_state.get(k) for k in preserved_keys}
 
+                # ✅ Restaurar primero los valores importantes
+                for k, v in preserved_values.items():
+                    st.session_state[k] = v
+
+                # Luego limpiar el resto del estado
                 for key in list(st.session_state.keys()):
                     if key not in preserved_keys:
                         st.session_state.pop(key, None)
 
-                for k, v in preserved_values.items():
-                    st.session_state[k] = v
-
+                # Limpieza final
                 clear_app_caches()
                 st.session_state.pop("pedido_submission_status", None)
+
+                # ⚡ Pequeño truco para evitar conflicto con Streamlit
+                import time
+                time.sleep(0.05)
                 st.rerun()
 
 
