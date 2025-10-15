@@ -84,11 +84,99 @@ def clear_app_caches() -> None:
     get_s3_client.clear()
 
 
-def reset_session_state_preserving(preserved_values: dict[str, object]) -> None:
-    """Limpia el estado de sesión manteniendo las claves indicadas."""
-    st.session_state.clear()
-    for key, value in preserved_values.items():
-        st.session_state[key] = value
+TAB1_WIDGET_STATE_KEYS: set[str] = {
+    "Turno/Locales",
+    "registrar_nota_venta_checkbox",
+    "registro_cliente",
+    "numero_cliente_rfc",
+    "folio_factura_input",
+    "folio_factura_error_input",
+    "nota_venta_input",
+    "motivo_nota_venta_input",
+    "📦 Tipo de Envío Original",
+    "🗓 Fecha de Entrega Requerida",
+    "💬 Comentario / Descripción Detallada",
+    "direccion_guia_retorno_foraneo",
+    "resultado_esperado",
+    "material_devuelto",
+    "monto_devuelto",
+    "area_responsable",
+    "nombre_responsable",
+    "motivo_detallado",
+    "g_resultado_esperado",
+    "g_descripcion_falla",
+    "g_piezas_afectadas",
+    "g_monto_estimado",
+    "g_area_responsable",
+    "g_nombre_responsable",
+    "g_numero_serie",
+    "g_fecha_compra",
+    "direccion_guia_retorno",
+    "direccion_envio_destino",
+    "Sube archivos del pedido",
+    "comprobante_cliente",
+    "estado_pago",
+    "chk_doble",
+    "chk_triple",
+    "comprobante_uploader_final",
+    "fecha_pago_input",
+    "forma_pago_input",
+    "monto_pago_input",
+    "terminal_input",
+    "banco_destino_input",
+    "referencia_pago_input",
+    "cp_pago1",
+    "cp_pago2",
+    "cp_pago3",
+    "fecha_pago1",
+    "fecha_pago2",
+    "fecha_pago3",
+    "forma_pago1",
+    "forma_pago2",
+    "forma_pago3",
+    "monto_pago1",
+    "monto_pago2",
+    "monto_pago3",
+    "terminal1",
+    "terminal2",
+    "terminal3",
+    "banco1",
+    "banco2",
+    "banco3",
+    "ref1",
+    "ref2",
+    "ref3",
+}
+
+TAB1_AUXILIARY_STATE_KEYS: set[str] = {
+    "allow_submit_without_attachments",
+    "force_submit_without_attachments",
+    "acknowledge_pedido_status",
+    "retry_with_attachments",
+    "confirm_without_attachments",
+}
+
+
+def reset_tab1_form_state(additional_preserved: set[str] | None = None) -> None:
+    """Limpia los campos del formulario principal sin tocar el envío ni el vendedor."""
+
+    preserved_keys: set[str] = {
+        "last_selected_vendedor",
+        "current_tab_index",
+        "tipo_envio_selector_global",
+    }
+
+    if additional_preserved:
+        preserved_keys.update(additional_preserved)
+
+    for key in TAB1_WIDGET_STATE_KEYS.union(TAB1_AUXILIARY_STATE_KEYS):
+        if key in preserved_keys:
+            continue
+        st.session_state.pop(key, None)
+
+    for key in list(st.session_state.keys()):
+        if key.startswith("FormSubmitter:") and "Registrar Pedido" in key:
+            st.session_state.pop(key, None)
 
 
 def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
@@ -1660,18 +1748,7 @@ with tab1:
                         st.rerun()
                         break
             if exito:
-                vendedor = st.session_state.get("last_selected_vendedor")
-                current_index = st.session_state.get("current_tab_index", default_tab)
-                tipo_envio_seleccionado = st.session_state.get("tipo_envio_selector_global")
-
-                preserved_state = {
-                    "current_tab_index": current_index,
-                    "last_selected_vendedor": vendedor,
-                }
-                if tipo_envio_seleccionado is not None:
-                    preserved_state["tipo_envio_selector_global"] = tipo_envio_seleccionado
-
-                reset_session_state_preserving(preserved_state)
+                reset_tab1_form_state()
                 set_pedido_submission_status(
                     "success",
                     f"✅ El pedido {id_pedido} fue subido correctamente.",
