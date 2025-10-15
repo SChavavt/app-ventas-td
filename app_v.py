@@ -105,6 +105,8 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "ref3",
 }
 
+TAB1_FORM_RESET_FLAG = "tab1_form_reset_after_success"
+
 
 def normalize_case_text(value, placeholder: str = "N/A") -> str:
     """Return a clean string for optional case fields."""
@@ -1160,6 +1162,12 @@ with tab1:
             detail = status_data.get("detail")
             attachments = status_data.get("attachments") or []
 
+            if status == "success" and not st.session_state.get(TAB1_FORM_RESET_FLAG):
+                # Asegura que el formulario quede limpio incluso si no se pudo
+                # limpiar antes (por ejemplo, por un reinicio inesperado).
+                reset_tab1_form_state()
+                st.session_state[TAB1_FORM_RESET_FLAG] = True
+
             if status == "success":
                 st.success(status_data.get("message", "✅ Pedido registrado correctamente."))
                 if attachments:
@@ -1173,6 +1181,9 @@ with tab1:
                 st.error(error_message)
 
             if st.button("Aceptar", key="acknowledge_pedido_status"):
+                if status == "success" and not st.session_state.get(TAB1_FORM_RESET_FLAG):
+                    reset_tab1_form_state()
+                st.session_state.pop(TAB1_FORM_RESET_FLAG, None)
                 # Al confirmar aplicamos el mismo reinicio completo que el botón
                 # de recarga para garantizar que el siguiente pedido comience en
                 # un estado fresco y sin caches obsoletos.
@@ -1766,6 +1777,7 @@ with tab1:
                         break
             if exito:
                 reset_tab1_form_state()
+                st.session_state[TAB1_FORM_RESET_FLAG] = True
                 set_pedido_submission_status(
                     "success",
                     f"✅ El pedido {id_pedido} fue subido correctamente.",
