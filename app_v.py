@@ -1172,14 +1172,13 @@ with tab1:
                     error_message = f"{error_message}\n\n🔍 Detalle: {detail}"
                 st.error(error_message)
 
-            # ✅ Botón Aceptar con limpieza automática del formulario
             if st.button("Aceptar", key="acknowledge_pedido_status"):
-                from time import sleep
-                reset_tab1_form_state()
-                del st.session_state["pedido_submission_status"]
-                sleep(0.3)
+                # Al confirmar aplicamos el mismo reinicio completo que el botón
+                # de recarga para garantizar que el siguiente pedido comience en
+                # un estado fresco y sin caches obsoletos.
+                clear_app_caches()
+                st.session_state.pop("pedido_submission_status", None)
                 st.rerun()
-
 
     # -------------------------------
     # SECCIÓN DE ESTADO DE PAGO (FUERA DEL FORM) - sin cambios
