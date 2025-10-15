@@ -4,6 +4,7 @@ import streamlit.components.v1 as components
 import os
 from datetime import datetime, timedelta
 import json
+import base64
 import uuid
 import pandas as pd
 import pdfplumber
@@ -12,7 +13,10 @@ from io import BytesIO
 import time
 import re
 import gspread
+import html
 from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 from gspread.utils import rowcol_to_a1
@@ -28,6 +32,112 @@ st.set_page_config(page_title="App Vendedores TD", layout="wide")
 REFRESH_COOLDOWN = 60
 
 
+TAB1_PRESERVED_STATE_KEYS: set[str] = {
+    "last_selected_vendedor",
+    "current_tab_index",
+    "tipo_envio_selector_global",
+}
+
+
+TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
+    "registrar_nota_venta_checkbox",
+    "registro_cliente",
+    "numero_cliente_rfc",
+    "tipo_envio_original",
+    "subtipo_local_selector",
+    "folio_factura_error_input",
+    "nota_venta_input",
+    "motivo_nota_venta_input",
+    "folio_factura_input",
+    "fecha_entrega_input",
+    "comentario_detallado",
+    "direccion_guia_retorno_foraneo",
+    "resultado_esperado",
+    "material_devuelto",
+    "monto_devuelto",
+    "area_responsable",
+    "nombre_responsable",
+    "motivo_detallado",
+    "g_resultado_esperado",
+    "g_descripcion_falla",
+    "g_piezas_afectadas",
+    "g_monto_estimado",
+    "g_area_responsable",
+    "g_nombre_responsable",
+    "g_numero_serie",
+    "g_fecha_compra",
+    "direccion_guia_retorno",
+    "direccion_envio_destino",
+    "pedido_adjuntos",
+    "comprobante_cliente",
+    "allow_submit_without_attachments",
+    "force_submit_without_attachments",
+    "estado_pago",
+    "chk_doble",
+    "chk_triple",
+    "comprobante_uploader_final",
+    "fecha_pago_input",
+    "forma_pago_input",
+    "monto_pago_input",
+    "terminal_input",
+    "banco_destino_input",
+    "referencia_pago_input",
+    "cp_pago1",
+    "fecha_pago1",
+    "forma_pago1",
+    "monto_pago1",
+    "terminal1",
+    "banco1",
+    "ref1",
+    "cp_pago2",
+    "fecha_pago2",
+    "forma_pago2",
+    "monto_pago2",
+    "terminal2",
+    "banco2",
+    "ref2",
+    "cp_pago3",
+    "fecha_pago3",
+    "forma_pago3",
+    "monto_pago3",
+    "terminal3",
+    "banco3",
+    "ref3",
+}
+
+
+def normalize_case_text(value, placeholder: str = "N/A") -> str:
+    """Return a clean string for optional case fields."""
+    if value is None:
+        return placeholder
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned if cleaned else placeholder
+    return str(value)
+
+
+def normalize_case_amount(value, placeholder: str = "N/A") -> str:
+    """Format optional numeric fields, falling back to ``placeholder`` if empty."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return placeholder
+    return f"{amount:.2f}" if amount > 0 else placeholder
+
+
+def format_estado_entrega(value) -> str:
+    """Return delivery status text for local orders."""
+    if value is None:
+        return "Sin info de entrega"
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned if cleaned else "Sin info de entrega"
+    if pd.isna(value):
+        return "Sin info de entrega"
+    cleaned = str(value).strip()
+    return cleaned if cleaned else "Sin info de entrega"
+
+
 def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
     """Rate-limit manual reloads to avoid hitting services too often."""
     now = time.time()
@@ -37,6 +147,43 @@ def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> b
         return False
     st.session_state[key] = now
     return True
+
+
+def clear_app_caches() -> None:
+    """Reinicia las conexiones y datos cacheados para forzar una recarga completa."""
+    st.cache_data.clear()
+    cargar_pedidos.clear()
+    get_google_sheets_client.clear()
+    get_worksheet.clear()
+    get_s3_client.clear()
+
+
+def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None) -> None:
+    """Elimina los valores capturados en el formulario principal, conservando envío y vendedor."""
+
+    preserved_values = {
+        key: st.session_state.get(key)
+        for key in TAB1_PRESERVED_STATE_KEYS
+    }
+
+    if additional_preserved:
+        preserved_values.update(additional_preserved)
+
+    for key in TAB1_FORM_STATE_KEYS_TO_CLEAR:
+        st.session_state.pop(key, None)
+
+    # Asegura que el flujo de confirmación sin adjuntos vuelva a requerir archivos
+    st.session_state.setdefault("allow_submit_without_attachments", False)
+
+    for key, value in preserved_values.items():
+        if value is None:
+            continue
+
+        # Evita sobrescribir el valor si ya existe y coincide
+        if key in st.session_state and st.session_state[key] == value:
+            continue
+
+        st.session_state[key] = value
 
 
 def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
@@ -225,10 +372,7 @@ def cargar_pedidos():
 
 if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
     if allow_refresh("main_last_refresh"):
-        cargar_pedidos.clear()
-        get_google_sheets_client.clear()
-        get_worksheet.clear()
-        get_s3_client.clear()
+        clear_app_caches()
         st.rerun()
 
 st.title("🛒 App de Vendedores TD")
@@ -334,6 +478,149 @@ def __link(url, label=None):
         return f"[{label or (os.path.basename(u) or 'Abrir')}]({u})"
     return u
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+PDF_EXTENSIONS = {".pdf"}
+
+MAX_INLINE_PDF_BYTES = 10 * 1024 * 1024  # 10 MB límite para incrustar PDFs en base64
+
+
+def _render_pdf_iframe_from_base64(data: bytes) -> None:
+    """Render a PDF preview from raw bytes encoded in base64."""
+    if not data:
+        st.info("El archivo no contiene datos para mostrar.")
+        return
+    b64_pdf = base64.b64encode(data).decode("utf-8")
+    iframe = (
+        "<iframe src=\"data:application/pdf;base64,{data}\" width=\"100%\" height=\"600\" style=\"border:none;\"></iframe>"
+    ).format(data=b64_pdf)
+    components.html(iframe, height=620, scrolling=True)
+
+
+def _render_pdf_iframe_via_google(url: str) -> None:
+    """Fallback to Google Docs viewer for remote PDF URLs."""
+    viewer_url = f"https://docs.google.com/gview?url={quote(url, safe='')}\u0026embedded=true"
+    iframe = (
+        "<iframe src=\"{src}\" width=\"100%\" height=\"600\" style=\"border:none;\" allow=\"fullscreen\"></iframe>"
+    ).format(src=html.escape(viewer_url, quote=True))
+    components.html(iframe, height=620, scrolling=True)
+
+
+def _clean_url_path(value: str) -> str:
+    """Remove query/hash parameters from a URL or filename."""
+    cleaned = __s(value)
+    if not cleaned:
+        return ""
+    return cleaned.split("?")[0].split("#")[0]
+
+
+def _infer_extension(value: str) -> str:
+    """Infer lowercase file extension from a path or URL."""
+    cleaned = _clean_url_path(value)
+    return os.path.splitext(cleaned)[1].lower()
+
+
+def _infer_display_name(value: str) -> str:
+    """Return a friendly filename to display for a URL or path."""
+    cleaned = _clean_url_path(value)
+    name = os.path.basename(cleaned)
+    return name or cleaned or "Archivo"
+
+
+def render_remote_file_preview(url: str, display_label: str) -> None:
+    """Render an inline preview for a remote file when possible."""
+    if not __is_url(url):
+        st.info("El archivo no es una URL válida para previsualizar.")
+        return
+
+    ext = _infer_extension(url)
+    if ext in IMAGE_EXTENSIONS:
+        st.image(url, caption=display_label, use_column_width=True)
+    elif ext in PDF_EXTENSIONS:
+        rendered = False
+        try:
+            request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(request, timeout=10) as response:
+                data = response.read(MAX_INLINE_PDF_BYTES + 1)
+                if len(data) > MAX_INLINE_PDF_BYTES:
+                    raise ValueError("PDF supera el límite para vista previa embebida")
+                _render_pdf_iframe_from_base64(data)
+                rendered = True
+        except (HTTPError, URLError, ValueError, TimeoutError, OSError):
+            st.caption("No se pudo generar la vista previa directa del PDF. Se usa visor alternativo.")
+
+        if not rendered:
+            _render_pdf_iframe_via_google(url)
+    else:
+        st.info("Vista previa no disponible para este tipo de archivo.")
+
+
+def add_url_preview_expander(url: str, display_label: str) -> None:
+    """Attach an expander with a preview for a given URL."""
+    if not __is_url(url):
+        return
+    with st.expander(f"👁️ Vista previa • {display_label}", expanded=False):
+        render_remote_file_preview(url, display_label)
+
+
+def render_attachment_link(url: str, label: str | None = None, icon: str | None = None, bullet: bool = True) -> None:
+    """Render a file link and automatically include an expandable preview."""
+    if not __has(url):
+        return
+
+    display_label = label or _infer_display_name(url)
+    prefix = f"{icon} " if icon else ""
+
+    if bullet:
+        if __is_url(url):
+            st.markdown(f"- {prefix}[{display_label}]({url})")
+        else:
+            st.markdown(f"- {prefix}{__s(url)}")
+    else:
+        if __is_url(url):
+            st.markdown(f"{prefix}[{display_label}]({url})")
+        else:
+            st.markdown(f"{prefix}{__s(url)}")
+
+    if __is_url(url):
+        add_url_preview_expander(url, display_label)
+
+
+def render_uploaded_file_preview(file_obj) -> None:
+    """Show a preview expander for an uploaded Streamlit file."""
+    file_name = getattr(file_obj, "name", "Archivo")
+    display_label = file_name or "Archivo"
+    ext = _infer_extension(file_name)
+
+    with st.expander(f"👁️ Vista previa • {display_label}", expanded=False):
+        if ext in IMAGE_EXTENSIONS:
+            file_obj.seek(0)
+            st.image(file_obj.read(), caption=display_label, use_column_width=True)
+            file_obj.seek(0)
+        elif ext in PDF_EXTENSIONS:
+            file_obj.seek(0)
+            data = file_obj.read()
+            file_obj.seek(0)
+            if data:
+                b64_pdf = base64.b64encode(data).decode("utf-8")
+                iframe = (
+                    "<iframe src=\"data:application/pdf;base64,{data}\" width=\"100%\" height=\"600\" style=\"border:none;\"></iframe>"
+                ).format(data=b64_pdf)
+                components.html(iframe, height=620, scrolling=True)
+            else:
+                st.info("El archivo no contiene datos para mostrar.")
+        else:
+            st.info("Vista previa no disponible para este tipo de archivo.")
+
+
+def render_uploaded_files_preview(title: str, files) -> None:
+    """Render previews for a collection of uploaded files."""
+    if not files:
+        return
+
+    st.markdown(f"##### 👁️ {title}")
+    for file_obj in files:
+        render_uploaded_file_preview(file_obj)
+
 def render_caso_especial(row):
     tipo = __s(row.get("Tipo_Envio", ""))
     is_dev = (tipo == "🔁 Devolución")
@@ -422,9 +709,17 @@ def render_caso_especial(row):
     nota = __s(row.get("Nota_Credito_URL",""))
     docad = __s(row.get("Documento_Adicional_URL",""))
     if __has(nota):
-        st.markdown(f"**🧾 Nota de Crédito:** {__link(nota, 'Nota de Crédito') if __is_url(nota) else nota}")
+        if __is_url(nota):
+            st.markdown(f"**🧾 Nota de Crédito:** {__link(nota, 'Nota de Crédito')}")
+            add_url_preview_expander(nota, "Nota de Crédito")
+        else:
+            st.markdown(f"**🧾 Nota de Crédito:** {nota}")
     if __has(docad):
-        st.markdown(f"**📂 Documento Adicional:** {__link(docad, 'Documento Adicional') if __is_url(docad) else docad}")
+        if __is_url(docad):
+            st.markdown(f"**📂 Documento Adicional:** {__link(docad, 'Documento Adicional')}")
+            add_url_preview_expander(docad, "Documento Adicional")
+        else:
+            st.markdown(f"**📂 Documento Adicional:** {docad}")
     if __has(row.get("Comentarios_Admin_Devolucion","")):
         st.markdown("**🗒️ Comentario Administrativo:**")
         st.info(__s(row.get("Comentarios_Admin_Devolucion","")))
@@ -439,7 +734,7 @@ def render_caso_especial(row):
         if adj_mod:
             st.markdown("**Archivos de modificación:**")
             for u in adj_mod:
-                st.markdown(f"- {__link(u)}")
+                render_attachment_link(u)
 
     with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
         adj_raw = row.get("Adjuntos","")
@@ -450,11 +745,11 @@ def render_caso_especial(row):
             has_any = True
             st.markdown("**Adjuntos:**")
             for u in adj:
-                st.markdown(f"- {__link(u)}")
+                render_attachment_link(u)
         if __has(guia) and __is_url(guia):
             has_any = True
             st.markdown("**Guía:**")
-            st.markdown(f"- {__link(guia, 'Abrir guía')}")
+            render_attachment_link(guia, "Abrir guía")
         if not has_any:
             st.info("Sin archivos registrados en la hoja.")
     st.markdown("---")
@@ -573,6 +868,10 @@ with tab1:
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
     st.header("📝 Nuevo Pedido")
+
+    # -------------------------------
+    # SELECCIÓN DE TIPO DE ENVÍO
+    # -------------------------------
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
         [
@@ -596,22 +895,32 @@ with tab1:
             "Turno/Locales",
             ["☀️ Local Mañana", "🌙 Local Tarde", "🌵 Saltillo", "📦 Pasa a Bodega"],
             index=0,
+            key="subtipo_local_selector",
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
 
+    registrar_nota_venta = st.checkbox(
+        "🧾 Registrar nota de venta",
+        key="registrar_nota_venta_checkbox",
+        help="Activa para capturar los datos de una nota de venta.",
+    )
+
     # -------------------------------
-    # Inicialización de variables
+    # VARIABLES INICIALES
     # -------------------------------
     vendedor = ""
     registro_cliente = ""
     numero_cliente_rfc = ""
+    nota_venta = ""
+    motivo_nota_venta = ""
+    folio_factura_input_value = ""
     folio_factura = ""
-    folio_factura_error = ""  # 🆕 NUEVO para devoluciones
+    folio_factura_error = ""
     fecha_entrega = datetime.now().date()
     comentario = ""
     uploaded_files = []
 
-    # Variables Devolución
+    # Variables para Devolución
     tipo_envio_original = ""
     resultado_esperado = ""
     material_devuelto = ""
@@ -621,7 +930,7 @@ with tab1:
     monto_devuelto = 0.0
     comprobante_cliente = None
 
-    # Variables Garantía
+    # Variables para Garantía
     g_resultado_esperado = ""
     g_descripcion_falla = ""
     g_piezas_afectadas = ""
@@ -634,9 +943,10 @@ with tab1:
     direccion_envio_destino = ""
 
     # -------------------------------
-    # --- FORMULARIO PRINCIPAL ---
+    # FORMULARIO PRINCIPAL
     # -------------------------------
-    with st.form(key="new_pedido_form", clear_on_submit=True):
+    st.session_state.setdefault("allow_submit_without_attachments", False)
+    with st.form(key="new_pedido_form", clear_on_submit=True):  # ✅ Limpieza automática
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
@@ -651,7 +961,7 @@ with tab1:
 
         registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
 
-        # Número de cliente / RFC para Casos Especiales (Devolución y Garantía)
+        # Número de cliente / RFC (para Casos Especiales)
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
             numero_cliente_rfc = st.text_input("🆔 Número de Cliente o RFC (opcional)", key="numero_cliente_rfc")
 
@@ -661,146 +971,110 @@ with tab1:
                 "📦 Tipo de Envío Original",
                 ["📍 Local", "🚚 Foráneo"],
                 index=0,
+                key="tipo_envio_original",
                 help="Selecciona el tipo de envío del pedido que se va a devolver."
             )
 
-            # 🆕 NUEVO: Folio Error arriba del folio normal
             folio_factura_error = st.text_input(
                 "📄 Folio Error (factura equivocada, si aplica)",
                 key="folio_factura_error_input"
             )
 
-        # Folio normal (renombrado a 'Folio Nuevo' en devoluciones)
-        folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
-        folio_factura = st.text_input(folio_label, key="folio_factura_input")
-
-        # Campos de pedido normal (no Casos Especiales)
-        if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
-            fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", datetime.now().date())
-
-        comentario = st.text_area("💬 Comentario / Descripción Detallada")
-
-        if tipo_envio == "🚚 Pedido Foráneo":
-            direccion_guia_retorno = st.text_area(
-                "📬 Dirección para guía de retorno",
-                key="direccion_guia_retorno_foraneo",
+        # Folio o Nota de venta
+        if registrar_nota_venta:
+            nota_venta = st.text_input(
+                "🧾 Nota de Venta",
+                key="nota_venta_input",
+                help="Ingresa el número de nota de venta si aplica.",
             )
+            motivo_nota_venta = st.text_area(
+                "✏️ Motivo de nota de venta",
+                key="motivo_nota_venta_input",
+                help="Describe el motivo de la nota de venta, si aplica.",
+            )
+            st.session_state.pop("folio_factura_input", None)
+        else:
+            folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
+            folio_factura_input_value = st.text_input(folio_label, key="folio_factura_input")
 
-        # --- Campos adicionales para Devolución ---
+        # Fecha y comentario
+        if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
+            fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", value=datetime.now().date(), key="fecha_entrega_input")
+
+        comentario = st.text_area("💬 Comentario / Descripción Detallada", key="comentario_detallado")
+
+        # Dirección guía (solo foráneo)
+        if tipo_envio == "🚚 Pedido Foráneo":
+            direccion_guia_retorno = st.text_area("📬 Dirección para guía de retorno", key="direccion_guia_retorno_foraneo")
+
+        # -------------------------------
+        # SECCIÓN DEVOLUCIÓN
+        # -------------------------------
         if tipo_envio == "🔁 Devolución":
             st.markdown("### 🔁 Información de Devolución")
-
-            resultado_esperado = st.selectbox(
-                "🎯 Resultado Esperado",
-                ["Cambio de Producto", "Devolución de Dinero", "Saldo a Favor"],
-                key="resultado_esperado"
-            )
-
-            material_devuelto = st.text_area(
-                "📦 Material a Devolver (códigos, descripciones, cantidades y monto individual con IVA)",
-                key="material_devuelto"
-            )
-
-            monto_devuelto = st.number_input(
-                "💲 Total de Materiales a Devolver (con IVA)",
-                min_value=0.0,
-                format="%.2f",
-                key="monto_devuelto"
-            )
-
-            area_responsable = st.selectbox(
-                "🏷 Área Responsable del Error",
-                ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"],
-                key="area_responsable"
-            )
-
+            resultado_esperado = st.selectbox("🎯 Resultado Esperado", ["Cambio de Producto", "Devolución de Dinero", "Saldo a Favor"], key="resultado_esperado")
+            material_devuelto = st.text_area("📦 Material a Devolver", key="material_devuelto")
+            monto_devuelto = st.number_input("💲 Total de Materiales a Devolver (con IVA)", min_value=0.0, format="%.2f", key="monto_devuelto")
+            area_responsable = st.selectbox("🏷 Área Responsable", ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"], key="area_responsable")
             if area_responsable in ["Vendedor", "Almacén"]:
                 nombre_responsable = st.text_input("👤 Nombre del Empleado Responsable", key="nombre_responsable")
             else:
                 nombre_responsable = "No aplica"
-
             motivo_detallado = st.text_area("📝 Explicación Detallada del Caso", key="motivo_detallado")
 
-        # --- Campos adicionales para Garantía ---
+        # -------------------------------
+        # SECCIÓN GARANTÍA
+        # -------------------------------
         if tipo_envio == "🛠 Garantía":
             st.markdown("### 🛠 Información de Garantía")
-
-            g_resultado_esperado = st.selectbox(
-                "🎯 Resultado Esperado",
-                ["Reparación", "Cambio por Garantía", "Nota de Crédito"],
-                key="g_resultado_esperado"
-            )
-
-            g_descripcion_falla = st.text_area(
-                "🧩 Descripción de la Falla (detallada)",
-                key="g_descripcion_falla"
-            )
-
-            g_piezas_afectadas = st.text_area(
-                "🧰 Piezas/Material afectado (códigos, descripciones, cantidades y monto individual con IVA si aplica)",
-                key="g_piezas_afectadas"
-            )
-
-            g_monto_estimado = st.number_input(
-                "💲 Monto estimado de atención (con IVA, opcional)",
-                min_value=0.0,
-                format="%.2f",
-                key="g_monto_estimado"
-            )
-
-            g_area_responsable = st.selectbox(
-                "🏷 Área posiblemente responsable",
-                ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"],
-                key="g_area_responsable"
-            )
-
+            g_resultado_esperado = st.selectbox("🎯 Resultado Esperado", ["Reparación", "Cambio por Garantía", "Nota de Crédito"], key="g_resultado_esperado")
+            g_descripcion_falla = st.text_area("🧩 Descripción de la Falla", key="g_descripcion_falla")
+            g_piezas_afectadas = st.text_area("🧰 Piezas/Material afectado", key="g_piezas_afectadas")
+            g_monto_estimado = st.number_input("💲 Monto estimado de atención (opcional)", min_value=0.0, format="%.2f", key="g_monto_estimado")
+            g_area_responsable = st.selectbox("🏷 Área posiblemente responsable", ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"], key="g_area_responsable")
             if g_area_responsable in ["Vendedor", "Almacén"]:
                 g_nombre_responsable = st.text_input("👤 Nombre del Empleado Responsable", key="g_nombre_responsable")
             else:
                 g_nombre_responsable = "No aplica"
-
             col_g1, col_g2 = st.columns(2)
             with col_g1:
                 g_numero_serie = st.text_input("🔢 Número de serie / lote (opcional)", key="g_numero_serie")
             with col_g2:
                 g_fecha_compra = st.date_input("🗓 Fecha de compra (opcional)", value=None, key="g_fecha_compra")
 
+        # Direcciones extra
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
             st.markdown("### 🏠 Direcciones")
-            direccion_guia_retorno = st.text_area(
-                "📬 Dirección para guía de retorno",
-                key="direccion_guia_retorno",
-            )
-            direccion_envio_destino = st.text_area(
-                "📦 Dirección de envío destino",
-                key="direccion_envio_destino",
-            )
+            direccion_guia_retorno = st.text_area("📬 Dirección para guía de retorno", key="direccion_guia_retorno")
+            direccion_envio_destino = st.text_area("📦 Dirección de envío destino", key="direccion_envio_destino")
 
+        # -------------------------------
+        # ARCHIVOS ADJUNTOS
+        # -------------------------------
         st.markdown("---")
         st.subheader("📎 Adjuntos del Pedido")
-        uploaded_files = st.file_uploader(
-            "Sube archivos del pedido",
-            type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
-            accept_multiple_files=True
-        )
+        uploaded_files = st.file_uploader("Sube archivos del pedido", type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"], accept_multiple_files=True, key="pedido_adjuntos")
+        render_uploaded_files_preview("Archivos seleccionados", uploaded_files)
 
-        # --- Evidencias/Comprobantes PARA DEVOLUCIONES y GARANTÍAS ---
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
             st.markdown("---")
             st.subheader("📎 Evidencias / Comprobantes del Caso")
-            comprobante_cliente = st.file_uploader(
-                "Sube evidencia(s) del caso (comprobantes, fotos, PDF, etc.)",
-                type=["pdf", "jpg", "jpeg", "png"],
-                accept_multiple_files=True,
-                key="comprobante_cliente",
-                help="Sube archivos relacionados con esta devolución o garantía"
-            )
+            comprobante_cliente = st.file_uploader("Sube evidencia(s) del caso", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="comprobante_cliente")
+            render_uploaded_files_preview("Evidencias seleccionadas", comprobante_cliente)
 
-        # AL FINAL DEL FORMULARIO: botón submit
+        # -------------------------------
+        # BOTÓN DE ENVÍO
+        # -------------------------------
         submit_button = st.form_submit_button("✅ Registrar Pedido")
 
-    message_container = st.container()
+    # Define el flujo del envío
+    force_submit_without_attachments = st.session_state.pop("force_submit_without_attachments", False)
+    should_process_submission = submit_button or force_submit_without_attachments
 
+    # -------------------------------
+    # MENSAJE FINAL Y LIMPIEZA
+    # -------------------------------
+    message_container = st.container()
     with message_container:
         status_data = st.session_state.get("pedido_submission_status")
         if status_data:
@@ -814,16 +1088,28 @@ with tab1:
                     st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(url) for url in attachments))
                 if detail:
                     st.write(detail)
-                st.balloons()
             else:
                 error_message = status_data.get("message", "❌ Falla al subir el pedido.")
                 if detail:
                     error_message = f"{error_message}\n\n🔍 Detalle: {detail}"
                 st.error(error_message)
 
+            # 🧹 Limpieza de campos tras “Aceptar”
             if st.button("Aceptar", key="acknowledge_pedido_status"):
-                del st.session_state["pedido_submission_status"]
+                preserved_keys = {"last_selected_vendedor", "tipo_envio_selector_global"}
+                preserved_values = {k: st.session_state.get(k) for k in preserved_keys}
+
+                for key in list(st.session_state.keys()):
+                    if key not in preserved_keys:
+                        st.session_state.pop(key, None)
+
+                for k, v in preserved_values.items():
+                    st.session_state[k] = v
+
+                clear_app_caches()
+                st.session_state.pop("pedido_submission_status", None)
                 st.rerun()
+
 
     # -------------------------------
     # SECCIÓN DE ESTADO DE PAGO (FUERA DEL FORM) - sin cambios
@@ -860,6 +1146,7 @@ with tab1:
                     key="comprobante_uploader_final"
                 )
                 st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
+                render_uploaded_files_preview("Comprobantes de pago seleccionados", comprobante_pago_files)
 
                 with st.expander("🧾 Detalles del Pago (opcional)"):
                     col1, col2, col3 = st.columns(3)
@@ -900,6 +1187,7 @@ with tab1:
             elif pago_doble:
                 st.markdown("### 1️⃣ Primer Pago")
                 comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                render_uploaded_files_preview("Comprobantes del primer pago", comp1)
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
                 monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
@@ -925,6 +1213,7 @@ with tab1:
 
                 st.markdown("### 2️⃣ Segundo Pago")
                 comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                render_uploaded_files_preview("Comprobantes del segundo pago", comp2)
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
                 monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
@@ -960,6 +1249,7 @@ with tab1:
             elif pago_triple:
                 st.markdown("### 1️⃣ Primer Pago")
                 comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                render_uploaded_files_preview("Comprobantes del primer pago", comp1)
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
                 monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
@@ -985,6 +1275,7 @@ with tab1:
 
                 st.markdown("### 2️⃣ Segundo Pago")
                 comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                render_uploaded_files_preview("Comprobantes del segundo pago", comp2)
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
                 monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
@@ -1010,6 +1301,7 @@ with tab1:
 
                 st.markdown("### 3️⃣ Tercer Pago")
                 comp3 = st.file_uploader("💳 Comprobante 3", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago3")
+                render_uploaded_files_preview("Comprobantes del tercer pago", comp3)
                 fecha3 = st.date_input("📅 Fecha 3", value=datetime.today().date(), key="fecha_pago3")
                 forma3 = st.selectbox("💳 Forma 3", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago3")
                 monto3 = st.number_input("💲 Monto 3", min_value=0.0, format="%.2f", key="monto_pago3")
@@ -1044,30 +1336,53 @@ with tab1:
     # -------------------------------
     # Registro del Pedido
     # -------------------------------
-    if submit_button:
+    if should_process_submission:
         st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
 
-            # Validación Devolución
-            if tipo_envio == "🔁 Devolución":
-                if not resultado_esperado or not material_devuelto or monto_devuelto == 0 or not motivo_detallado:
-                    st.warning("⚠️ Completa todos los campos obligatorios de devolución.")
-                    st.stop()
-                if area_responsable in ["Vendedor", "Almacén"] and not nombre_responsable:
-                    st.warning("⚠️ Debes especificar el nombre del responsable.")
-                    st.stop()
+            allow_without_attachments = st.session_state.get("allow_submit_without_attachments", False)
+            if not uploaded_files and not allow_without_attachments:
+                st.warning(
+                    "Intento de se subir pedio sin archivos adjunte uno o si no es necesario darle en continuar"
+                )
+                col_adjuntar, col_continuar = st.columns(2)
+                with col_adjuntar:
+                    st.button(
+                        "Adjuntar archivos y volver a intentar",
+                        key="retry_with_attachments",
+                        help="Permite adjuntar archivos antes de registrar el pedido.",
+                    )
+                with col_continuar:
+                    if st.button(
+                        "Continuar sin adjuntos",
+                        key="confirm_without_attachments",
+                        help="Continúa con el registro del pedido sin adjuntos.",
+                    ):
+                        st.session_state["allow_submit_without_attachments"] = True
+                        st.session_state["force_submit_without_attachments"] = True
+                        st.rerun()
+                st.stop()
 
-            # Validación Garantía
+            st.session_state["allow_submit_without_attachments"] = False
+
+            # Normalización de campos para Casos Especiales
+            if tipo_envio == "🔁 Devolución":
+                resultado_esperado = normalize_case_text(resultado_esperado)
+                material_devuelto = normalize_case_text(material_devuelto)
+                motivo_detallado = normalize_case_text(motivo_detallado)
+                nombre_responsable = normalize_case_text(nombre_responsable)
             if tipo_envio == "🛠 Garantía":
-                if not g_descripcion_falla or not g_resultado_esperado:
-                    st.warning("⚠️ Completa 'Descripción de la Falla' y 'Resultado Esperado' en garantía.")
-                    st.stop()
-                if g_area_responsable in ["Vendedor", "Almacén"] and not g_nombre_responsable:
-                    st.warning("⚠️ Debes especificar el nombre del responsable en garantía.")
-                    st.stop()
+                g_resultado_esperado = normalize_case_text(g_resultado_esperado)
+                g_descripcion_falla = normalize_case_text(g_descripcion_falla)
+                g_piezas_afectadas = normalize_case_text(g_piezas_afectadas)
+                g_nombre_responsable = normalize_case_text(g_nombre_responsable)
+                g_numero_serie = normalize_case_text(g_numero_serie)
+            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                direccion_guia_retorno = normalize_case_text(direccion_guia_retorno)
+                direccion_envio_destino = normalize_case_text(direccion_envio_destino)
 
             # Validar comprobante de pago para tipos normales
             if tipo_envio in [
@@ -1233,9 +1548,11 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Folio_Factura":
-                    values.append(folio_factura)  # en devoluciones es "Folio Nuevo"
+                    values.append(folio_factura)  # en devoluciones es "Folio Nuevo" o Nota de Venta
                 elif header == "Folio_Factura_Error":  # 🆕 mapeo adicional
                     values.append(folio_factura_error if tipo_envio == "🔁 Devolución" else "")
+                elif header == "Motivo_NotaVenta":
+                    values.append(motivo_nota_venta)
                 elif header == "Tipo_Envio":
                     values.append(tipo_envio)
                 elif header == "Tipo_Envio_Original":
@@ -1310,9 +1627,9 @@ with tab1:
                         values.append("")
                 elif header == "Monto_Devuelto":
                     if tipo_envio == "🔁 Devolución":
-                        values.append(f"{monto_devuelto:.2f}")
+                        values.append(normalize_case_amount(monto_devuelto))
                     elif tipo_envio == "🛠 Garantía":
-                        values.append(f"{g_monto_estimado:.2f}" if g_monto_estimado > 0 else "")
+                        values.append(normalize_case_amount(g_monto_estimado))
                     else:
                         values.append("")
                 elif header == "Motivo_Detallado":
@@ -1379,11 +1696,7 @@ with tab1:
                         st.rerun()
                         break
             if exito:
-                vendedor = st.session_state.get("last_selected_vendedor")
-                current_index = st.session_state.get("current_tab_index", default_tab)
-                st.session_state.clear()
-                st.session_state.current_tab_index = current_index
-                st.session_state.last_selected_vendedor = vendedor
+                reset_tab1_form_state()
                 set_pedido_submission_status(
                     "success",
                     f"✅ El pedido {id_pedido} fue subido correctamente.",
@@ -1443,7 +1756,7 @@ def cargar_pedidos_combinados():
         needed_datos: list[str] = []
         needed_datos += [
             'ID_Pedido','Cliente','Folio_Factura','Vendedor_Registro','Estado','Hora_Registro','Turno','Fecha_Entrega',
-            'Comentario','Estado_Pago',
+            'Comentario','Estado_Pago','Motivo_NotaVenta',
             # archivos/adjuntos
             'Adjuntos','Adjuntos_Guia','Adjuntos_Surtido','Modificacion_Surtido',
             # refacturación
@@ -1568,8 +1881,20 @@ def cargar_pedidos_combinados():
 
             
 # --- TAB 2: MODIFY EXISTING ORDER ---
-if "reset_inputs_tab2" in st.session_state:
-    del st.session_state["reset_inputs_tab2"]
+reset_inputs_tab2_flag = st.session_state.pop("reset_inputs_tab2", False)
+if reset_inputs_tab2_flag:
+    # Limpiar entradas controladas por widgets antes de instanciarlos
+    for key in [
+        "new_modificacion_surtido_input",
+        "uploaded_files_surtido",
+        "uploaded_comprobantes_extra",
+        "tipo_modificacion_mod",
+        "refact_tipo_mod_outside",
+        "subtipo_datos_outside",
+        "subtipo_material_outside",
+        "folio_refact_outside",
+    ]:
+        st.session_state.pop(key, None)
 
 with tab2:
     tab2_is_active = default_tab == 1
@@ -1715,6 +2040,8 @@ with tab2:
                     st.write(f"**Tipo de Envío:** {selected_row_data.get('Tipo_Envio', 'N/A')}")
                     if selected_row_data.get('Tipo_Envio') == "📍 Pedido Local":
                         st.write(f"**Turno Local:** {selected_row_data.get('Turno', 'N/A')}")
+                        estado_entrega_local = format_estado_entrega(selected_row_data.get('Estado_Entrega'))
+                        st.write(f"**Estado_Entrega:** {estado_entrega_local}")
                     st.write(f"**Fecha de Entrega:** {selected_row_data.get('Fecha_Entrega', 'N/A')}")
                     st.write(f"**Comentario Original:** {selected_row_data.get('Comentario', 'N/A')}")
                     st.write(f"**Estado de Pago:** {selected_row_data.get('Estado_Pago', '🔴 No Pagado')}")
@@ -1727,14 +2054,14 @@ with tab2:
                     if current_adjuntos_list_basic:
                         st.write("**Adjuntos Originales:**")
                         for adj in current_adjuntos_list_basic:
-                            st.markdown(f"- [{os.path.basename(adj)}]({adj})")
+                            render_attachment_link(adj)
                     else:
                         st.write("**Adjuntos Originales:** Ninguno")
 
                     if current_adjuntos_surtido_list_basic:
                         st.write("**Adjuntos de Modificación/Surtido:**")
                         for adj_surtido in current_adjuntos_surtido_list_basic:
-                            st.markdown(f"- [{os.path.basename(adj_surtido)}]({adj_surtido})")
+                            render_attachment_link(adj_surtido)
                     else:
                         st.write("**Adjuntos de Modificación/Surtido:** Ninguno")
 
@@ -1790,7 +2117,7 @@ with tab2:
 
                 # ----------------- Formulario de modificación -----------------
                 with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
-                    default_modificacion_text = "" if st.session_state.get("reset_inputs_tab2") else current_modificacion_surtido_value
+                    default_modificacion_text = "" if reset_inputs_tab2_flag else current_modificacion_surtido_value
 
                     new_modificacion_surtido_input = st.text_area(
                         "✍️ Notas de Modificación/Surtido",
@@ -1981,8 +2308,6 @@ with tab2:
                                     st.session_state["reset_inputs_tab2"] = True
                                     st.session_state["show_success_message"] = True
                                     st.session_state["last_updated_order_id"] = selected_order_id
-                                    st.session_state["new_modificacion_surtido_input"] = ""   # limpiar textarea
-                                    st.session_state["uploaded_files_surtido"] = []           # limpiar uploader
                                     if tab2_is_active and st.session_state.get("current_tab_index") == 1:
                                         st.query_params.update({"tab": "1"})  # mantener UX actual
                                     st.rerun()
@@ -2017,7 +2342,6 @@ with tab2:
             st.session_state.get("show_success_message")
             and not st.session_state.get("_mod_tab2_success_feedback_sent")
         ):
-            st.balloons()
             st.toast(f"✅ Pedido {pedido_id} actualizado", icon="📦")
             st.session_state["_mod_tab2_success_feedback_sent"] = True
 
@@ -2201,7 +2525,6 @@ with tab3:
                                     safe_batch_update(worksheet, updates)
 
                                     st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
-                                    st.balloons()
                                     st.rerun()
                                 else:
                                     st.warning("⚠️ No se subió ningún archivo correctamente.")
@@ -2238,7 +2561,6 @@ with tab3:
                         safe_batch_update(worksheet, updates)
 
                         st.success("✅ Pedido marcado como pagado sin comprobante.")
-                        st.balloons()
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
@@ -2302,7 +2624,7 @@ def cargar_casos_especiales():
         # Refacturación
         "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
         # Detalle del caso
-        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto",
+        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto","Motivo_NotaVenta",
         "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
         "Direccion_Guia_Retorno","Direccion_Envio",
         # ⚙️ NUEVO: Garantías
@@ -2631,10 +2953,10 @@ with tab5:
             if ultima_guia:
                 url_encoded = quote(ultima_guia, safe=':/')
                 if fuente == "casos_especiales":
-                    st.markdown(f"[{ultima_guia}]({url_encoded})")
+                    render_attachment_link(url_encoded, _infer_display_name(ultima_guia), bullet=False)
                 else:
                     nombre = ultima_guia.split("/")[-1]
-                    st.markdown(f"- [📄 {nombre}]({url_encoded})")
+                    render_attachment_link(url_encoded, f"📄 {nombre}")
             else:
                 st.warning("⚠️ No se encontró una URL válida para la guía.")
 
@@ -2908,8 +3230,12 @@ with tab7:
                     "ID_Pedido": pedido_id,
                     "Cliente": row.get("Cliente", ""),
                     "Estado": row.get("Estado", ""),
+                    "Tipo_Envio": row.get("Tipo_Envio", ""),
+                    "Turno": row.get("Turno", ""),
+                    "Estado_Entrega": row.get("Estado_Entrega", ""),
                     "Vendedor": row.get("Vendedor_Registro", ""),
                     "Folio": row.get("Folio_Factura", ""),
+                    "Motivo_NotaVenta": row.get("Motivo_NotaVenta", ""),
                     "Hora_Registro": row.get("Hora_Registro", ""),
                     "Seguimiento": row.get("Seguimiento", ""),
                     # 🛠 Modificación de surtido
@@ -2952,6 +3278,7 @@ with tab7:
                     # Folios
                     "Folio": row.get("Folio_Factura",""),
                     "Folio_Factura_Error": row.get("Folio_Factura_Error",""),
+                    "Motivo_NotaVenta": row.get("Motivo_NotaVenta", ""),
                     "Hora_Registro": row.get("Hora_Registro",""),
                     "Tipo_Envio": row.get("Tipo_Envio",""),
                     "Estado": row.get("Estado",""),
@@ -3039,6 +3366,9 @@ with tab7:
                             "ID_Pedido": pedido_id,
                             "Cliente": row.get("Cliente", ""),
                             "Estado": row.get("Estado", ""),
+                            "Tipo_Envio": row.get("Tipo_Envio", ""),
+                            "Turno": row.get("Turno", ""),
+                            "Estado_Entrega": row.get("Estado_Entrega", ""),
                             "Vendedor": row.get("Vendedor_Registro", ""),
                             "Folio": row.get("Folio_Factura", ""),
                             "Hora_Registro": row.get("Hora_Registro", ""),
@@ -3150,10 +3480,25 @@ with tab7:
                         f"**📅 Recepción:** {res.get('Fecha_Recepcion_Devolucion','') or 'N/A'}  |  "
                         f"**📦 Recepción:** {res.get('Estado_Recepcion','') or 'N/A'}"
                     )
-                    st.markdown(
-                        f"**🧾 Nota de Crédito:** {res.get('Nota_Credito_URL','') or 'N/A'}  |  "
-                        f"**📂 Documento Adicional:** {res.get('Documento_Adicional_URL','') or 'N/A'}"
-                    )
+                    nota_url = __s(res.get('Nota_Credito_URL',''))
+                    docad_url = __s(res.get('Documento_Adicional_URL',''))
+                    if __has(nota_url):
+                        if __is_url(nota_url):
+                            st.markdown(f"**🧾 Nota de Crédito:** {__link(nota_url, 'Nota de Crédito')}")
+                            add_url_preview_expander(nota_url, "Nota de Crédito")
+                        else:
+                            st.markdown(f"**🧾 Nota de Crédito:** {nota_url}")
+                    else:
+                        st.markdown("**🧾 Nota de Crédito:** N/A")
+
+                    if __has(docad_url):
+                        if __is_url(docad_url):
+                            st.markdown(f"**📂 Documento Adicional:** {__link(docad_url, 'Documento Adicional')}")
+                            add_url_preview_expander(docad_url, "Documento Adicional")
+                        else:
+                            st.markdown(f"**📂 Documento Adicional:** {docad_url}")
+                    else:
+                        st.markdown("**📂 Documento Adicional:** N/A")
                     if str(res.get("Comentarios_Admin_Devolucion","")).strip():
                         st.markdown("**🗒️ Comentario Administrativo:**")
                         st.info(str(res.get("Comentarios_Admin_Devolucion","")).strip())
@@ -3168,8 +3513,7 @@ with tab7:
                         if mod_urls:
                             st.markdown("**Archivos de modificación:**")
                             for u in mod_urls:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
+                                render_attachment_link(u)
 
                     with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
                         adj = res.get("Adjuntos_urls", []) or []
@@ -3177,11 +3521,10 @@ with tab7:
                         if adj:
                             st.markdown("**Adjuntos:**")
                             for u in adj:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
+                                render_attachment_link(u)
                         if guia and guia.lower() not in ("nan","none","n/a"):
                             st.markdown("**Guía:**")
-                            st.markdown(f"- [Abrir guía]({guia})")
+                            render_attachment_link(guia, "Abrir guía")
                         if not adj and not guia:
                             st.info("Sin archivos registrados en la hoja.")
 
@@ -3194,6 +3537,12 @@ with tab7:
                         f"📄 **Folio:** `{res['Folio'] or 'N/D'}`  |  🔍 **Estado:** `{res['Estado'] or 'N/D'}`  |  "
                         f"🧑‍💼 **Vendedor:** `{res['Vendedor'] or 'N/D'}`  |  🕒 **Hora:** `{res['Hora_Registro'] or 'N/D'}`"
                     )
+                    if res.get("Tipo_Envio") == "📍 Pedido Local":
+                        turno_local = normalize_case_text(res.get("Turno"), "N/A")
+                        estado_entrega_local = format_estado_entrega(res.get("Estado_Entrega"))
+                        st.markdown(
+                            f"**📍 Pedido Local:** Turno `{turno_local}`  |  Estado_Entrega `{estado_entrega_local}`"
+                        )
                     st.markdown(f"**📌 Seguimiento:** {res.get('Seguimiento','N/A')}")
 
                     # ♻️ Refacturación (si hay)
@@ -3211,22 +3560,22 @@ with tab7:
                             st.markdown("#### 🔍 Guías:")
                             for key, url in res["Coincidentes"]:
                                 nombre = key.split("/")[-1]
-                                st.markdown(f"- [🔍 {nombre}]({url})")
+                                render_attachment_link(url, f"🔍 {nombre}")
                         if res.get("Comprobantes"):
                             st.markdown("#### 🧾 Comprobantes:")
                             for key, url in res["Comprobantes"]:
                                 nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
+                                render_attachment_link(url, f"📄 {nombre}")
                         if res.get("Facturas"):
                             st.markdown("#### 📁 Facturas:")
                             for key, url in res["Facturas"]:
                                 nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
+                                render_attachment_link(url, f"📄 {nombre}")
                         if res.get("Otros"):
                             st.markdown("#### 📂 Otros Archivos:")
                             for key, url in res["Otros"]:
                                 nombre = key.split("/")[-1]
-                                st.markdown(f"- [📌 {nombre}]({url})")
+                                render_attachment_link(url, f"📌 {nombre}")
 
                         # 🛠 Modificación de surtido (si existe)
                         mod_txt = res.get("Modificacion_Surtido", "") or ""
@@ -3238,8 +3587,7 @@ with tab7:
                             if mod_urls:
                                 st.markdown("**Archivos de modificación:**")
                                 for u in mod_urls:
-                                    nombre = u.split("/")[-1]
-                                    st.markdown(f"- [{nombre}]({u})")
+                                    render_attachment_link(u)
 
         else:
             mensaje = (
