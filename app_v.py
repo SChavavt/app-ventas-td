@@ -868,10 +868,6 @@ with tab1:
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
     st.header("📝 Nuevo Pedido")
-
-    # -------------------------------
-    # SELECCIÓN DE TIPO DE ENVÍO
-    # -------------------------------
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
         [
@@ -906,7 +902,7 @@ with tab1:
     )
 
     # -------------------------------
-    # VARIABLES INICIALES
+    # Inicialización de variables
     # -------------------------------
     vendedor = ""
     registro_cliente = ""
@@ -915,12 +911,12 @@ with tab1:
     motivo_nota_venta = ""
     folio_factura_input_value = ""
     folio_factura = ""
-    folio_factura_error = ""
+    folio_factura_error = ""  # 🆕 NUEVO para devoluciones
     fecha_entrega = datetime.now().date()
     comentario = ""
     uploaded_files = []
 
-    # Variables para Devolución
+    # Variables Devolución
     tipo_envio_original = ""
     resultado_esperado = ""
     material_devuelto = ""
@@ -930,7 +926,7 @@ with tab1:
     monto_devuelto = 0.0
     comprobante_cliente = None
 
-    # Variables para Garantía
+    # Variables Garantía
     g_resultado_esperado = ""
     g_descripcion_falla = ""
     g_piezas_afectadas = ""
@@ -943,10 +939,10 @@ with tab1:
     direccion_envio_destino = ""
 
     # -------------------------------
-    # FORMULARIO PRINCIPAL
+    # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
     st.session_state.setdefault("allow_submit_without_attachments", False)
-    with st.form(key="new_pedido_form", clear_on_submit=True):  # ✅ Limpieza automática
+    with st.form(key="new_pedido_form", clear_on_submit=False):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
@@ -961,7 +957,7 @@ with tab1:
 
         registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
 
-        # Número de cliente / RFC (para Casos Especiales)
+        # Número de cliente / RFC para Casos Especiales (Devolución y Garantía)
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
             numero_cliente_rfc = st.text_input("🆔 Número de Cliente o RFC (opcional)", key="numero_cliente_rfc")
 
@@ -975,106 +971,188 @@ with tab1:
                 help="Selecciona el tipo de envío del pedido que se va a devolver."
             )
 
+            # 🆕 NUEVO: Folio Error arriba del folio normal
             folio_factura_error = st.text_input(
                 "📄 Folio Error (factura equivocada, si aplica)",
                 key="folio_factura_error_input"
             )
 
-        # Folio o Nota de venta
         if registrar_nota_venta:
             nota_venta = st.text_input(
                 "🧾 Nota de Venta",
                 key="nota_venta_input",
-                help="Ingresa el número de nota de venta si aplica.",
+                help="Ingresa el número de nota de venta si aplica. Se guardará en la misma columna que el folio.",
             )
             motivo_nota_venta = st.text_area(
                 "✏️ Motivo de nota de venta",
                 key="motivo_nota_venta_input",
-                help="Describe el motivo de la nota de venta, si aplica.",
+                help="Describe el motivo de la nota de venta, si se registró una.",
             )
             st.session_state.pop("folio_factura_input", None)
         else:
+            # Folio normal (renombrado a 'Folio Nuevo' en devoluciones)
             folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
             folio_factura_input_value = st.text_input(folio_label, key="folio_factura_input")
 
-        # Fecha y comentario
+        # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
-            fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", value=datetime.now().date(), key="fecha_entrega_input")
+            fecha_entrega = st.date_input(
+                "🗓 Fecha de Entrega Requerida",
+                value=datetime.now().date(),
+                key="fecha_entrega_input",
+            )
 
-        comentario = st.text_area("💬 Comentario / Descripción Detallada", key="comentario_detallado")
+        comentario = st.text_area(
+            "💬 Comentario / Descripción Detallada",
+            key="comentario_detallado",
+        )
 
-        # Dirección guía (solo foráneo)
         if tipo_envio == "🚚 Pedido Foráneo":
-            direccion_guia_retorno = st.text_area("📬 Dirección para guía de retorno", key="direccion_guia_retorno_foraneo")
+            direccion_guia_retorno = st.text_area(
+                "📬 Dirección para guía de retorno",
+                key="direccion_guia_retorno_foraneo",
+            )
 
-        # -------------------------------
-        # SECCIÓN DEVOLUCIÓN
-        # -------------------------------
+        # --- Campos adicionales para Devolución ---
         if tipo_envio == "🔁 Devolución":
             st.markdown("### 🔁 Información de Devolución")
-            resultado_esperado = st.selectbox("🎯 Resultado Esperado", ["Cambio de Producto", "Devolución de Dinero", "Saldo a Favor"], key="resultado_esperado")
-            material_devuelto = st.text_area("📦 Material a Devolver", key="material_devuelto")
-            monto_devuelto = st.number_input("💲 Total de Materiales a Devolver (con IVA)", min_value=0.0, format="%.2f", key="monto_devuelto")
-            area_responsable = st.selectbox("🏷 Área Responsable", ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"], key="area_responsable")
+
+            resultado_esperado = st.selectbox(
+                "🎯 Resultado Esperado",
+                ["Cambio de Producto", "Devolución de Dinero", "Saldo a Favor"],
+                key="resultado_esperado"
+            )
+
+            material_devuelto = st.text_area(
+                "📦 Material a Devolver (códigos, descripciones, cantidades y monto individual con IVA)",
+                key="material_devuelto"
+            )
+
+            monto_devuelto = st.number_input(
+                "💲 Total de Materiales a Devolver (con IVA)",
+                min_value=0.0,
+                format="%.2f",
+                key="monto_devuelto"
+            )
+
+            area_responsable = st.selectbox(
+                "🏷 Área Responsable del Error",
+                ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"],
+                key="area_responsable"
+            )
+
             if area_responsable in ["Vendedor", "Almacén"]:
                 nombre_responsable = st.text_input("👤 Nombre del Empleado Responsable", key="nombre_responsable")
             else:
                 nombre_responsable = "No aplica"
+
             motivo_detallado = st.text_area("📝 Explicación Detallada del Caso", key="motivo_detallado")
 
-        # -------------------------------
-        # SECCIÓN GARANTÍA
-        # -------------------------------
+        # --- Campos adicionales para Garantía ---
         if tipo_envio == "🛠 Garantía":
             st.markdown("### 🛠 Información de Garantía")
-            g_resultado_esperado = st.selectbox("🎯 Resultado Esperado", ["Reparación", "Cambio por Garantía", "Nota de Crédito"], key="g_resultado_esperado")
-            g_descripcion_falla = st.text_area("🧩 Descripción de la Falla", key="g_descripcion_falla")
-            g_piezas_afectadas = st.text_area("🧰 Piezas/Material afectado", key="g_piezas_afectadas")
-            g_monto_estimado = st.number_input("💲 Monto estimado de atención (opcional)", min_value=0.0, format="%.2f", key="g_monto_estimado")
-            g_area_responsable = st.selectbox("🏷 Área posiblemente responsable", ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"], key="g_area_responsable")
+
+            g_resultado_esperado = st.selectbox(
+                "🎯 Resultado Esperado",
+                ["Reparación", "Cambio por Garantía", "Nota de Crédito"],
+                key="g_resultado_esperado"
+            )
+
+            g_descripcion_falla = st.text_area(
+                "🧩 Descripción de la Falla (detallada)",
+                key="g_descripcion_falla"
+            )
+
+            g_piezas_afectadas = st.text_area(
+                "🧰 Piezas/Material afectado (códigos, descripciones, cantidades y monto individual con IVA si aplica)",
+                key="g_piezas_afectadas"
+            )
+
+            g_monto_estimado = st.number_input(
+                "💲 Monto estimado de atención (con IVA, opcional)",
+                min_value=0.0,
+                format="%.2f",
+                key="g_monto_estimado"
+            )
+
+            g_area_responsable = st.selectbox(
+                "🏷 Área posiblemente responsable",
+                ["Vendedor", "Almacén", "Cliente", "Proveedor", "Otro"],
+                key="g_area_responsable"
+            )
+
             if g_area_responsable in ["Vendedor", "Almacén"]:
                 g_nombre_responsable = st.text_input("👤 Nombre del Empleado Responsable", key="g_nombre_responsable")
             else:
                 g_nombre_responsable = "No aplica"
+
             col_g1, col_g2 = st.columns(2)
             with col_g1:
                 g_numero_serie = st.text_input("🔢 Número de serie / lote (opcional)", key="g_numero_serie")
             with col_g2:
                 g_fecha_compra = st.date_input("🗓 Fecha de compra (opcional)", value=None, key="g_fecha_compra")
 
-        # Direcciones extra
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
             st.markdown("### 🏠 Direcciones")
-            direccion_guia_retorno = st.text_area("📬 Dirección para guía de retorno", key="direccion_guia_retorno")
-            direccion_envio_destino = st.text_area("📦 Dirección de envío destino", key="direccion_envio_destino")
+            direccion_guia_retorno = st.text_area(
+                "📬 Dirección para guía de retorno",
+                key="direccion_guia_retorno",
+            )
+            direccion_envio_destino = st.text_area(
+                "📦 Dirección de envío destino",
+                key="direccion_envio_destino",
+            )
 
-        # -------------------------------
-        # ARCHIVOS ADJUNTOS
-        # -------------------------------
         st.markdown("---")
         st.subheader("📎 Adjuntos del Pedido")
-        uploaded_files = st.file_uploader("Sube archivos del pedido", type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"], accept_multiple_files=True, key="pedido_adjuntos")
-        render_uploaded_files_preview("Archivos seleccionados", uploaded_files)
+        uploaded_files = st.file_uploader(
+            "Sube archivos del pedido",
+            type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
+            accept_multiple_files=True,
+            key="pedido_adjuntos",
+        )
+        render_uploaded_files_preview("Archivos del pedido seleccionados", uploaded_files)
 
+        # --- Evidencias/Comprobantes PARA DEVOLUCIONES y GARANTÍAS ---
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
             st.markdown("---")
             st.subheader("📎 Evidencias / Comprobantes del Caso")
-            comprobante_cliente = st.file_uploader("Sube evidencia(s) del caso", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="comprobante_cliente")
+            comprobante_cliente = st.file_uploader(
+                "Sube evidencia(s) del caso (comprobantes, fotos, PDF, etc.)",
+                type=["pdf", "jpg", "jpeg", "png"],
+                accept_multiple_files=True,
+                key="comprobante_cliente",
+                help="Sube archivos relacionados con esta devolución o garantía"
+            )
             render_uploaded_files_preview("Evidencias seleccionadas", comprobante_cliente)
 
-        # -------------------------------
-        # BOTÓN DE ENVÍO
-        # -------------------------------
+        # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
 
-    # Define el flujo del envío
     force_submit_without_attachments = st.session_state.pop("force_submit_without_attachments", False)
     should_process_submission = submit_button or force_submit_without_attachments
 
-    # -------------------------------
-    # MENSAJE FINAL Y LIMPIEZA
-    # -------------------------------
+    if not registrar_nota_venta:
+        nota_venta = ""
+        motivo_nota_venta = ""
+
+    folio_factura = (
+        nota_venta.strip() if registrar_nota_venta and isinstance(nota_venta, str) else ""
+    )
+    if not folio_factura:
+        folio_factura = (
+            folio_factura_input_value.strip()
+            if isinstance(folio_factura_input_value, str)
+            else ""
+        )
+    motivo_nota_venta = (
+        motivo_nota_venta.strip()
+        if registrar_nota_venta and isinstance(motivo_nota_venta, str)
+        else ""
+    )
+
     message_container = st.container()
+
     with message_container:
         status_data = st.session_state.get("pedido_submission_status")
         if status_data:
@@ -1094,22 +1172,13 @@ with tab1:
                     error_message = f"{error_message}\n\n🔍 Detalle: {detail}"
                 st.error(error_message)
 
-            # 🧹 Limpieza de campos tras “Aceptar”
             if st.button("Aceptar", key="acknowledge_pedido_status"):
-                preserved_keys = {"last_selected_vendedor", "tipo_envio_selector_global"}
-                preserved_values = {k: st.session_state.get(k) for k in preserved_keys}
-
-                for key in list(st.session_state.keys()):
-                    if key not in preserved_keys:
-                        st.session_state.pop(key, None)
-
-                for k, v in preserved_values.items():
-                    st.session_state[k] = v
-
+                # Al confirmar aplicamos el mismo reinicio completo que el botón
+                # de recarga para garantizar que el siguiente pedido comience en
+                # un estado fresco y sin caches obsoletos.
                 clear_app_caches()
                 st.session_state.pop("pedido_submission_status", None)
                 st.rerun()
-
 
     # -------------------------------
     # SECCIÓN DE ESTADO DE PAGO (FUERA DEL FORM) - sin cambios
