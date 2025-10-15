@@ -32,6 +32,80 @@ st.set_page_config(page_title="App Vendedores TD", layout="wide")
 REFRESH_COOLDOWN = 60
 
 
+TAB1_PRESERVED_STATE_KEYS: set[str] = {
+    "last_selected_vendedor",
+    "current_tab_index",
+    "tipo_envio_selector_global",
+}
+
+
+TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
+    "registrar_nota_venta_checkbox",
+    "registro_cliente",
+    "numero_cliente_rfc",
+    "tipo_envio_original",
+    "subtipo_local_selector",
+    "folio_factura_error_input",
+    "nota_venta_input",
+    "motivo_nota_venta_input",
+    "folio_factura_input",
+    "fecha_entrega_input",
+    "comentario_detallado",
+    "direccion_guia_retorno_foraneo",
+    "resultado_esperado",
+    "material_devuelto",
+    "monto_devuelto",
+    "area_responsable",
+    "nombre_responsable",
+    "motivo_detallado",
+    "g_resultado_esperado",
+    "g_descripcion_falla",
+    "g_piezas_afectadas",
+    "g_monto_estimado",
+    "g_area_responsable",
+    "g_nombre_responsable",
+    "g_numero_serie",
+    "g_fecha_compra",
+    "direccion_guia_retorno",
+    "direccion_envio_destino",
+    "pedido_adjuntos",
+    "comprobante_cliente",
+    "allow_submit_without_attachments",
+    "force_submit_without_attachments",
+    "estado_pago",
+    "chk_doble",
+    "chk_triple",
+    "comprobante_uploader_final",
+    "fecha_pago_input",
+    "forma_pago_input",
+    "monto_pago_input",
+    "terminal_input",
+    "banco_destino_input",
+    "referencia_pago_input",
+    "cp_pago1",
+    "fecha_pago1",
+    "forma_pago1",
+    "monto_pago1",
+    "terminal1",
+    "banco1",
+    "ref1",
+    "cp_pago2",
+    "fecha_pago2",
+    "forma_pago2",
+    "monto_pago2",
+    "terminal2",
+    "banco2",
+    "ref2",
+    "cp_pago3",
+    "fecha_pago3",
+    "forma_pago3",
+    "monto_pago3",
+    "terminal3",
+    "banco3",
+    "ref3",
+}
+
+
 def normalize_case_text(value, placeholder: str = "N/A") -> str:
     """Return a clean string for optional case fields."""
     if value is None:
@@ -87,32 +161,26 @@ def clear_app_caches() -> None:
 def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None) -> None:
     """Elimina los valores capturados en el formulario principal, conservando envío y vendedor."""
 
-    preserved_keys = {
-        "last_selected_vendedor": st.session_state.get("last_selected_vendedor"),
-        "current_tab_index": st.session_state.get("current_tab_index"),
+    preserved_values = {
+        key: st.session_state.get(key)
+        for key in TAB1_PRESERVED_STATE_KEYS
     }
 
-    tipo_envio_guardado = st.session_state.get("tipo_envio_selector_global")
-    if tipo_envio_guardado is not None:
-        preserved_keys["tipo_envio_selector_global"] = tipo_envio_guardado
-
     if additional_preserved:
-        preserved_keys.update(additional_preserved)
+        preserved_values.update(additional_preserved)
 
-    keys_to_remove = [
-        key for key in list(st.session_state.keys()) if key not in preserved_keys
-    ]
-
-    for key in keys_to_remove:
+    for key in TAB1_FORM_STATE_KEYS_TO_CLEAR:
         st.session_state.pop(key, None)
 
-    for key, value in preserved_keys.items():
+    # Asegura que el flujo de confirmación sin adjuntos vuelva a requerir archivos
+    st.session_state.setdefault("allow_submit_without_attachments", False)
+
+    for key, value in preserved_values.items():
         if value is None:
             continue
 
-        # Avoid reassigning existing widget-backed keys (Streamlit raises an error
-        # if we modify their state after instantiation in the same rerun).
-        if key in st.session_state:
+        # Evita sobrescribir el valor si ya existe y coincide
+        if key in st.session_state and st.session_state[key] == value:
             continue
 
         st.session_state[key] = value
@@ -823,6 +891,7 @@ with tab1:
             "Turno/Locales",
             ["☀️ Local Mañana", "🌙 Local Tarde", "🌵 Saltillo", "📦 Pasa a Bodega"],
             index=0,
+            key="subtipo_local_selector",
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
 
@@ -898,6 +967,7 @@ with tab1:
                 "📦 Tipo de Envío Original",
                 ["📍 Local", "🚚 Foráneo"],
                 index=0,
+                key="tipo_envio_original",
                 help="Selecciona el tipo de envío del pedido que se va a devolver."
             )
 
@@ -926,9 +996,16 @@ with tab1:
 
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
-            fecha_entrega = st.date_input("🗓 Fecha de Entrega Requerida", datetime.now().date())
+            fecha_entrega = st.date_input(
+                "🗓 Fecha de Entrega Requerida",
+                value=datetime.now().date(),
+                key="fecha_entrega_input",
+            )
 
-        comentario = st.text_area("💬 Comentario / Descripción Detallada")
+        comentario = st.text_area(
+            "💬 Comentario / Descripción Detallada",
+            key="comentario_detallado",
+        )
 
         if tipo_envio == "🚚 Pedido Foráneo":
             direccion_guia_retorno = st.text_area(
@@ -1031,7 +1108,8 @@ with tab1:
         uploaded_files = st.file_uploader(
             "Sube archivos del pedido",
             type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
-            accept_multiple_files=True
+            accept_multiple_files=True,
+            key="pedido_adjuntos",
         )
         render_uploaded_files_preview("Archivos del pedido seleccionados", uploaded_files)
 
