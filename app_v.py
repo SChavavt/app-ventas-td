@@ -15,6 +15,8 @@ import re
 import gspread
 import html
 from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 from gspread.utils import rowcol_to_a1
@@ -377,6 +379,29 @@ def __link(url, label=None):
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 PDF_EXTENSIONS = {".pdf"}
 
+MAX_INLINE_PDF_BYTES = 10 * 1024 * 1024  # 10 MB límite para incrustar PDFs en base64
+
+
+def _render_pdf_iframe_from_base64(data: bytes) -> None:
+    """Render a PDF preview from raw bytes encoded in base64."""
+    if not data:
+        st.info("El archivo no contiene datos para mostrar.")
+        return
+    b64_pdf = base64.b64encode(data).decode("utf-8")
+    iframe = (
+        "<iframe src=\"data:application/pdf;base64,{data}\" width=\"100%\" height=\"600\" style=\"border:none;\"></iframe>"
+    ).format(data=b64_pdf)
+    components.html(iframe, height=620, scrolling=True)
+
+
+def _render_pdf_iframe_via_google(url: str) -> None:
+    """Fallback to Google Docs viewer for remote PDF URLs."""
+    viewer_url = f"https://docs.google.com/gview?url={quote(url, safe='')}\u0026embedded=true"
+    iframe = (
+        "<iframe src=\"{src}\" width=\"100%\" height=\"600\" style=\"border:none;\" allow=\"fullscreen\"></iframe>"
+    ).format(src=html.escape(viewer_url, quote=True))
+    components.html(iframe, height=620, scrolling=True)
+
 
 def _clean_url_path(value: str) -> str:
     """Remove query/hash parameters from a URL or filename."""
@@ -409,10 +434,20 @@ def render_remote_file_preview(url: str, display_label: str) -> None:
     if ext in IMAGE_EXTENSIONS:
         st.image(url, caption=display_label, use_column_width=True)
     elif ext in PDF_EXTENSIONS:
-        iframe = (
-            "<iframe src=\"{src}\" width=\"100%\" height=\"600\" style=\"border:none;\"></iframe>"
-        ).format(src=html.escape(url, quote=True))
-        components.html(iframe, height=620, scrolling=True)
+        rendered = False
+        try:
+            request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(request, timeout=10) as response:
+                data = response.read(MAX_INLINE_PDF_BYTES + 1)
+                if len(data) > MAX_INLINE_PDF_BYTES:
+                    raise ValueError("PDF supera el límite para vista previa embebida")
+                _render_pdf_iframe_from_base64(data)
+                rendered = True
+        except (HTTPError, URLError, ValueError, TimeoutError, OSError):
+            st.caption("No se pudo generar la vista previa directa del PDF. Se usa visor alternativo.")
+
+        if not rendered:
+            _render_pdf_iframe_via_google(url)
     else:
         st.info("Vista previa no disponible para este tipo de archivo.")
 
