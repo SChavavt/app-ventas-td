@@ -1173,12 +1173,6 @@ with tab1:
                 st.error(error_message)
 
             if st.button("Aceptar", key="acknowledge_pedido_status"):
-                # Si el registro fue exitoso, limpiamos el formulario pero
-                # preservando vendedor y tipo de envío tal como en el flujo
-                # automático posterior al submit.
-                if status_data.get("status") == "success":
-                    reset_tab1_form_state()
-
                 # Al confirmar aplicamos el mismo reinicio completo que el botón
                 # de recarga para garantizar que el siguiente pedido comience en
                 # un estado fresco y sin caches obsoletos.
