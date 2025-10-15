@@ -84,11 +84,31 @@ def clear_app_caches() -> None:
     get_s3_client.clear()
 
 
-def reset_session_state_preserving(preserved_values: dict[str, object]) -> None:
-    """Limpia el estado de sesión manteniendo las claves indicadas."""
-    st.session_state.clear()
-    for key, value in preserved_values.items():
-        st.session_state[key] = value
+def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None) -> None:
+    """Elimina los valores capturados en el formulario principal, conservando envío y vendedor."""
+
+    preserved_keys = {
+        "last_selected_vendedor": st.session_state.get("last_selected_vendedor"),
+        "current_tab_index": st.session_state.get("current_tab_index"),
+    }
+
+    tipo_envio_guardado = st.session_state.get("tipo_envio_selector_global")
+    if tipo_envio_guardado is not None:
+        preserved_keys["tipo_envio_selector_global"] = tipo_envio_guardado
+
+    if additional_preserved:
+        preserved_keys.update(additional_preserved)
+
+    keys_to_remove = [
+        key for key in list(st.session_state.keys()) if key not in preserved_keys
+    ]
+
+    for key in keys_to_remove:
+        st.session_state.pop(key, None)
+
+    for key, value in preserved_keys.items():
+        if value is not None:
+            st.session_state[key] = value
 
 
 def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
@@ -1660,18 +1680,7 @@ with tab1:
                         st.rerun()
                         break
             if exito:
-                vendedor = st.session_state.get("last_selected_vendedor")
-                current_index = st.session_state.get("current_tab_index", default_tab)
-                tipo_envio_seleccionado = st.session_state.get("tipo_envio_selector_global")
-
-                preserved_state = {
-                    "current_tab_index": current_index,
-                    "last_selected_vendedor": vendedor,
-                }
-                if tipo_envio_seleccionado is not None:
-                    preserved_state["tipo_envio_selector_global"] = tipo_envio_seleccionado
-
-                reset_session_state_preserving(preserved_state)
+                reset_tab1_form_state()
                 set_pedido_submission_status(
                     "success",
                     f"✅ El pedido {id_pedido} fue subido correctamente.",
