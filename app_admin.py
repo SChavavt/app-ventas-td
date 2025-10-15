@@ -1431,20 +1431,25 @@ tab_names = [
     "🗂️ Data Especiales",
 ]
 
-# índice de pestaña activo (prioriza session_state sobre query params)
-_session_tab = st.session_state.get("current_tab")
-if _session_tab is not None:
-    try:
-        _default_tab = int(_session_tab)
-    except Exception:
-        _default_tab = 0
-else:
-    _tab_param = st.query_params.get("tab", "0")
-    if isinstance(_tab_param, (list, tuple)):
-        _tab_param = _tab_param[0] if _tab_param else "0"
+# índice de pestaña activo. Prioriza query params (controlados vía JS) y
+# usa el session_state como respaldo para mantener la pestaña tras recargas.
+_tab_param = st.query_params.get("tab")
+if isinstance(_tab_param, (list, tuple)):
+    _tab_param = _tab_param[0] if _tab_param else None
+
+_default_tab: int | None = None
+
+if _tab_param is not None:
     try:
         _default_tab = int(_tab_param)
-    except Exception:
+    except (TypeError, ValueError):
+        _default_tab = None
+
+if _default_tab is None:
+    _session_tab = st.session_state.get("current_tab")
+    try:
+        _default_tab = int(_session_tab)
+    except (TypeError, ValueError):
         _default_tab = 0
 
 if not 0 <= _default_tab < len(tab_names):
@@ -1505,7 +1510,6 @@ st.markdown(
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
-    st.session_state["current_tab"] = "0"
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
@@ -2567,7 +2571,6 @@ with tab1:
                                             st.error(f"❌ Error al cancelar el pedido: {e}")
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
-    st.session_state["current_tab"] = "1"
     st.header("📥 Pedidos Confirmados")
 
     # Imports usados en este bloque
@@ -3343,7 +3346,6 @@ with tab2:
                         st.error(f"❌ No se pudo actualizar el estado de entrega: {err}")
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
-    st.session_state["current_tab"] = "2"
     st.header("📦 Confirmación de Casos (Devoluciones + Garantías)")
 
     from datetime import datetime
@@ -3909,7 +3911,6 @@ with tab3, suppress(StopException):
 
 # --- TAB 4: CASOS ESPECIALES (Descarga Devoluciones/Garantías) ---
 with tab4:
-    st.session_state["current_tab"] = "3"
     st.header("📥 Casos Especiales (Devoluciones/Garantías)")
 
     from io import BytesIO
