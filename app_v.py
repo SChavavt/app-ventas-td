@@ -14,9 +14,10 @@ import time
 import re
 import gspread
 import html
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
+from http.client import InvalidURL
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 from gspread.utils import rowcol_to_a1
@@ -484,6 +485,25 @@ PDF_EXTENSIONS = {".pdf"}
 MAX_INLINE_PDF_BYTES = 10 * 1024 * 1024  # 10 MB límite para incrustar PDFs en base64
 
 
+def _normalize_url(value: str) -> str:
+    """Return a URL with unsafe characters percent-encoded."""
+    raw = __s(value)
+    if not raw:
+        return ""
+
+    try:
+        parts = urlsplit(raw)
+        if not parts.scheme or not parts.netloc:
+            return raw
+
+        safe_path = quote(parts.path, safe="/%:@")
+        safe_query = quote(parts.query, safe="=&%:@")
+        safe_fragment = quote(parts.fragment, safe="=&%:@")
+        return urlunsplit((parts.scheme, parts.netloc, safe_path, safe_query, safe_fragment))
+    except Exception:
+        return raw
+
+
 def _render_pdf_iframe_from_base64(data: bytes) -> None:
     """Render a PDF preview from raw bytes encoded in base64."""
     if not data:
@@ -498,7 +518,7 @@ def _render_pdf_iframe_from_base64(data: bytes) -> None:
 
 def _render_pdf_iframe_via_google(url: str) -> None:
     """Fallback to Google Docs viewer for remote PDF URLs."""
-    viewer_url = f"https://docs.google.com/gview?url={quote(url, safe='')}\u0026embedded=true"
+    viewer_url = f"https://docs.google.com/gview?url={quote(_normalize_url(url), safe='')}\u0026embedded=true"
     iframe = (
         "<iframe src=\"{src}\" width=\"100%\" height=\"600\" style=\"border:none;\" allow=\"fullscreen\"></iframe>"
     ).format(src=html.escape(viewer_url, quote=True))
@@ -532,24 +552,29 @@ def render_remote_file_preview(url: str, display_label: str) -> None:
         st.info("El archivo no es una URL válida para previsualizar.")
         return
 
-    ext = _infer_extension(url)
+    normalized_url = _normalize_url(url)
+    if not normalized_url:
+        st.info("El archivo no es una URL válida para previsualizar.")
+        return
+
+    ext = _infer_extension(normalized_url)
     if ext in IMAGE_EXTENSIONS:
-        st.image(url, caption=display_label, use_column_width=True)
+        st.image(normalized_url, caption=display_label, use_column_width=True)
     elif ext in PDF_EXTENSIONS:
         rendered = False
         try:
-            request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            request = Request(normalized_url, headers={"User-Agent": "Mozilla/5.0"})
             with urlopen(request, timeout=10) as response:
                 data = response.read(MAX_INLINE_PDF_BYTES + 1)
                 if len(data) > MAX_INLINE_PDF_BYTES:
                     raise ValueError("PDF supera el límite para vista previa embebida")
                 _render_pdf_iframe_from_base64(data)
                 rendered = True
-        except (HTTPError, URLError, ValueError, TimeoutError, OSError):
+        except (HTTPError, URLError, ValueError, TimeoutError, OSError, InvalidURL):
             st.caption("No se pudo generar la vista previa directa del PDF. Se usa visor alternativo.")
 
         if not rendered:
-            _render_pdf_iframe_via_google(url)
+            _render_pdf_iframe_via_google(normalized_url)
     else:
         st.info("Vista previa no disponible para este tipo de archivo.")
 
@@ -572,12 +597,14 @@ def render_attachment_link(url: str, label: str | None = None, icon: str | None 
 
     if bullet:
         if __is_url(url):
-            st.markdown(f"- {prefix}[{display_label}]({url})")
+            sanitized = _normalize_url(url)
+            st.markdown(f"- {prefix}[{display_label}]({sanitized or url})")
         else:
             st.markdown(f"- {prefix}{__s(url)}")
     else:
         if __is_url(url):
-            st.markdown(f"{prefix}[{display_label}]({url})")
+            sanitized = _normalize_url(url)
+            st.markdown(f"{prefix}[{display_label}]({sanitized or url})")
         else:
             st.markdown(f"{prefix}{__s(url)}")
 
