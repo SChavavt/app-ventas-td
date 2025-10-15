@@ -107,8 +107,15 @@ def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None)
         st.session_state.pop(key, None)
 
     for key, value in preserved_keys.items():
-        if value is not None:
-            st.session_state[key] = value
+        if value is None:
+            continue
+
+        # Avoid reassigning existing widget-backed keys (Streamlit raises an error
+        # if we modify their state after instantiation in the same rerun).
+        if key in st.session_state:
+            continue
+
+        st.session_state[key] = value
 
 
 def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
