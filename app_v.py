@@ -942,7 +942,7 @@ with tab1:
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
     st.session_state.setdefault("allow_submit_without_attachments", False)
-    with st.form(key="new_pedido_form", clear_on_submit=False):
+    with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
@@ -1173,9 +1173,21 @@ with tab1:
                 st.error(error_message)
 
             if st.button("Aceptar", key="acknowledge_pedido_status"):
-                # Al confirmar aplicamos el mismo reinicio completo que el botón
-                # de recarga para garantizar que el siguiente pedido comience en
-                # un estado fresco y sin caches obsoletos.
+                preserved_keys = {
+                    key: st.session_state[key]
+                    for key in ["last_selected_vendedor", "tipo_envio_selector_global"]
+                    if key in st.session_state
+                }
+
+                keys_to_remove = [
+                    key for key in list(st.session_state.keys()) if key not in preserved_keys
+                ]
+                for key in keys_to_remove:
+                    del st.session_state[key]
+
+                for key, value in preserved_keys.items():
+                    st.session_state[key] = value
+
                 clear_app_caches()
                 st.session_state.pop("pedido_submission_status", None)
                 st.rerun()
