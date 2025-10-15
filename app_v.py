@@ -613,7 +613,10 @@ def render_uploaded_file_preview(file_obj) -> None:
 
 
 def render_uploaded_files_preview(title: str, files) -> None:
-    """Render previews for a collection of uploaded files."""
+    """Render previews for uploaded files unless Tab 1 is active."""
+    if st.session_state.get("current_tab_index", 0) == 0:
+        return
+
     if not files:
         return
 
