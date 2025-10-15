@@ -84,13 +84,6 @@ def clear_app_caches() -> None:
     get_s3_client.clear()
 
 
-def reset_session_state_preserving(preserved_values: dict[str, object]) -> None:
-    """Limpia el estado de sesión manteniendo las claves indicadas."""
-    st.session_state.clear()
-    for key, value in preserved_values.items():
-        st.session_state[key] = value
-
-
 def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
     """Realiza ``batch_update`` con reintentos ante errores de cuota."""
     for attempt in range(retries):
@@ -1662,16 +1655,9 @@ with tab1:
             if exito:
                 vendedor = st.session_state.get("last_selected_vendedor")
                 current_index = st.session_state.get("current_tab_index", default_tab)
-                tipo_envio_seleccionado = st.session_state.get("tipo_envio_selector_global")
-
-                preserved_state = {
-                    "current_tab_index": current_index,
-                    "last_selected_vendedor": vendedor,
-                }
-                if tipo_envio_seleccionado is not None:
-                    preserved_state["tipo_envio_selector_global"] = tipo_envio_seleccionado
-
-                reset_session_state_preserving(preserved_state)
+                st.session_state.clear()
+                st.session_state.current_tab_index = current_index
+                st.session_state.last_selected_vendedor = vendedor
                 set_pedido_submission_status(
                     "success",
                     f"✅ El pedido {id_pedido} fue subido correctamente.",
