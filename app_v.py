@@ -3247,4 +3247,4 @@ with tab7:
                 if modo_busqueda == "🔢 Por número de guía"
                 else "⚠️ No se encontraron pedidos o casos para el cliente o folio ingresado."
             )
-            st.warning(mensaje)1
+            st.warning(mensaje)
