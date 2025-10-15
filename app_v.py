@@ -1104,12 +1104,6 @@ with tab1:
                         st.session_state.pop(key, None)
 
                 for k, v in preserved_values.items():
-                    if v is None:
-                        continue
-
-                    if k in st.session_state:
-                        continue
-
                     st.session_state[k] = v
 
                 clear_app_caches()
