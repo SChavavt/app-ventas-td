@@ -1173,11 +1173,11 @@ with tab1:
                 st.error(error_message)
 
             if st.button("Aceptar", key="acknowledge_pedido_status"):
-                # Al confirmar aplicamos el mismo reinicio completo que el botón
-                # de recarga para garantizar que el siguiente pedido comience en
-                # un estado fresco y sin caches obsoletos.
-                clear_app_caches()
-                st.session_state.pop("pedido_submission_status", None)
+                from time import sleep
+
+                reset_tab1_form_state()
+                del st.session_state["pedido_submission_status"]
+                sleep(0.3)
                 st.rerun()
 
     # -------------------------------
