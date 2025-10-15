@@ -4,6 +4,7 @@ import streamlit.components.v1 as components
 import os
 from datetime import datetime, timedelta
 import json
+import base64
 import uuid
 import pandas as pd
 import pdfplumber
@@ -12,6 +13,7 @@ from io import BytesIO
 import time
 import re
 import gspread
+import html
 from urllib.parse import quote
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
@@ -372,6 +374,116 @@ def __link(url, label=None):
         return f"[{label or (os.path.basename(u) or 'Abrir')}]({u})"
     return u
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+PDF_EXTENSIONS = {".pdf"}
+
+
+def _clean_url_path(value: str) -> str:
+    """Remove query/hash parameters from a URL or filename."""
+    cleaned = __s(value)
+    if not cleaned:
+        return ""
+    return cleaned.split("?")[0].split("#")[0]
+
+
+def _infer_extension(value: str) -> str:
+    """Infer lowercase file extension from a path or URL."""
+    cleaned = _clean_url_path(value)
+    return os.path.splitext(cleaned)[1].lower()
+
+
+def _infer_display_name(value: str) -> str:
+    """Return a friendly filename to display for a URL or path."""
+    cleaned = _clean_url_path(value)
+    name = os.path.basename(cleaned)
+    return name or cleaned or "Archivo"
+
+
+def render_remote_file_preview(url: str, display_label: str) -> None:
+    """Render an inline preview for a remote file when possible."""
+    if not __is_url(url):
+        st.info("El archivo no es una URL válida para previsualizar.")
+        return
+
+    ext = _infer_extension(url)
+    if ext in IMAGE_EXTENSIONS:
+        st.image(url, caption=display_label, use_column_width=True)
+    elif ext in PDF_EXTENSIONS:
+        iframe = (
+            "<iframe src=\"{src}\" width=\"100%\" height=\"600\" style=\"border:none;\"></iframe>"
+        ).format(src=html.escape(url, quote=True))
+        components.html(iframe, height=620, scrolling=True)
+    else:
+        st.info("Vista previa no disponible para este tipo de archivo.")
+
+
+def add_url_preview_expander(url: str, display_label: str) -> None:
+    """Attach an expander with a preview for a given URL."""
+    if not __is_url(url):
+        return
+    with st.expander(f"👁️ Vista previa • {display_label}", expanded=False):
+        render_remote_file_preview(url, display_label)
+
+
+def render_attachment_link(url: str, label: str | None = None, icon: str | None = None, bullet: bool = True) -> None:
+    """Render a file link and automatically include an expandable preview."""
+    if not __has(url):
+        return
+
+    display_label = label or _infer_display_name(url)
+    prefix = f"{icon} " if icon else ""
+
+    if bullet:
+        if __is_url(url):
+            st.markdown(f"- {prefix}[{display_label}]({url})")
+        else:
+            st.markdown(f"- {prefix}{__s(url)}")
+    else:
+        if __is_url(url):
+            st.markdown(f"{prefix}[{display_label}]({url})")
+        else:
+            st.markdown(f"{prefix}{__s(url)}")
+
+    if __is_url(url):
+        add_url_preview_expander(url, display_label)
+
+
+def render_uploaded_file_preview(file_obj) -> None:
+    """Show a preview expander for an uploaded Streamlit file."""
+    file_name = getattr(file_obj, "name", "Archivo")
+    display_label = file_name or "Archivo"
+    ext = _infer_extension(file_name)
+
+    with st.expander(f"👁️ Vista previa • {display_label}", expanded=False):
+        if ext in IMAGE_EXTENSIONS:
+            file_obj.seek(0)
+            st.image(file_obj.read(), caption=display_label, use_column_width=True)
+            file_obj.seek(0)
+        elif ext in PDF_EXTENSIONS:
+            file_obj.seek(0)
+            data = file_obj.read()
+            file_obj.seek(0)
+            if data:
+                b64_pdf = base64.b64encode(data).decode("utf-8")
+                iframe = (
+                    "<iframe src=\"data:application/pdf;base64,{data}\" width=\"100%\" height=\"600\" style=\"border:none;\"></iframe>"
+                ).format(data=b64_pdf)
+                components.html(iframe, height=620, scrolling=True)
+            else:
+                st.info("El archivo no contiene datos para mostrar.")
+        else:
+            st.info("Vista previa no disponible para este tipo de archivo.")
+
+
+def render_uploaded_files_preview(title: str, files) -> None:
+    """Render previews for a collection of uploaded files."""
+    if not files:
+        return
+
+    st.markdown(f"##### 👁️ {title}")
+    for file_obj in files:
+        render_uploaded_file_preview(file_obj)
+
 def render_caso_especial(row):
     tipo = __s(row.get("Tipo_Envio", ""))
     is_dev = (tipo == "🔁 Devolución")
@@ -460,9 +572,17 @@ def render_caso_especial(row):
     nota = __s(row.get("Nota_Credito_URL",""))
     docad = __s(row.get("Documento_Adicional_URL",""))
     if __has(nota):
-        st.markdown(f"**🧾 Nota de Crédito:** {__link(nota, 'Nota de Crédito') if __is_url(nota) else nota}")
+        if __is_url(nota):
+            st.markdown(f"**🧾 Nota de Crédito:** {__link(nota, 'Nota de Crédito')}")
+            add_url_preview_expander(nota, "Nota de Crédito")
+        else:
+            st.markdown(f"**🧾 Nota de Crédito:** {nota}")
     if __has(docad):
-        st.markdown(f"**📂 Documento Adicional:** {__link(docad, 'Documento Adicional') if __is_url(docad) else docad}")
+        if __is_url(docad):
+            st.markdown(f"**📂 Documento Adicional:** {__link(docad, 'Documento Adicional')}")
+            add_url_preview_expander(docad, "Documento Adicional")
+        else:
+            st.markdown(f"**📂 Documento Adicional:** {docad}")
     if __has(row.get("Comentarios_Admin_Devolucion","")):
         st.markdown("**🗒️ Comentario Administrativo:**")
         st.info(__s(row.get("Comentarios_Admin_Devolucion","")))
@@ -477,7 +597,7 @@ def render_caso_especial(row):
         if adj_mod:
             st.markdown("**Archivos de modificación:**")
             for u in adj_mod:
-                st.markdown(f"- {__link(u)}")
+                render_attachment_link(u)
 
     with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
         adj_raw = row.get("Adjuntos","")
@@ -488,11 +608,11 @@ def render_caso_especial(row):
             has_any = True
             st.markdown("**Adjuntos:**")
             for u in adj:
-                st.markdown(f"- {__link(u)}")
+                render_attachment_link(u)
         if __has(guia) and __is_url(guia):
             has_any = True
             st.markdown("**Guía:**")
-            st.markdown(f"- {__link(guia, 'Abrir guía')}")
+            render_attachment_link(guia, "Abrir guía")
         if not has_any:
             st.info("Sin archivos registrados en la hoja.")
     st.markdown("---")
@@ -844,6 +964,7 @@ with tab1:
             type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
             accept_multiple_files=True
         )
+        render_uploaded_files_preview("Archivos del pedido seleccionados", uploaded_files)
 
         # --- Evidencias/Comprobantes PARA DEVOLUCIONES y GARANTÍAS ---
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
@@ -856,6 +977,7 @@ with tab1:
                 key="comprobante_cliente",
                 help="Sube archivos relacionados con esta devolución o garantía"
             )
+            render_uploaded_files_preview("Evidencias seleccionadas", comprobante_cliente)
 
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
@@ -946,6 +1068,7 @@ with tab1:
                     key="comprobante_uploader_final"
                 )
                 st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
+                render_uploaded_files_preview("Comprobantes de pago seleccionados", comprobante_pago_files)
 
                 with st.expander("🧾 Detalles del Pago (opcional)"):
                     col1, col2, col3 = st.columns(3)
@@ -986,6 +1109,7 @@ with tab1:
             elif pago_doble:
                 st.markdown("### 1️⃣ Primer Pago")
                 comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                render_uploaded_files_preview("Comprobantes del primer pago", comp1)
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
                 monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
@@ -1011,6 +1135,7 @@ with tab1:
 
                 st.markdown("### 2️⃣ Segundo Pago")
                 comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                render_uploaded_files_preview("Comprobantes del segundo pago", comp2)
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
                 monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
@@ -1046,6 +1171,7 @@ with tab1:
             elif pago_triple:
                 st.markdown("### 1️⃣ Primer Pago")
                 comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                render_uploaded_files_preview("Comprobantes del primer pago", comp1)
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
                 monto1 = st.number_input("💲 Monto 1", min_value=0.0, format="%.2f", key="monto_pago1")
@@ -1071,6 +1197,7 @@ with tab1:
 
                 st.markdown("### 2️⃣ Segundo Pago")
                 comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                render_uploaded_files_preview("Comprobantes del segundo pago", comp2)
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
                 monto2 = st.number_input("💲 Monto 2", min_value=0.0, format="%.2f", key="monto_pago2")
@@ -1096,6 +1223,7 @@ with tab1:
 
                 st.markdown("### 3️⃣ Tercer Pago")
                 comp3 = st.file_uploader("💳 Comprobante 3", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago3")
+                render_uploaded_files_preview("Comprobantes del tercer pago", comp3)
                 fecha3 = st.date_input("📅 Fecha 3", value=datetime.today().date(), key="fecha_pago3")
                 forma3 = st.selectbox("💳 Forma 3", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago3")
                 monto3 = st.number_input("💲 Monto 3", min_value=0.0, format="%.2f", key="monto_pago3")
@@ -1852,14 +1980,14 @@ with tab2:
                     if current_adjuntos_list_basic:
                         st.write("**Adjuntos Originales:**")
                         for adj in current_adjuntos_list_basic:
-                            st.markdown(f"- [{os.path.basename(adj)}]({adj})")
+                            render_attachment_link(adj)
                     else:
                         st.write("**Adjuntos Originales:** Ninguno")
 
                     if current_adjuntos_surtido_list_basic:
                         st.write("**Adjuntos de Modificación/Surtido:**")
                         for adj_surtido in current_adjuntos_surtido_list_basic:
-                            st.markdown(f"- [{os.path.basename(adj_surtido)}]({adj_surtido})")
+                            render_attachment_link(adj_surtido)
                     else:
                         st.write("**Adjuntos de Modificación/Surtido:** Ninguno")
 
@@ -2751,10 +2879,10 @@ with tab5:
             if ultima_guia:
                 url_encoded = quote(ultima_guia, safe=':/')
                 if fuente == "casos_especiales":
-                    st.markdown(f"[{ultima_guia}]({url_encoded})")
+                    render_attachment_link(url_encoded, _infer_display_name(ultima_guia), bullet=False)
                 else:
                     nombre = ultima_guia.split("/")[-1]
-                    st.markdown(f"- [📄 {nombre}]({url_encoded})")
+                    render_attachment_link(url_encoded, f"📄 {nombre}")
             else:
                 st.warning("⚠️ No se encontró una URL válida para la guía.")
 
@@ -3278,10 +3406,25 @@ with tab7:
                         f"**📅 Recepción:** {res.get('Fecha_Recepcion_Devolucion','') or 'N/A'}  |  "
                         f"**📦 Recepción:** {res.get('Estado_Recepcion','') or 'N/A'}"
                     )
-                    st.markdown(
-                        f"**🧾 Nota de Crédito:** {res.get('Nota_Credito_URL','') or 'N/A'}  |  "
-                        f"**📂 Documento Adicional:** {res.get('Documento_Adicional_URL','') or 'N/A'}"
-                    )
+                    nota_url = __s(res.get('Nota_Credito_URL',''))
+                    docad_url = __s(res.get('Documento_Adicional_URL',''))
+                    if __has(nota_url):
+                        if __is_url(nota_url):
+                            st.markdown(f"**🧾 Nota de Crédito:** {__link(nota_url, 'Nota de Crédito')}")
+                            add_url_preview_expander(nota_url, "Nota de Crédito")
+                        else:
+                            st.markdown(f"**🧾 Nota de Crédito:** {nota_url}")
+                    else:
+                        st.markdown("**🧾 Nota de Crédito:** N/A")
+
+                    if __has(docad_url):
+                        if __is_url(docad_url):
+                            st.markdown(f"**📂 Documento Adicional:** {__link(docad_url, 'Documento Adicional')}")
+                            add_url_preview_expander(docad_url, "Documento Adicional")
+                        else:
+                            st.markdown(f"**📂 Documento Adicional:** {docad_url}")
+                    else:
+                        st.markdown("**📂 Documento Adicional:** N/A")
                     if str(res.get("Comentarios_Admin_Devolucion","")).strip():
                         st.markdown("**🗒️ Comentario Administrativo:**")
                         st.info(str(res.get("Comentarios_Admin_Devolucion","")).strip())
@@ -3296,8 +3439,7 @@ with tab7:
                         if mod_urls:
                             st.markdown("**Archivos de modificación:**")
                             for u in mod_urls:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
+                                render_attachment_link(u)
 
                     with st.expander("📎 Archivos (Adjuntos y Guía)", expanded=False):
                         adj = res.get("Adjuntos_urls", []) or []
@@ -3305,11 +3447,10 @@ with tab7:
                         if adj:
                             st.markdown("**Adjuntos:**")
                             for u in adj:
-                                nombre = u.split("/")[-1]
-                                st.markdown(f"- [{nombre}]({u})")
+                                render_attachment_link(u)
                         if guia and guia.lower() not in ("nan","none","n/a"):
                             st.markdown("**Guía:**")
-                            st.markdown(f"- [Abrir guía]({guia})")
+                            render_attachment_link(guia, "Abrir guía")
                         if not adj and not guia:
                             st.info("Sin archivos registrados en la hoja.")
 
@@ -3345,22 +3486,22 @@ with tab7:
                             st.markdown("#### 🔍 Guías:")
                             for key, url in res["Coincidentes"]:
                                 nombre = key.split("/")[-1]
-                                st.markdown(f"- [🔍 {nombre}]({url})")
+                                render_attachment_link(url, f"🔍 {nombre}")
                         if res.get("Comprobantes"):
                             st.markdown("#### 🧾 Comprobantes:")
                             for key, url in res["Comprobantes"]:
                                 nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
+                                render_attachment_link(url, f"📄 {nombre}")
                         if res.get("Facturas"):
                             st.markdown("#### 📁 Facturas:")
                             for key, url in res["Facturas"]:
                                 nombre = key.split("/")[-1]
-                                st.markdown(f"- [📄 {nombre}]({url})")
+                                render_attachment_link(url, f"📄 {nombre}")
                         if res.get("Otros"):
                             st.markdown("#### 📂 Otros Archivos:")
                             for key, url in res["Otros"]:
                                 nombre = key.split("/")[-1]
-                                st.markdown(f"- [📌 {nombre}]({url})")
+                                render_attachment_link(url, f"📌 {nombre}")
 
                         # 🛠 Modificación de surtido (si existe)
                         mod_txt = res.get("Modificacion_Surtido", "") or ""
@@ -3372,8 +3513,7 @@ with tab7:
                             if mod_urls:
                                 st.markdown("**Archivos de modificación:**")
                                 for u in mod_urls:
-                                    nombre = u.split("/")[-1]
-                                    st.markdown(f"- [{nombre}]({u})")
+                                    render_attachment_link(u)
 
         else:
             mensaje = (
