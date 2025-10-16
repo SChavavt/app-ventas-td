@@ -3975,7 +3975,7 @@ with tab4:
     @st.cache_data(show_spinner=False, ttl=300)
     def cargar_casos_especiales_cached(sheet_id: str, ws_name: str, _nonce: int):
         ws = safe_open_worksheet(sheet_id, ws_name)
-        vals = ws.get_values("A1:AN", value_render_option="UNFORMATTED_VALUE")
+        vals = ws.get_all_values(value_render_option="UNFORMATTED_VALUE")
         if not vals:
             return pd.DataFrame(), [], None
         headers = vals[0]
