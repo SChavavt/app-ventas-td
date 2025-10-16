@@ -1,5 +1,6 @@
 #app_admin.py
 import streamlit as st
+import streamlit.components.v1 as components
 import json
 import time
 import random
@@ -304,9 +305,32 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
 st.set_page_config(page_title="App Admin TD", layout="wide")
 
 
+TAB_QUERY_PARAM = "tab"
+TAB_SESSION_KEY = "admin_current_tab_index"
+
+
+def _normalize_tab_index(raw_index: int | str | None, total: int) -> int:
+    """Convierte el índice de pestaña en un entero válido dentro de rango."""
+    if raw_index is None:
+        candidate = 0
+    else:
+        try:
+            candidate = int(raw_index)
+        except (TypeError, ValueError):
+            candidate = 0
+
+    if total <= 0:
+        return 0
+    return max(0, min(total - 1, candidate))
+
+
 def rerun_current_tab():
     """Rerun Streamlit keeping the current tab in query params."""
-    st.query_params["tab"] = st.session_state.get("current_tab", "0")
+    current_index = st.session_state.get(TAB_SESSION_KEY)
+    if current_index is None:
+        current_index = 0
+    st.session_state["current_tab"] = str(current_index)
+    st.query_params[TAB_QUERY_PARAM] = str(current_index)
     st.rerun()
 
 
@@ -1433,85 +1457,94 @@ tab_names = [
     "🗂️ Data Especiales",
 ]
 
-# índice de pestaña activo. Prioriza query params (controlados vía JS) y
-# usa el session_state como respaldo para mantener la pestaña tras recargas.
-_tab_param = st.query_params.get("tab")
+_tab_param = st.query_params.get(TAB_QUERY_PARAM)
 if isinstance(_tab_param, (list, tuple)):
     _tab_param = _tab_param[0] if _tab_param else None
 
-_default_tab: int | None = None
+if _tab_param is None:
+    _session_tab_raw = st.session_state.get(TAB_SESSION_KEY)
+    if _session_tab_raw is None:
+        _session_tab_raw = st.session_state.get("current_tab")
+else:
+    _session_tab_raw = _tab_param
 
-if _tab_param is not None:
-    try:
-        _default_tab = int(_tab_param)
-    except (TypeError, ValueError):
-        _default_tab = None
+_default_tab = _normalize_tab_index(_session_tab_raw, len(tab_names))
 
-if _default_tab is None:
-    _session_tab = st.session_state.get("current_tab")
-    try:
-        _default_tab = int(_session_tab)
-    except (TypeError, ValueError):
-        _default_tab = 0
-
-if not 0 <= _default_tab < len(tab_names):
-    _default_tab = 0
-
+st.session_state[TAB_SESSION_KEY] = _default_tab
 st.session_state["current_tab"] = str(_default_tab)
 
-_current_param = st.query_params.get("tab")
-if isinstance(_current_param, (list, tuple)):
-    _current_param = _current_param[0] if _current_param else None
-if _current_param != str(_default_tab):
-    st.query_params["tab"] = str(_default_tab)
+if st.query_params.get(TAB_QUERY_PARAM) != str(_default_tab):
+    st.query_params[TAB_QUERY_PARAM] = str(_default_tab)
 
 tabs = st.tabs(tab_names)
 tab1, tab2, tab3, tab4 = tabs
 
+tab1_is_active = _default_tab == 0
+tab2_is_active = _default_tab == 1
+tab3_is_active = _default_tab == 2
+tab4_is_active = _default_tab == 3
+
 # forza la pestaña almacenada al recargar y sincroniza la URL al cambiar de pestaña
-st.markdown(
+components.html(
     f"""
     <script>
-        const ensureTabHandlers = () => {{
-            const tabButtons = window.parent.document.querySelectorAll('div[data-baseweb="tab-list"] button');
-            if (!tabButtons.length) {{
-                window.requestAnimationFrame(ensureTabHandlers);
+    (function() {{
+        const desiredIndex = {_default_tab};
+        const parentWindow = window.parent;
+        const parentDocument = parentWindow.document;
+
+        function updateQueryParam(index) {{
+            try {{
+                const url = new URL(parentWindow.location.href);
+                url.searchParams.set('{TAB_QUERY_PARAM}', index);
+                parentWindow.history.replaceState(null, '', url.toString());
+            }} catch (error) {{
+                console.error('Error syncing tab param', error);
+            }}
+        }}
+
+        function attachListeners() {{
+            const buttons = parentDocument.querySelectorAll('div[data-baseweb="tab-list"] button');
+            if (!buttons || !buttons.length) {{
+                setTimeout(attachListeners, 100);
                 return;
             }}
 
-            const desiredIndex = {_default_tab};
-            const url = new URL(window.parent.location.href);
-
-            tabButtons.forEach((btn, idx) => {{
-                if (btn.dataset.tabSyncBound === 'true') {{
+            buttons.forEach((button, index) => {{
+                if (button.getAttribute('data-tab-listener') === 'true') {{
                     return;
                 }}
-                btn.dataset.tabSyncBound = 'true';
-                btn.addEventListener('click', () => {{
-                    const clickUrl = new URL(window.parent.location.href);
-                    clickUrl.searchParams.set('tab', String(idx));
-                    window.parent.history.replaceState(null, '', clickUrl);
-                }});
+                button.setAttribute('data-tab-listener', 'true');
+                button.addEventListener('click', () => updateQueryParam(String(index)));
             }});
 
-            const desiredButton = tabButtons[desiredIndex] || tabButtons[0];
-            if (desiredButton && desiredButton.getAttribute('aria-selected') !== 'true') {{
-                desiredButton.click();
+            if (desiredIndex >= 0 && desiredIndex < buttons.length) {{
+                const targetButton = buttons[desiredIndex];
+                if (targetButton && targetButton.getAttribute('aria-selected') !== 'true') {{
+                    targetButton.click();
+                }}
             }}
+        }}
 
-            url.searchParams.set('tab', String(desiredIndex));
-            window.parent.history.replaceState(null, '', url);
-        }};
-
-        ensureTabHandlers();
+        if (document.readyState === 'complete') {{
+            attachListeners();
+        }} else {{
+            window.addEventListener('load', attachListeners);
+            document.addEventListener('DOMContentLoaded', attachListeners);
+            setTimeout(attachListeners, 500);
+        }}
+    }})();
     </script>
     """,
-    unsafe_allow_html=True,
+    height=0,
 )
 
 
 # --- INTERFAZ PRINCIPAL ---
 with tab1:
+    if tab1_is_active:
+        st.session_state[TAB_SESSION_KEY] = 0
+        st.session_state["current_tab"] = "0"
     st.header("💳 Comprobantes de Pago Pendientes de Confirmación")
     mostrar = True  # ✅ Se inicializa desde el inicio del tab
 
@@ -2573,6 +2606,9 @@ with tab1:
                                             st.error(f"❌ Error al cancelar el pedido: {e}")
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
+    if tab2_is_active:
+        st.session_state[TAB_SESSION_KEY] = 1
+        st.session_state["current_tab"] = "1"
     st.header("📥 Pedidos Confirmados")
 
     # Imports usados en este bloque
@@ -3348,6 +3384,9 @@ with tab2:
                         st.error(f"❌ No se pudo actualizar el estado de entrega: {err}")
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
+    if tab3_is_active:
+        st.session_state[TAB_SESSION_KEY] = 2
+        st.session_state["current_tab"] = "2"
     st.header("📦 Confirmación de Casos (Devoluciones + Garantías)")
 
     from datetime import datetime
@@ -3960,6 +3999,9 @@ with tab3, suppress(StopException):
 
 # --- TAB 4: CASOS ESPECIALES (Descarga Devoluciones/Garantías) ---
 with tab4:
+    if tab4_is_active:
+        st.session_state[TAB_SESSION_KEY] = 3
+        st.session_state["current_tab"] = "3"
     st.header("📥 Casos Especiales (Devoluciones/Garantías)")
 
     from io import BytesIO
