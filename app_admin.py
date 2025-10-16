@@ -43,6 +43,8 @@ QUOTA_ERROR_THRESHOLD = 5
 MOTIVO_RECHAZO_CANCELACION_COL = "Motivo_Rechazo/Cancelacion"
 FECHA_CONFIRMADO_COL = "Fecha_Confirmado"
 ESTADO_ENTREGA_COL = "Estado_Entrega"
+GUIAS_DEVOLUCION_COL = "Numero_Guias_Devolucion"
+GUIAS_DEVOLUCION_OPTIONS = ["1 guía", "2 guías"]
 CDMX_TIMEZONE = ZoneInfo("America/Mexico_City")
 
 
@@ -3426,7 +3428,7 @@ with tab3, suppress(StopException):
         "Tipo_Envio","Resultado_Esperado","Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
         "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta","Tipo_Envio_Original",
         "Adjuntos","Hoja_Ruta_Mensajero","Estado_Caso","Estado_Recepcion","Turno","Fecha_Entrega",
-        "Numero_Serie","Fecha_Compra","Seguimiento"
+        "Numero_Serie","Fecha_Compra","Seguimiento", GUIAS_DEVOLUCION_COL
     ]
     for c in needed_cols:
         if c not in df_casos.columns:
@@ -3534,6 +3536,9 @@ with tab3, suppress(StopException):
                 f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
                 f"🕒 **Hora:** `{hora or 'N/A'}`"
             )
+            guias_registradas = __s(row.get(GUIAS_DEVOLUCION_COL, ""))
+            if __has(guias_registradas):
+                st.markdown(f"**🚚 Número de guías registradas:** {guias_registradas}")
         else:
             st.markdown(
                 f"📄 **Folio:** `{row.get('Folio_Factura','') or 'N/A'}`  |  "
@@ -3729,6 +3734,7 @@ with tab3, suppress(StopException):
     render_caso_especial(row)
 
     # ===== FORMULARIO (ajusta columnas según tipo detectado) =====
+    guias_key: str | None = None
     with st.form(key="tab3_confirm_form", clear_on_submit=False):
         fecha_key = f"fecha_recepcion_{'devolucion' if is_dev else 'garantia'}"
         estado_key = f"estado_recepcion_{'devolucion' if is_dev else 'garantia'}"
@@ -3766,6 +3772,15 @@ with tab3, suppress(StopException):
             or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
         ):
             st.session_state[seg_key] = _segui_val
+        if is_dev:
+            guias_key = f"guias_devolucion_{row.get('ID_Pedido','')}"
+            _guias_raw = str(row.get(GUIAS_DEVOLUCION_COL, "")).strip()
+            _guias_val = _guias_raw if _guias_raw in GUIAS_DEVOLUCION_OPTIONS else None
+            if (
+                guias_key not in st.session_state
+                or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
+            ):
+                st.session_state[guias_key] = _guias_val
         st.session_state["tab3_last_case_id"] = row.get("ID_Pedido")
 
         fecha_recepcion = st.date_input(
@@ -3796,6 +3811,20 @@ with tab3, suppress(StopException):
             placeholder="Selecciona el estado de seguimiento",
             key=seg_key,
         )
+        if is_dev and guias_key:
+            guias_sel = st.selectbox(
+                "🚚 Número de guías",
+                options=GUIAS_DEVOLUCION_OPTIONS,
+                index=(
+                    GUIAS_DEVOLUCION_OPTIONS.index(st.session_state[guias_key])
+                    if st.session_state.get(guias_key) in GUIAS_DEVOLUCION_OPTIONS
+                    else None
+                ),
+                placeholder="Selecciona cuántas guías se utilizaron",
+                key=guias_key,
+            )
+        else:
+            guias_sel = None
         doc_principal = st.file_uploader(
             "🧾 Subir Nota de Crédito / Dictamen (PDF/Imagen)",
             type=["pdf","jpg","jpeg","png"],
@@ -3837,6 +3866,13 @@ with tab3, suppress(StopException):
         if not seguimiento_sel:
             tab3_alert.warning("⚠️ Selecciona el estado de seguimiento.")
             st.stop()
+        if is_dev:
+            guias_val = st.session_state.get(guias_key) if guias_key else None
+            if guias_val not in GUIAS_DEVOLUCION_OPTIONS:
+                tab3_alert.warning("⚠️ Selecciona la cantidad de guías utilizadas.")
+                st.stop()
+        else:
+            guias_val = None
 
         # Subir archivos
         tipo_slug = "devolucion" if is_dev else "garantia"
@@ -3853,6 +3889,12 @@ with tab3, suppress(StopException):
         estado_recepcion_final = "Todo correcto" if estado_recepcion == "Sí, completo" else "Faltan artículos"
 
         # Columnas por tipo
+        if is_dev:
+            headers_casos = ensure_sheet_column(
+                worksheet_casos,
+                headers_casos,
+                GUIAS_DEVOLUCION_COL,
+            )
         col_fecha_recepcion = pick_first_col(
             headers_casos,
             ["Fecha_Recepcion_Garantia","Fecha_Recepcion_Devolucion"],
@@ -3883,6 +3925,13 @@ with tab3, suppress(StopException):
             "Estado_Caso": "Aprobado",
             "Seguimiento": seguimiento_sel,
         }
+        if is_dev and guias_val:
+            col_guias = pick_first_col(
+                headers_casos,
+                [GUIAS_DEVOLUCION_COL],
+                default_if_missing=GUIAS_DEVOLUCION_COL,
+            )
+            updates[col_guias] = guias_val
 
         ok_all = True
         with st.spinner("Guardando confirmación..."):
@@ -4019,7 +4068,8 @@ with tab4:
         "Documento_Adicional_URL", "Dictamen_Garantia_URL",
         "Estado", "Estado_Caso", "Estado_Recepcion", "Tipo_Envio_Original",
         "Resultado_Esperado", "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado",
-        "Numero_Serie", "Fecha_Compra", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable", "Turno", "Fecha_Entrega"
+        "Numero_Serie", "Fecha_Compra", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable", "Turno", "Fecha_Entrega",
+        GUIAS_DEVOLUCION_COL
     ]:
         if c not in df_ce.columns:
             df_ce[c] = ""
@@ -4090,7 +4140,8 @@ with tab4:
         "Tipo_Envio","Estado","Estado_Caso","Estado_Recepcion",
         "Tipo_Envio_Original","Turno","Fecha_Entrega",
         "Resultado_Esperado","Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
-        "Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable"
+        "Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
+        GUIAS_DEVOLUCION_COL
     ]
     columnas_links = ["Links_Adjuntos","Link_Guia","Link_Dictamen_o_Nota","Link_Doc_Adicional"]
 
