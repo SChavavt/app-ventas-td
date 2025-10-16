@@ -972,7 +972,7 @@ with tab1:
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
     st.session_state.setdefault("allow_submit_without_attachments", False)
-    with st.form(key="new_pedido_form", clear_on_submit=False):
+    with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
