@@ -71,8 +71,6 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "direccion_envio_destino",
     "pedido_adjuntos",
     "comprobante_cliente",
-    "allow_submit_without_attachments",
-    "force_submit_without_attachments",
     "estado_pago",
     "chk_doble",
     "chk_triple",
@@ -172,9 +170,6 @@ def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None)
 
     for key in TAB1_FORM_STATE_KEYS_TO_CLEAR:
         st.session_state.pop(key, None)
-
-    # Asegura que el flujo de confirmación sin adjuntos vuelva a requerir archivos
-    st.session_state.setdefault("allow_submit_without_attachments", False)
 
     for key, value in preserved_values.items():
         if value is None:
@@ -356,13 +351,20 @@ def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
         return False
 
 
-def set_pedido_submission_status(status: str, message: str, detail: str | None = None, attachments: list[str] | None = None) -> None:
+def set_pedido_submission_status(
+    status: str,
+    message: str,
+    detail: str | None = None,
+    attachments: list[str] | None = None,
+    missing_attachments_warning: bool = False,
+) -> None:
     """Guarda el resultado del registro de un pedido para mostrarlo en la UI."""
     st.session_state["pedido_submission_status"] = {
         "status": status,
         "message": message,
         "detail": detail or "",
         "attachments": attachments or [],
+        "missing_attachments_warning": missing_attachments_warning,
     }
 
 @st.cache_data(ttl=300)
@@ -971,7 +973,6 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
-    st.session_state.setdefault("allow_submit_without_attachments", False)
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
@@ -1159,8 +1160,7 @@ with tab1:
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button("✅ Registrar Pedido")
 
-    force_submit_without_attachments = st.session_state.pop("force_submit_without_attachments", False)
-    should_process_submission = submit_button or force_submit_without_attachments
+    should_process_submission = submit_button
 
     if not registrar_nota_venta:
         nota_venta = ""
@@ -1196,6 +1196,8 @@ with tab1:
                     st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(url) for url in attachments))
                 if detail:
                     st.write(detail)
+                if status_data.get("missing_attachments_warning"):
+                    st.warning("⚠️ Pedido registrado sin archivos adjuntos.")
             else:
                 error_message = status_data.get("message", "❌ Falla al subir el pedido.")
                 if detail:
@@ -1455,30 +1457,7 @@ with tab1:
                 st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
 
-            allow_without_attachments = st.session_state.get("allow_submit_without_attachments", False)
-            if not uploaded_files and not allow_without_attachments:
-                st.warning(
-                    "Intento de se subir pedio sin archivos adjunte uno o si no es necesario darle en continuar"
-                )
-                col_adjuntar, col_continuar = st.columns(2)
-                with col_adjuntar:
-                    st.button(
-                        "Adjuntar archivos y volver a intentar",
-                        key="retry_with_attachments",
-                        help="Permite adjuntar archivos antes de registrar el pedido.",
-                    )
-                with col_continuar:
-                    if st.button(
-                        "Continuar sin adjuntos",
-                        key="confirm_without_attachments",
-                        help="Continúa con el registro del pedido sin adjuntos.",
-                    ):
-                        st.session_state["allow_submit_without_attachments"] = True
-                        st.session_state["force_submit_without_attachments"] = True
-                        st.rerun()
-                st.stop()
-
-            st.session_state["allow_submit_without_attachments"] = False
+            pedido_sin_adjuntos = not uploaded_files
 
             # Normalización de campos para Casos Especiales
             if tipo_envio == "🔁 Devolución":
@@ -1813,6 +1792,7 @@ with tab1:
                     "success",
                     f"✅ El pedido {id_pedido} fue subido correctamente.",
                     attachments=adjuntos_urls,
+                    missing_attachments_warning=pedido_sin_adjuntos,
                 )
                 if tab1_is_active and st.session_state.get("current_tab_index") == 0:
                     st.query_params.update({"tab": "0"})
