@@ -3401,26 +3401,187 @@ with tab3, suppress(StopException):
     tab3_alert = st.empty()
 
     # ================== Helpers NUEVOS (solo para Word) ==================
+    PLACEHOLDER_PATTERN = re.compile(r"\{\{([^}]+)\}\}")
+
     def _safe_value(v):
+        if v is None:
+            return "Sin registro"
         s = str(v).strip()
         return "Sin registro" if s.lower() in ("", "none", "nan", "n/a") else s
 
-    def _docx_replace_all(doc: Document, mapping: dict[str, str]) -> None:
-        # Párrafos
-        for p in doc.paragraphs:
-            for k, v in mapping.items():
-                token = f"{{{{{k}}}}}"
-                if token in p.text:
-                    p.text = p.text.replace(token, v)
-        # Tablas
-        for table in doc.tables:
+    def _iter_paragraphs_within(container):
+        if container is None:
+            return
+
+        element = getattr(container, "_element", None)
+        if element is not None:
+            from docx.oxml.ns import qn
+            from docx.text.paragraph import Paragraph
+
+            parent = container
+            for para_element in element.iter(qn("w:p")):
+                yield Paragraph(para_element, parent)
+            return
+
+        for paragraph in getattr(container, "paragraphs", []):
+            yield paragraph
+        for table in getattr(container, "tables", []):
             for row in table.rows:
                 for cell in row.cells:
-                    for k, v in mapping.items():
-                        token = f"{{{{{k}}}}}"
-                        if token in cell.text:
-                            # Reemplaza texto de celda completo (conserva formato básico de párrafo)
-                            cell.text = cell.text.replace(token, v)
+                    yield from _iter_paragraphs_within(cell)
+
+    def _replace_span_in_runs(runs, start: int, end: int, replacement: str) -> None:
+        current_pos = 0
+        start_run_idx = None
+        start_offset = 0
+        end_run_idx = None
+        end_offset = 0
+
+        for idx, run in enumerate(runs):
+            text = run.text or ""
+            run_start = current_pos
+            run_end = current_pos + len(text)
+
+            if start_run_idx is None and start < run_end:
+                start_run_idx = idx
+                start_offset = start - run_start
+
+            if start_run_idx is not None and end <= run_end:
+                end_run_idx = idx
+                end_offset = end - run_start
+                break
+
+            current_pos = run_end
+
+        if start_run_idx is None or end_run_idx is None:
+            return
+
+        if start_run_idx == end_run_idx:
+            run = runs[start_run_idx]
+            text = run.text or ""
+            run.text = text[:start_offset] + replacement + text[end_offset:]
+            return
+
+        start_run = runs[start_run_idx]
+        end_run = runs[end_run_idx]
+
+        start_text = start_run.text or ""
+        end_text = end_run.text or ""
+
+        start_run.text = start_text[:start_offset] + replacement
+        end_run.text = end_text[end_offset:]
+
+        for idx in range(start_run_idx + 1, end_run_idx):
+            runs[idx].text = ""
+
+    def _docx_replace_all(doc: Document, mapping: dict[str, str]) -> tuple[int, int, list[str]]:
+        """Reemplaza placeholders {{...}} en todo el documento.
+
+        Devuelve una tupla con (total_encontrados, total_reemplazados, placeholders_pendientes).
+        """
+
+        token_mapping = {f"{{{{{key}}}}}": _safe_value(value) for key, value in mapping.items()}
+        total_found = 0
+        total_replaced = 0
+
+        def _process_paragraph(paragraph) -> None:
+            nonlocal total_found, total_replaced
+
+            runs = list(paragraph.runs)
+            if not runs:
+                text = paragraph.text or ""
+                if not text:
+                    return
+                matches = PLACEHOLDER_PATTERN.findall(text)
+                total_found += len(matches)
+                new_text = text
+                for token, replacement in token_mapping.items():
+                    if token in new_text:
+                        occurrences = new_text.count(token)
+                        if occurrences:
+                            new_text = new_text.replace(token, replacement)
+                            total_replaced += occurrences
+                if new_text != text:
+                    paragraph.text = new_text
+                return
+
+            full_text = "".join(run.text or "" for run in runs)
+            if not full_text:
+                return
+
+            matches = PLACEHOLDER_PATTERN.findall(full_text)
+            total_found += len(matches)
+            if not matches:
+                return
+
+            for token, replacement in token_mapping.items():
+                if token == replacement:
+                    continue
+                token_len = len(token)
+                current_text = "".join(run.text or "" for run in runs)
+                if token not in current_text:
+                    continue
+                while True:
+                    idx = current_text.find(token)
+                    if idx == -1:
+                        break
+                    _replace_span_in_runs(runs, idx, idx + token_len, replacement)
+                    total_replaced += 1
+                    current_text = "".join(run.text or "" for run in runs)
+
+        # Cuerpo principal
+        for paragraph in _iter_paragraphs_within(doc):
+            _process_paragraph(paragraph)
+
+        # Encabezados y pies de página
+        seen_parts: set[int] = set()
+        for section in doc.sections:
+            for attr in (
+                "header",
+                "first_page_header",
+                "even_page_header",
+                "footer",
+                "first_page_footer",
+                "even_page_footer",
+            ):
+                part = getattr(section, attr, None)
+                part_id = id(part)
+                if part is None or part_id in seen_parts:
+                    continue
+                seen_parts.add(part_id)
+                for paragraph in _iter_paragraphs_within(part):
+                    _process_paragraph(paragraph)
+
+        # Revisión de placeholders restantes
+        remaining = []
+        for paragraph in _iter_paragraphs_within(doc):
+            text = "".join((run.text or "") for run in paragraph.runs) or paragraph.text
+            if not text:
+                continue
+            remaining.extend(PLACEHOLDER_PATTERN.findall(text))
+
+        seen_parts.clear()
+        for section in doc.sections:
+            for attr in (
+                "header",
+                "first_page_header",
+                "even_page_header",
+                "footer",
+                "first_page_footer",
+                "even_page_footer",
+            ):
+                part = getattr(section, attr, None)
+                part_id = id(part)
+                if part is None or part_id in seen_parts:
+                    continue
+                seen_parts.add(part_id)
+                for paragraph in _iter_paragraphs_within(part):
+                    text = "".join((run.text or "") for run in paragraph.runs) or paragraph.text
+                    if not text:
+                        continue
+                    remaining.extend(PLACEHOLDER_PATTERN.findall(text))
+
+        return total_found, total_replaced, remaining
     # =====================================================================
 
     # Estado local
@@ -4045,7 +4206,7 @@ with tab3, suppress(StopException):
                         "Comentarios_Admin_Devolucion": _safe_value(comentario_admin),
                     }
 
-                    _docx_replace_all(doc, mapping)
+                    total_found, total_replaced, remaining_placeholders = _docx_replace_all(doc, mapping)
 
                     # Guardar en memoria para descarga
                     out_buffer = BytesIO()
@@ -4059,6 +4220,20 @@ with tab3, suppress(StopException):
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         use_container_width=True
                     )
+                    pendientes = len(remaining_placeholders)
+                    log_message = (
+                        f"Placeholders encontrados: {total_found}. "
+                        f"Reemplazados: {total_replaced}. "
+                        f"Pendientes sin cambio: {pendientes}."
+                    )
+                    if pendientes:
+                        st.warning(
+                            log_message
+                            + " Sin reemplazo: "
+                            + ", ".join(sorted(set(remaining_placeholders)))
+                        )
+                    else:
+                        st.info(log_message)
                     st.info("Puedes completar manualmente 'Imagen producto' y 'Recibe' en el documento descargado.")
             except Exception as e:
                 st.error(f"❌ Error al generar el documento: {e}")
