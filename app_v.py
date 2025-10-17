@@ -484,6 +484,27 @@ def __link(url, label=None):
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 PDF_EXTENSIONS = {".pdf"}
 
+# Accepted values for ``st.file_uploader`` so that Streamlit does not warn about
+# MIME type mismatches when users pick standard image/PDF formats. Streamlit
+# validates by both file extension and reported MIME type, so we include both to
+# avoid false negatives (e.g. a JPG image reported as ``image/jpeg``).
+FILE_UPLOADER_IMAGE_TYPES: list[str] = [
+    "jpg",
+    "jpeg",
+    "png",
+    "image/jpeg",
+    "image/png",
+]
+FILE_UPLOADER_PDF_TYPES: list[str] = ["pdf", "application/pdf"]
+FILE_UPLOADER_ORDER_TYPES: list[str] = [
+    *FILE_UPLOADER_PDF_TYPES,
+    *FILE_UPLOADER_IMAGE_TYPES,
+    "xlsx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "docx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]
+
 MAX_INLINE_PDF_BYTES = 10 * 1024 * 1024  # 10 MB límite para incrustar PDFs en base64
 
 
@@ -1138,7 +1159,7 @@ with tab1:
         st.subheader("📎 Adjuntos del Pedido")
         uploaded_files = st.file_uploader(
             "Sube archivos del pedido",
-            type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
+            type=FILE_UPLOADER_ORDER_TYPES,
             accept_multiple_files=True,
             key="pedido_adjuntos",
         )
@@ -1150,7 +1171,7 @@ with tab1:
             st.subheader("📎 Evidencias / Comprobantes del Caso")
             comprobante_cliente = st.file_uploader(
                 "Sube evidencia(s) del caso (comprobantes, fotos, PDF, etc.)",
-                type=["pdf", "jpg", "jpeg", "png"],
+                type=FILE_UPLOADER_PDF_TYPES + FILE_UPLOADER_IMAGE_TYPES,
                 accept_multiple_files=True,
                 key="comprobante_cliente",
                 help="Sube archivos relacionados con esta devolución o garantía"
@@ -1255,7 +1276,7 @@ with tab1:
             if not pago_doble and not pago_triple:
                 comprobante_pago_files = st.file_uploader(
                     "💲 Comprobante(s) de Pago",
-                    type=["pdf", "jpg", "jpeg", "png"],
+                    type=FILE_UPLOADER_PDF_TYPES + FILE_UPLOADER_IMAGE_TYPES,
                     accept_multiple_files=True,
                     key="comprobante_uploader_final"
                 )
@@ -1300,7 +1321,12 @@ with tab1:
             # --- Dos comprobantes ---
             elif pago_doble:
                 st.markdown("### 1️⃣ Primer Pago")
-                comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                comp1 = st.file_uploader(
+                    "💳 Comprobante 1",
+                    type=FILE_UPLOADER_PDF_TYPES + FILE_UPLOADER_IMAGE_TYPES,
+                    accept_multiple_files=True,
+                    key="cp_pago1"
+                )
                 render_uploaded_files_preview("Comprobantes del primer pago", comp1)
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
@@ -1326,7 +1352,12 @@ with tab1:
                 ref1 = st.text_input("🔢 Referencia 1", key="ref1")
 
                 st.markdown("### 2️⃣ Segundo Pago")
-                comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                comp2 = st.file_uploader(
+                    "💳 Comprobante 2",
+                    type=FILE_UPLOADER_PDF_TYPES + FILE_UPLOADER_IMAGE_TYPES,
+                    accept_multiple_files=True,
+                    key="cp_pago2"
+                )
                 render_uploaded_files_preview("Comprobantes del segundo pago", comp2)
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
@@ -1362,7 +1393,12 @@ with tab1:
             # --- Tres comprobantes ---
             elif pago_triple:
                 st.markdown("### 1️⃣ Primer Pago")
-                comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                comp1 = st.file_uploader(
+                    "💳 Comprobante 1",
+                    type=FILE_UPLOADER_PDF_TYPES + FILE_UPLOADER_IMAGE_TYPES,
+                    accept_multiple_files=True,
+                    key="cp_pago1"
+                )
                 render_uploaded_files_preview("Comprobantes del primer pago", comp1)
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
@@ -1388,7 +1424,12 @@ with tab1:
                 ref1 = st.text_input("🔢 Referencia 1", key="ref1")
 
                 st.markdown("### 2️⃣ Segundo Pago")
-                comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                comp2 = st.file_uploader(
+                    "💳 Comprobante 2",
+                    type=FILE_UPLOADER_PDF_TYPES + FILE_UPLOADER_IMAGE_TYPES,
+                    accept_multiple_files=True,
+                    key="cp_pago2"
+                )
                 render_uploaded_files_preview("Comprobantes del segundo pago", comp2)
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
@@ -1414,7 +1455,12 @@ with tab1:
                 ref2 = st.text_input("🔢 Referencia 2", key="ref2")
 
                 st.markdown("### 3️⃣ Tercer Pago")
-                comp3 = st.file_uploader("💳 Comprobante 3", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago3")
+                comp3 = st.file_uploader(
+                    "💳 Comprobante 3",
+                    type=FILE_UPLOADER_PDF_TYPES + FILE_UPLOADER_IMAGE_TYPES,
+                    accept_multiple_files=True,
+                    key="cp_pago3"
+                )
                 render_uploaded_files_preview("Comprobantes del tercer pago", comp3)
                 fecha3 = st.date_input("📅 Fecha 3", value=datetime.today().date(), key="fecha_pago3")
                 forma3 = st.selectbox("💳 Forma 3", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago3")
@@ -2220,14 +2266,14 @@ with tab2:
 
                     uploaded_files_surtido = st.file_uploader(
                         "📎 Subir Archivos para Modificación/Surtido",
-                        type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
+                        type=FILE_UPLOADER_ORDER_TYPES,
                         accept_multiple_files=True,
                         key="uploaded_files_surtido"
                     )
 
                     uploaded_comprobantes_extra = st.file_uploader(
                         "🧾 Subir Comprobante(s) Adicional(es)",
-                        type=["pdf", "jpg", "jpeg", "png"],
+                        type=FILE_UPLOADER_PDF_TYPES + FILE_UPLOADER_IMAGE_TYPES,
                         accept_multiple_files=True,
                         key="uploaded_comprobantes_extra"
                     )
@@ -2556,7 +2602,7 @@ with tab3:
                 with st.form(key=f"upload_comprobante_form_{selected_pending_order_id}"):
                     comprobante_files = st.file_uploader(
                         "💲 Comprobante(s) de Pago",
-                        type=["pdf", "jpg", "jpeg", "png"],
+                        type=FILE_UPLOADER_PDF_TYPES + FILE_UPLOADER_IMAGE_TYPES,
                         accept_multiple_files=True,
                         key=f"comprobante_uploader_{selected_pending_order_id}"
                     )
