@@ -3382,6 +3382,7 @@ with tab2:
                         rerun_current_tab()
                     except Exception as err:
                         st.error(f"❌ No se pudo actualizar el estado de entrega: {err}")
+                        
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
     if tab3_is_active:
@@ -3393,8 +3394,34 @@ with tab3, suppress(StopException):
     import uuid, os, json, math, re, time
     import pandas as pd
     import gspread
+    # ⬇️ NUEVO: para generar/descargar el Word
+    from docx import Document
+    from io import BytesIO
 
     tab3_alert = st.empty()
+
+    # ================== Helpers NUEVOS (solo para Word) ==================
+    def _safe_value(v):
+        s = str(v).strip()
+        return "Sin registro" if s.lower() in ("", "none", "nan", "n/a") else s
+
+    def _docx_replace_all(doc: Document, mapping: dict[str, str]) -> None:
+        # Párrafos
+        for p in doc.paragraphs:
+            for k, v in mapping.items():
+                token = f"{{{{{k}}}}}"
+                if token in p.text:
+                    p.text = p.text.replace(token, v)
+        # Tablas
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for k, v in mapping.items():
+                        token = f"{{{{{k}}}}}"
+                        if token in cell.text:
+                            # Reemplaza texto de celda completo (conserva formato básico de párrafo)
+                            cell.text = cell.text.replace(token, v)
+    # =====================================================================
 
     # Estado local
     if "tab3_reload_nonce" not in st.session_state:
@@ -3985,6 +4012,60 @@ with tab3, suppress(StopException):
             except Exception as e:
                 tab3_alert.error(f"❌ Error al actualizar: {e}")
                 ok_all = False
+
+        # =================== NUEVO: Generar Word y mostrar descarga (solo Devolución) ===================
+        if ok_all and is_dev:
+            tab3_alert.success("✅ Confirmación guardada.")
+            st.toast("Confirmación guardada", icon="✅")
+
+            try:
+                with st.spinner("Generando formato de devolución..."):
+                    # Cargar plantilla desde el repo (GitHub → Streamlit)
+                    template_path = "plantillas/Formato_Devolución-M.docx"
+                    if not os.path.exists(template_path):
+                        raise FileNotFoundError(f"No se encontró la plantilla en: {template_path}")
+
+                    doc = Document(template_path)
+
+                    # Mapping exacto a placeholders del .docx
+                    mapping = {
+                        "Material_Devuelto": _safe_value(row.get("Material_Devuelto")),
+                        "Cliente": _safe_value(row.get("Cliente")),
+                        "Vendedor_Registro": _safe_value(row.get("Vendedor_Registro")),
+                        "Folio_Factura": _safe_value(row.get("Folio_Factura")),
+                        "Monto_Devuelto": _safe_value(row.get("Monto_Devuelto")),
+                        "Fecha_Recepcion_Devolucion": fecha_recepcion.strftime("%Y-%m-%d"),
+                        "Numero_Guias_Devolucion": _safe_value(guias_val),
+                        "Area_Responsable": _safe_value(row.get("Area_Responsable")),
+                        "Seguimiento": _safe_value(seguimiento_sel),
+                        # Para el formato: usamos el URL de la "nota" recién subida como principal (si existe)
+                        "Nota_Credito_URL": _safe_value(urls.get("principal", row.get("Nota_Credito_URL",""))),
+                        "Folio_Factura_Error": _safe_value(row.get("Folio_Factura_Error")),
+                        "Motivo_Detallado": _safe_value(row.get("Motivo_Detallado")),
+                        "Comentarios_Admin_Devolucion": _safe_value(comentario_admin),
+                    }
+
+                    _docx_replace_all(doc, mapping)
+
+                    # Guardar en memoria para descarga
+                    out_buffer = BytesIO()
+                    doc.save(out_buffer)
+                    out_buffer.seek(0)
+
+                    st.download_button(
+                        label="📄 Descargar Formato de Devolución",
+                        data=out_buffer,
+                        file_name=f"Formato_Devolucion_{row.get('ID_Pedido','')}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True
+                    )
+                    st.info("Puedes completar manualmente 'Imagen producto' y 'Recibe' en el documento descargado.")
+            except Exception as e:
+                st.error(f"❌ Error al generar el documento: {e}")
+
+            # Importante: NO forzar rerun aquí para que el usuario alcance a descargar.
+            st.stop()
+        # ================================================================================================
 
         if ok_all:
             tab3_alert.success("✅ Confirmación guardada.")
