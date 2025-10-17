@@ -561,7 +561,7 @@ def render_remote_file_preview(url: str, display_label: str) -> None:
 
     ext = _infer_extension(normalized_url)
     if ext in IMAGE_EXTENSIONS:
-        st.image(normalized_url, caption=display_label, use_column_width=True)
+        st.image(normalized_url, caption=display_label, use_container_width=True)
     elif ext in PDF_EXTENSIONS:
         rendered = False
         try:
@@ -623,7 +623,7 @@ def render_uploaded_file_preview(file_obj) -> None:
     with st.expander(f"👁️ Vista previa • {display_label}", expanded=False):
         if ext in IMAGE_EXTENSIONS:
             file_obj.seek(0)
-            st.image(file_obj.read(), caption=display_label, use_column_width=True)
+            st.image(file_obj.read(), caption=display_label, use_container_width=True)
             file_obj.seek(0)
         elif ext in PDF_EXTENSIONS:
             file_obj.seek(0)
