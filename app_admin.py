@@ -2250,17 +2250,19 @@ with tab1:
     
                     # Detectar cuántos comprobantes hay
                     num_comprobantes = len(comprobantes) if 'comprobantes' in locals() else 0
-                    mostrar_contenido = True
-    
+
+                    st.subheader("✅ Confirmar Comprobante")
+
+                    fecha_list: list[str] = []
+                    forma_list: list[str] = []
+                    banco_list: list[str] = []
+                    terminal_list: list[str] = []
+                    monto_list: list[float] = []
+                    ref_list: list[str] = []
+
                     if num_comprobantes == 0:
                         st.warning("⚠️ No hay comprobantes para confirmar.")
-                        mostrar_contenido = False
-    
-                    if mostrar_contenido:
-                        st.subheader("✅ Confirmar Comprobante")
-    
-                        fecha_list, forma_list, banco_list, terminal_list, monto_list, ref_list = [], [], [], [], [], []
-    
+                    else:
                         # --- Prellenar valores si ya están registrados en la hoja ---
                         fecha_list = str(selected_pedido_data.get('Fecha_Pago_Comprobante', '')).split(" y ")
                         forma_list = str(selected_pedido_data.get('Forma_Pago_Comprobante', '')).split(", ")
@@ -2268,7 +2270,7 @@ with tab1:
                         terminal_list = str(selected_pedido_data.get('Terminal', '')).split(", ")
                         monto_list_raw = selected_pedido_data.get('Monto_Comprobante', '')
                         ref_list = str(selected_pedido_data.get('Referencia_Comprobante', '')).split(", ")
-    
+
                         if isinstance(monto_list_raw, str) and "," in monto_list_raw:
                             monto_list = [float(m.strip()) if m.strip() else 0.0 for m in monto_list_raw.split(",")]
                         else:
@@ -2276,7 +2278,7 @@ with tab1:
                                 monto_list = [float(monto_list_raw)] if monto_list_raw else []
                             except Exception:
                                 monto_list = []
-    
+
                         while len(fecha_list) < num_comprobantes:
                             fecha_list.append("")
                         while len(forma_list) < num_comprobantes:
@@ -2289,15 +2291,15 @@ with tab1:
                             monto_list.append(0.0)
                         while len(ref_list) < num_comprobantes:
                             ref_list.append("")
-    
+
                         for i in range(num_comprobantes):
                             if num_comprobantes == 1:
                                 st.markdown("### 🧾 Comprobante")
                             else:
                                 emoji_num = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
-                                label = emoji_num[i] if i < len(emoji_num) else str(i+1)
+                                label = emoji_num[i] if i < len(emoji_num) else str(i + 1)
                                 st.markdown(f"### {label} 🧾 Comprobante {i+1}")
-    
+
                             col_pago = st.columns(4)
                             with col_pago[0]:
                                 fecha_raw = fecha_list[i] if i < len(fecha_list) else ""
@@ -2341,7 +2343,7 @@ with tab1:
                                         key=f"banco_pago_{i}"
                                     )
                                     terminal_i = ""
-    
+
                             with col_pago[3]:
                                 monto_i = st.number_input(
                                     f"💲 Monto {i+1}",
@@ -2350,90 +2352,113 @@ with tab1:
                                     value=monto_list[i] if i < len(monto_list) else 0.0,
                                     key=f"monto_pago_{i}"
                                 )
-    
+
                             referencia_i = st.text_input(
                                 f"🔢 Referencia {i+1}",
                                 value=ref_list[i] if i < len(ref_list) else "",
                                 key=f"ref_pago_{i}"
                             )
-    
+
                             fecha_list[i] = fecha_i.strftime("%Y-%m-%d") if fecha_i else ""
                             forma_list[i] = forma_i
                             banco_list[i] = banco_i
                             terminal_list[i] = terminal_i
                             monto_list[i] = monto_i
                             ref_list[i] = referencia_i
-    
-                        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-                        with col1:
-                            st.info("👆 Revisa los comprobantes antes de confirmar.")
 
-                        with col2:
-                            if st.button("✅ Confirmar Comprobante", use_container_width=True):
-                                try:
-                                    gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index[0] + 2
-    
-                                    if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
-                                        df_pedidos[FECHA_CONFIRMADO_COL] = ""
-                                    fecha_confirmado = obtener_fecha_confirmado_cdmx()
+                    reject_toggle_key = f"show_rechazo__{current_selection_key}"
+                    reject_reason_key = f"motivo_rechazo__{current_selection_key}"
+                    cancel_toggle_key = f"show_cancel__{current_selection_key}"
+                    cancel_reason_key = f"motivo_cancelacion__{current_selection_key}"
 
-                                    updates = {
-                                        'Comprobante_Confirmado': 'Sí',
-                                        FECHA_CONFIRMADO_COL: fecha_confirmado,
-                                        'Fecha_Pago_Comprobante': " y ".join(fecha_list),
-                                        'Forma_Pago_Comprobante': ", ".join(forma_list),
-                                        'Monto_Comprobante': sum(monto_list),
-                                        'Referencia_Comprobante': ", ".join(ref_list),
-                                        'Terminal': ", ".join([t for t in terminal_list if t]),
-                                        'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
-                                    }
-                                    if is_pedido_local:
-                                        updates[ESTADO_ENTREGA_COL] = estado_entrega_value
+                    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                    with col1:
+                        st.info("👆 Revisa los comprobantes antes de confirmar.")
 
-                                    # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
-                                    worksheet = _get_ws_datos()
-                                    headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
-                                    if is_pedido_local:
-                                        headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
-                                    st.session_state.headers = headers
-    
-                                    cell_updates = []
+                    confirm_disabled = num_comprobantes == 0
+                    with col2:
+                        if st.button(
+                            "✅ Confirmar Comprobante",
+                            use_container_width=True,
+                            disabled=confirm_disabled,
+                        ) and not confirm_disabled:
+                            try:
+                                gsheet_row_index = (
+                                    df_pedidos[
+                                        df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
+                                    ].index[0]
+                                    + 2
+                                )
+
+                                if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
+                                    df_pedidos[FECHA_CONFIRMADO_COL] = ""
+                                fecha_confirmado = obtener_fecha_confirmado_cdmx()
+
+                                updates = {
+                                    'Comprobante_Confirmado': 'Sí',
+                                    FECHA_CONFIRMADO_COL: fecha_confirmado,
+                                    'Fecha_Pago_Comprobante': " y ".join(fecha_list),
+                                    'Forma_Pago_Comprobante': ", ".join(forma_list),
+                                    'Monto_Comprobante': sum(monto_list),
+                                    'Referencia_Comprobante': ", ".join(ref_list),
+                                    'Terminal': ", ".join([t for t in terminal_list if t]),
+                                    'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
+                                }
+                                if is_pedido_local:
+                                    updates[ESTADO_ENTREGA_COL] = estado_entrega_value
+
+                                # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
+                                worksheet = _get_ws_datos()
+                                headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
+                                if is_pedido_local:
+                                    headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
+                                st.session_state.headers = headers
+
+                                cell_updates = []
+                                for col, val in updates.items():
+                                    if col in headers:
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index, headers.index(col) + 1
+                                            ),
+                                            "values": [[val]],
+                                        })
+
+                                if cell_updates:
+                                    safe_batch_update(worksheet, cell_updates)
+                                    _get_ws_datos.clear()
+
+                                df_idx = df_pedidos[
+                                    df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
+                                ].index
+                                if len(df_idx) > 0:
+                                    df_idx = df_idx[0]
                                     for col, val in updates.items():
-                                        if col in headers:
-                                            cell_updates.append({
-                                                "range": rowcol_to_a1(
-                                                    gsheet_row_index, headers.index(col) + 1
-                                                ),
-                                                "values": [[val]],
-                                            })
-                                    if cell_updates:
-                                        safe_batch_update(worksheet, cell_updates)
-                                        _get_ws_datos.clear()
-                                        cargar_pedidos_desde_google_sheet.clear()
-    
-                                    df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search].index
-                                    if len(df_idx) > 0:
-                                        df_idx = df_idx[0]
-                                        for col, val in updates.items():
-                                            if col in df_pedidos.columns:
-                                                df_pedidos.at[df_idx, col] = val
-                                    pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search]
+                                        if col in df_pedidos.columns:
+                                            df_pedidos.at[df_idx, col] = val
                                     st.session_state.df_pedidos = df_pedidos
-                                    st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
-                                    clear_comprobante_form_state()
-                                    st.session_state.pop("last_selected_pedido_key", None)
-                                    st.success("🎉 Comprobante confirmado exitosamente.")
-                                    st.balloons()
-                                    rerun_current_tab()
-    
-                                except Exception as e:
-                                    st.error(f"❌ Error al confirmar comprobante: {e}")
-                        reject_toggle_key = f"show_rechazo__{current_selection_key}"
-                        reject_reason_key = f"motivo_rechazo__{current_selection_key}"
-                        cancel_toggle_key = f"show_cancel__{current_selection_key}"
-                        cancel_reason_key = f"motivo_cancelacion__{current_selection_key}"
 
-                        with col3:
+                                pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
+                                    pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search
+                                ]
+                                st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+                                clear_comprobante_form_state()
+                                st.session_state.pop("last_selected_pedido_key", None)
+                                st.success("🎉 Comprobante confirmado exitosamente.")
+                                st.balloons()
+                                rerun_current_tab()
+
+                            except Exception as e:
+                                st.error(f"❌ Error al confirmar comprobante: {e}")
+
+                    with col3:
+                        if num_comprobantes == 0:
+                            st.button(
+                                "❌ Rechazar Comprobante",
+                                use_container_width=True,
+                                disabled=True,
+                            )
+                        else:
                             if st.button("❌ Rechazar Comprobante", use_container_width=True):
                                 st.session_state[reject_toggle_key] = True
                                 st.session_state.pop(cancel_toggle_key, None)
@@ -2524,86 +2549,86 @@ with tab1:
                                         except Exception as e:
                                             st.error(f"❌ Error al rechazar el comprobante: {e}")
 
-                        with col4:
-                            if st.button("🛑 Cancelar Pedido", use_container_width=True):
-                                st.session_state[cancel_toggle_key] = True
-                                st.session_state.pop(reject_toggle_key, None)
-                            if st.session_state.get(cancel_toggle_key):
-                                st.session_state.setdefault(cancel_reason_key, "")
-                                st.text_area(
-                                    "📝 Motivo de cancelación",
-                                    key=cancel_reason_key,
-                                    placeholder="Describe el motivo de cancelación",
-                                )
-                                if st.button(
-                                    "Guardar cancelación",
-                                    key=f"guardar_cancelacion_{current_selection_key}",
-                                    use_container_width=True,
-                                ):
-                                    motivo = str(st.session_state.get(cancel_reason_key, "")).strip()
-                                    if not motivo:
-                                        st.error("⚠️ Debes ingresar un motivo para cancelar el pedido.")
-                                    else:
-                                        prefijo = f"Cancelado[{motivo}]"
-                                        try:
-                                            gsheet_row_index = (
-                                                df_pedidos[
-                                                    df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
-                                                ].index[0]
-                                                + 2
-                                            )
-
-                                            updates = {
-                                                MOTIVO_RECHAZO_CANCELACION_COL: prefijo,
-                                            }
-
-                                            worksheet = _get_ws_datos()
-
-                                            cell_updates = []
-                                            for col, val in updates.items():
-                                                if col in headers:
-                                                    cell_updates.append({
-                                                        "range": rowcol_to_a1(
-                                                            gsheet_row_index, headers.index(col) + 1
-                                                        ),
-                                                        "values": [[val]],
-                                                    })
-
-                                            if cell_updates:
-                                                safe_batch_update(worksheet, cell_updates)
-                                                _get_ws_datos.clear()
-                                                cargar_pedidos_desde_google_sheet.clear()
-                                            else:
-                                                st.warning(
-                                                    "⚠️ No se encontró la columna de motivos en la hoja. Verifica la configuración."
-                                                )
-
-                                            df_idx = df_pedidos[
+                    with col4:
+                        if st.button("🛑 Cancelar Pedido", use_container_width=True):
+                            st.session_state[cancel_toggle_key] = True
+                            st.session_state.pop(reject_toggle_key, None)
+                        if st.session_state.get(cancel_toggle_key):
+                            st.session_state.setdefault(cancel_reason_key, "")
+                            st.text_area(
+                                "📝 Motivo de cancelación",
+                                key=cancel_reason_key,
+                                placeholder="Describe el motivo de cancelación",
+                            )
+                            if st.button(
+                                "Guardar cancelación",
+                                key=f"guardar_cancelacion_{current_selection_key}",
+                                use_container_width=True,
+                            ):
+                                motivo = str(st.session_state.get(cancel_reason_key, "")).strip()
+                                if not motivo:
+                                    st.error("⚠️ Debes ingresar un motivo para cancelar el pedido.")
+                                else:
+                                    prefijo = f"Cancelado[{motivo}]"
+                                    try:
+                                        gsheet_row_index = (
+                                            df_pedidos[
                                                 df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
-                                            ].index
-                                            if len(df_idx) > 0:
-                                                df_idx = df_idx[0]
-                                                for col, val in updates.items():
-                                                    if col in df_pedidos.columns:
-                                                        df_pedidos.at[df_idx, col] = val
-                                                st.session_state.df_pedidos = df_pedidos
+                                            ].index[0]
+                                            + 2
+                                        )
 
-                                            pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
-                                                pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search
-                                            ].copy()
-                                            pedidos_pagados_no_confirmados = _filter_cancelled_pedidos(
-                                                pedidos_pagados_no_confirmados
+                                        updates = {
+                                            MOTIVO_RECHAZO_CANCELACION_COL: prefijo,
+                                        }
+
+                                        worksheet = _get_ws_datos()
+
+                                        cell_updates = []
+                                        for col, val in updates.items():
+                                            if col in headers:
+                                                cell_updates.append({
+                                                    "range": rowcol_to_a1(
+                                                        gsheet_row_index, headers.index(col) + 1
+                                                    ),
+                                                    "values": [[val]],
+                                                })
+
+                                        if cell_updates:
+                                            safe_batch_update(worksheet, cell_updates)
+                                            _get_ws_datos.clear()
+                                            cargar_pedidos_desde_google_sheet.clear()
+                                        else:
+                                            st.warning(
+                                                "⚠️ No se encontró la columna de motivos en la hoja. Verifica la configuración."
                                             )
-                                            st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
 
-                                            st.success("🛑 Pedido cancelado y ocultado de la vista.")
-                                            st.session_state.pop(cancel_toggle_key, None)
-                                            st.session_state.pop(cancel_reason_key, None)
-                                            clear_comprobante_form_state()
-                                            rerun_current_tab()
+                                        df_idx = df_pedidos[
+                                            df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
+                                        ].index
+                                        if len(df_idx) > 0:
+                                            df_idx = df_idx[0]
+                                            for col, val in updates.items():
+                                                if col in df_pedidos.columns:
+                                                    df_pedidos.at[df_idx, col] = val
+                                            st.session_state.df_pedidos = df_pedidos
 
-                                        except Exception as e:
-                                            st.error(f"❌ Error al cancelar el pedido: {e}")
+                                        pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
+                                            pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search
+                                        ].copy()
+                                        pedidos_pagados_no_confirmados = _filter_cancelled_pedidos(
+                                            pedidos_pagados_no_confirmados
+                                        )
+                                        st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+
+                                        st.success("🛑 Pedido cancelado y ocultado de la vista.")
+                                        st.session_state.pop(cancel_toggle_key, None)
+                                        st.session_state.pop(cancel_reason_key, None)
+                                        clear_comprobante_form_state()
+                                        rerun_current_tab()
+
+                                    except Exception as e:
+                                        st.error(f"❌ Error al cancelar el pedido: {e}")
 # --- TAB 2: PEDIDOS CONFIRMADOS ---
 with tab2:
     if tab2_is_active:
