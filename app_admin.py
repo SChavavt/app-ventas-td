@@ -45,7 +45,7 @@ MOTIVO_RECHAZO_CANCELACION_COL = "Motivo_Rechazo/Cancelacion"
 FECHA_CONFIRMADO_COL = "Fecha_Confirmado"
 ESTADO_ENTREGA_COL = "Estado_Entrega"
 GUIAS_DEVOLUCION_COL = "Numero_Guias_Devolucion"
-GUIAS_DEVOLUCION_OPTIONS = ["1 guía", "2 guías"]
+GUIAS_DEVOLUCION_OPTIONS = ["0 guías", "1 guía", "2 guías"]
 CDMX_TIMEZONE = ZoneInfo("America/Mexico_City")
 
 
