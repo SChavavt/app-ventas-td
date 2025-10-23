@@ -3678,7 +3678,7 @@ with tab3, suppress(StopException):
     needed_cols = [
         "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
         "Tipo_Envio","Resultado_Esperado","Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
-        "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta","Tipo_Envio_Original",
+        "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta","Tipo_Envio_Original","Estatus_OrigenF",
         "Adjuntos","Hoja_Ruta_Mensajero","Estado_Caso","Estado_Recepcion","Turno","Fecha_Entrega",
         "Numero_Serie","Fecha_Compra","Seguimiento", GUIAS_DEVOLUCION_COL
     ]
@@ -3782,9 +3782,12 @@ with tab3, suppress(StopException):
         if is_dev:
             folio_nuevo = row.get("Folio_Factura", "")
             folio_error = row.get("Folio_Factura_Error", "")
+            estatus_origen_raw = row.get("Estatus_OrigenF", "")
+            estatus_origen_display = __s(estatus_origen_raw) if __has(estatus_origen_raw) else "N/A"
             st.markdown(
                 f"📄 **Folio Nuevo:** `{folio_nuevo or 'N/A'}`  |  "
                 f"📄 **Folio Error:** `{folio_error or 'N/A'}`  |  "
+                f"📊 **Estatus Factura Origen:** `{estatus_origen_display}`  |  "
                 f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
                 f"🕒 **Hora:** `{hora or 'N/A'}`"
             )
@@ -3921,7 +3924,7 @@ with tab3, suppress(StopException):
             "Hora_Registro","Resultado_Esperado","Numero_Cliente_RFC",
             "Area_Responsable","Nombre_Responsable",
             "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta",
-            "Tipo_Envio_Original","Estado_Caso","Estado_Recepcion","Seguimiento"
+            "Tipo_Envio_Original","Estatus_OrigenF","Estado_Caso","Estado_Recepcion","Seguimiento"
         ]
         existing_columns = [c for c in columns_to_show if c in df_pendientes.columns]
 
@@ -4389,7 +4392,7 @@ with tab4:
     for c in [
         "Adjuntos", "Hoja_Ruta_Mensajero", "Nota_Credito_URL",
         "Documento_Adicional_URL", "Dictamen_Garantia_URL",
-        "Estado", "Estado_Caso", "Estado_Recepcion", "Tipo_Envio_Original",
+        "Estado", "Estado_Caso", "Estado_Recepcion", "Tipo_Envio_Original", "Estatus_OrigenF",
         "Resultado_Esperado", "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado",
         "Numero_Serie", "Fecha_Compra", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable", "Turno", "Fecha_Entrega",
         GUIAS_DEVOLUCION_COL
@@ -4461,7 +4464,7 @@ with tab4:
         "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
         "Numero_Serie","Fecha_Compra",
         "Tipo_Envio","Estado","Estado_Caso","Estado_Recepcion",
-        "Tipo_Envio_Original","Turno","Fecha_Entrega",
+        "Tipo_Envio_Original","Estatus_OrigenF","Turno","Fecha_Entrega",
         "Resultado_Esperado","Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
         "Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
         GUIAS_DEVOLUCION_COL
