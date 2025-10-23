@@ -45,6 +45,7 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "registro_cliente",
     "numero_cliente_rfc",
     "tipo_envio_original",
+    "estatus_factura_origen",
     "subtipo_local_selector",
     "folio_factura_error_input",
     "nota_venta_input",
@@ -950,6 +951,7 @@ with tab1:
 
     # Variables Devolución
     tipo_envio_original = ""
+    estatus_origen_factura = ""
     resultado_esperado = ""
     material_devuelto = ""
     motivo_detallado = ""
@@ -1000,6 +1002,14 @@ with tab1:
                 index=0,
                 key="tipo_envio_original",
                 help="Selecciona el tipo de envío del pedido que se va a devolver."
+            )
+
+            estatus_origen_factura = st.selectbox(
+                "📊 Estatus de Factura Origen",
+                ["Pagado", "Crédito", "Otro"],
+                index=0,
+                key="estatus_factura_origen",
+                help="Indica el estatus de la factura original asociada al pedido devuelto."
             )
 
             # 🆕 NUEVO: Folio Error arriba del folio normal
@@ -1499,7 +1509,7 @@ with tab1:
                         st.rerun()
 
                     headers = worksheet.row_values(1)
-                    required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio"]
+                    required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio", "Estatus_OrigenF"]
                     missing_headers = [col for col in required_headers if col not in headers]
                     if missing_headers:
                         try:
@@ -1648,6 +1658,8 @@ with tab1:
                     values.append(tipo_envio)
                 elif header == "Tipo_Envio_Original":
                     values.append(tipo_envio_original if tipo_envio == "🔁 Devolución" else "")
+                elif header == "Estatus_OrigenF":
+                    values.append(estatus_origen_factura if tipo_envio == "🔁 Devolución" else "")
                 elif header == "Turno":
                     values.append(subtipo_local)
                 elif header == "Fecha_Entrega":
@@ -2717,7 +2729,7 @@ def cargar_casos_especiales():
         "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
         # Detalle del caso
         "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto","Motivo_NotaVenta",
-        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original",
+        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original","Estatus_OrigenF",
         "Direccion_Guia_Retorno","Direccion_Envio",
         # ⚙️ NUEVO: Garantías
         "Numero_Serie","Fecha_Compra",  # (si tu hoja usa 'FechaCompra', abajo la normalizamos)
