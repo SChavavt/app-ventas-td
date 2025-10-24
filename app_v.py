@@ -2,7 +2,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import json
 import base64
 import uuid
@@ -195,6 +195,29 @@ def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0
                 time.sleep(base_delay * (2 ** attempt))
             else:
                 raise
+
+
+def normalize_date_range(value, default_start: date, default_end: date) -> tuple[date, date]:
+    """Return a valid (start, end) date tuple from Streamlit date inputs."""
+    if isinstance(value, (list, tuple)):
+        if len(value) >= 2:
+            start, end = value[0], value[1]
+        elif len(value) == 1:
+            start = end = value[0]
+        else:
+            start, end = default_start, default_end
+    elif isinstance(value, date):
+        start = end = value
+    else:
+        start, end = default_start, default_end
+
+    start = start or default_start
+    end = end or default_end
+
+    if start > end:
+        start, end = end, start
+
+    return start, end
 
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
@@ -2045,6 +2068,12 @@ with tab2:
 
         # ----------------- Controles de filtro -----------------
         col1, col2 = st.columns(2)
+        today_tab2 = datetime.now().date()
+        default_start_tab2, default_end_tab2 = normalize_date_range(
+            st.session_state.get("filtro_fecha_registro"),
+            today_tab2,
+            today_tab2,
+        )
 
         with col1:
             if 'Vendedor_Registro' in df_pedidos.columns:
@@ -2062,11 +2091,16 @@ with tab2:
                 selected_vendedor_mod = "Todos"
 
         with col2:
-            fecha_filtro = st.date_input(
+            fecha_filtro_range_tab2 = st.date_input(
                 "📅 Filtrar por Fecha de Registro:",
-                value=datetime.now().date(),
+                value=(default_start_tab2, default_end_tab2),
                 key="filtro_fecha_registro"
             )
+        fecha_inicio_tab2, fecha_fin_tab2 = normalize_date_range(
+            fecha_filtro_range_tab2,
+            default_start_tab2,
+            default_end_tab2,
+        )
 
         # ----------------- Aplicar filtros -----------------
         filtered_orders = df_pedidos.copy()
@@ -2077,7 +2111,9 @@ with tab2:
         # Filtrar por fecha usando 'Hora_Registro' si existe
         if 'Hora_Registro' in filtered_orders.columns:
             filtered_orders['Hora_Registro'] = pd.to_datetime(filtered_orders['Hora_Registro'], errors='coerce')
-            filtered_orders = filtered_orders[filtered_orders['Hora_Registro'].dt.date == fecha_filtro]
+            filtered_orders = filtered_orders[
+                filtered_orders['Hora_Registro'].dt.date.between(fecha_inicio_tab2, fecha_fin_tab2)
+            ]
 
         if filtered_orders.empty:
             st.warning("No hay pedidos que coincidan con los filtros seleccionados.")
@@ -2484,6 +2520,12 @@ with tab3:
         filtered_pedidos_comprobante = df_pedidos_comprobante.copy()
 
         col3_tab3, col4_tab3 = st.columns(2)
+        today_tab3 = datetime.now().date()
+        default_start_tab3, default_end_tab3 = normalize_date_range(
+            st.session_state.get("filtro_fecha_comprobante"),
+            today_tab3,
+            today_tab3,
+        )
         with col3_tab3:
             if 'Vendedor_Registro' in filtered_pedidos_comprobante.columns:
                 unique_vendedores_comp = ["Todos"] + sorted(filtered_pedidos_comprobante['Vendedor_Registro'].unique().tolist())
@@ -2496,17 +2538,22 @@ with tab3:
                     filtered_pedidos_comprobante = filtered_pedidos_comprobante[filtered_pedidos_comprobante['Vendedor_Registro'] == selected_vendedor_comp]
 
         with col4_tab3:
-            fecha_filtro_tab3 = st.date_input(
+            fecha_rango_tab3 = st.date_input(
                 "📅 Filtrar por Fecha de Registro:",
-                value=datetime.now().date(),
+                value=(default_start_tab3, default_end_tab3),
                 key="filtro_fecha_comprobante"
             )
-            
+        fecha_inicio_tab3, fecha_fin_tab3 = normalize_date_range(
+            fecha_rango_tab3,
+            default_start_tab3,
+            default_end_tab3,
+        )
+
         # Filtrar por fecha si existe la columna 'Hora_Registro'
         if 'Hora_Registro' in filtered_pedidos_comprobante.columns:
             filtered_pedidos_comprobante['Hora_Registro'] = pd.to_datetime(filtered_pedidos_comprobante['Hora_Registro'], errors='coerce')
             filtered_pedidos_comprobante = filtered_pedidos_comprobante[
-                filtered_pedidos_comprobante['Hora_Registro'].dt.date == fecha_filtro_tab3
+                filtered_pedidos_comprobante['Hora_Registro'].dt.date.between(fecha_inicio_tab3, fecha_fin_tab3)
             ]
 
         filtered_pedidos_comprobante = filtered_pedidos_comprobante[
@@ -2799,6 +2846,12 @@ with tab4:
                 )
 
             col_vend_casos, col_fecha_casos = st.columns(2)
+            today_tab4 = datetime.now().date()
+            default_start_tab4, default_end_tab4 = normalize_date_range(
+                st.session_state.get("filtro_fecha_casos_especiales"),
+                today_tab4,
+                today_tab4,
+            )
 
             with col_vend_casos:
                 vendedores_casos = ["Todos"]
@@ -2818,11 +2871,16 @@ with tab4:
                 )
 
             with col_fecha_casos:
-                fecha_filtro_casos = st.date_input(
+                fecha_rango_casos = st.date_input(
                     "📅 Filtrar por Fecha de Registro:",
-                    value=datetime.now().date(),
+                    value=(default_start_tab4, default_end_tab4),
                     key="filtro_fecha_casos_especiales"
                 )
+            fecha_inicio_tab4, fecha_fin_tab4 = normalize_date_range(
+                fecha_rango_casos,
+                default_start_tab4,
+                default_end_tab4,
+            )
 
             filtered_casos = df_casos.copy()
 
@@ -2836,7 +2894,7 @@ with tab4:
 
             if "Hora_Registro" in filtered_casos.columns:
                 filtered_casos = filtered_casos[
-                    filtered_casos["Hora_Registro"].dt.date == fecha_filtro_casos
+                    filtered_casos["Hora_Registro"].dt.date.between(fecha_inicio_tab4, fecha_fin_tab4)
                 ]
 
             if filtered_casos.empty:
@@ -2987,6 +3045,12 @@ with tab5:
     else:
         st.markdown("### 🔍 Filtros")
         col1_tab5, col2_tab5 = st.columns(2)
+        today_tab5 = datetime.now().date()
+        default_start_tab5, default_end_tab5 = normalize_date_range(
+            st.session_state.get("filtro_fecha_guias"),
+            today_tab5,
+            today_tab5,
+        )
 
         with col1_tab5:
             vendedores = ["Todos"] + sorted(df_guias["Vendedor_Registro"].dropna().unique().tolist())
@@ -3003,13 +3067,18 @@ with tab5:
                 key="filtro_guias_7_dias",
                 on_change=fijar_tab5_activa
             )
-            fecha_filtro_tab5 = st.date_input(
+            fecha_rango_tab5 = st.date_input(
                 "📅 Filtrar por Fecha de Registro:",
-                value=st.session_state.get("filtro_fecha_guias", datetime.now().date()),
+                value=(default_start_tab5, default_end_tab5),
                 key="filtro_fecha_guias",
                 disabled=filtrar_7_dias,
                 on_change=fijar_tab5_activa
             )
+        fecha_inicio_tab5, fecha_fin_tab5 = normalize_date_range(
+            fecha_rango_tab5,
+            default_start_tab5,
+            default_end_tab5,
+        )
 
         fecha_col_para_filtrar = None
         if "Hora_Registro" in df_guias.columns and df_guias["Hora_Registro"].notna().any():
@@ -3023,7 +3092,9 @@ with tab5:
                 rango_inicio = hoy - timedelta(days=6)
                 df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date.between(rango_inicio, hoy)]
             else:
-                df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date == fecha_filtro_tab5]
+                df_guias = df_guias[
+                    df_guias[fecha_col_para_filtrar].dt.date.between(fecha_inicio_tab5, fecha_fin_tab5)
+                ]
 
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
