@@ -2,7 +2,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import json
 import base64
 import uuid
@@ -156,6 +156,64 @@ def clear_app_caches() -> None:
     get_google_sheets_client.clear()
     get_worksheet.clear()
     get_s3_client.clear()
+
+
+def render_date_filter_controls(
+    label: str,
+    key_prefix: str,
+    *,
+    default_range_days: int = 7,
+) -> tuple[date, date, bool, bool]:
+    """Renderiza un control de fecha con opción de rango y devuelve la selección.
+
+    Returns a tuple ``(fecha_inicio, fecha_fin, rango_activo, rango_valido)``.
+    """
+
+    use_range = st.checkbox(
+        "🔁 Activar búsqueda por rango de fechas",
+        key=f"{key_prefix}_usar_rango",
+    )
+
+    if use_range:
+        end_default = st.session_state.get(
+            f"{key_prefix}_fecha_fin",
+            datetime.now().date(),
+        )
+        start_default = st.session_state.get(
+            f"{key_prefix}_fecha_inicio",
+            end_default - timedelta(days=default_range_days),
+        )
+
+        if start_default > end_default:
+            start_default = end_default
+
+        start_date = st.date_input(
+            "📅 Fecha inicial:",
+            value=start_default,
+            key=f"{key_prefix}_fecha_inicio",
+        )
+        end_date = st.date_input(
+            "📅 Fecha final:",
+            value=end_default if end_default >= start_date else start_date,
+            key=f"{key_prefix}_fecha_fin",
+        )
+
+        is_valid = end_date >= start_date
+        if not is_valid:
+            st.error("La fecha final no puede ser anterior a la fecha inicial.")
+
+        return start_date, end_date, True, is_valid
+
+    selected_date = st.date_input(
+        label,
+        value=st.session_state.get(
+            f"{key_prefix}_fecha",
+            datetime.now().date(),
+        ),
+        key=f"{key_prefix}_fecha",
+    )
+
+    return selected_date, selected_date, False, True
 
 
 def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None) -> None:
@@ -2062,10 +2120,14 @@ with tab2:
                 selected_vendedor_mod = "Todos"
 
         with col2:
-            fecha_filtro = st.date_input(
+            (
+                fecha_inicio_mod,
+                fecha_fin_mod,
+                _rango_activo_mod,
+                rango_valido_mod,
+            ) = render_date_filter_controls(
                 "📅 Filtrar por Fecha de Registro:",
-                value=datetime.now().date(),
-                key="filtro_fecha_registro"
+                "tab2_modificar_filtro",
             )
 
         # ----------------- Aplicar filtros -----------------
@@ -2076,11 +2138,22 @@ with tab2:
 
         # Filtrar por fecha usando 'Hora_Registro' si existe
         if 'Hora_Registro' in filtered_orders.columns:
+            filtered_orders = filtered_orders.copy()
             filtered_orders['Hora_Registro'] = pd.to_datetime(filtered_orders['Hora_Registro'], errors='coerce')
-            filtered_orders = filtered_orders[filtered_orders['Hora_Registro'].dt.date == fecha_filtro]
+            if rango_valido_mod:
+                start_dt = datetime.combine(fecha_inicio_mod, datetime.min.time())
+                end_dt = datetime.combine(fecha_fin_mod, datetime.max.time())
+                filtered_orders = filtered_orders[
+                    filtered_orders['Hora_Registro'].between(start_dt, end_dt)
+                ]
+            else:
+                filtered_orders = filtered_orders.iloc[0:0]
 
         if filtered_orders.empty:
-            st.warning("No hay pedidos que coincidan con los filtros seleccionados.")
+            if not rango_valido_mod:
+                st.info("Ajusta el rango de fechas para continuar.")
+            else:
+                st.warning("No hay pedidos que coincidan con los filtros seleccionados.")
         else:
             # 🔧 Limpieza para evitar 'nan' en el select
             for col in ['Folio_Factura', 'ID_Pedido', 'Cliente', 'Estado', 'Tipo_Envio']:
@@ -2496,18 +2569,31 @@ with tab3:
                     filtered_pedidos_comprobante = filtered_pedidos_comprobante[filtered_pedidos_comprobante['Vendedor_Registro'] == selected_vendedor_comp]
 
         with col4_tab3:
-            fecha_filtro_tab3 = st.date_input(
+            (
+                fecha_inicio_comp,
+                fecha_fin_comp,
+                _rango_activo_comp,
+                rango_valido_comp,
+            ) = render_date_filter_controls(
                 "📅 Filtrar por Fecha de Registro:",
-                value=datetime.now().date(),
-                key="filtro_fecha_comprobante"
+                "tab3_comprobantes_filtro",
             )
-            
+
         # Filtrar por fecha si existe la columna 'Hora_Registro'
         if 'Hora_Registro' in filtered_pedidos_comprobante.columns:
-            filtered_pedidos_comprobante['Hora_Registro'] = pd.to_datetime(filtered_pedidos_comprobante['Hora_Registro'], errors='coerce')
-            filtered_pedidos_comprobante = filtered_pedidos_comprobante[
-                filtered_pedidos_comprobante['Hora_Registro'].dt.date == fecha_filtro_tab3
-            ]
+            filtered_pedidos_comprobante = filtered_pedidos_comprobante.copy()
+            filtered_pedidos_comprobante['Hora_Registro'] = pd.to_datetime(
+                filtered_pedidos_comprobante['Hora_Registro'],
+                errors='coerce'
+            )
+            if rango_valido_comp:
+                start_dt = datetime.combine(fecha_inicio_comp, datetime.min.time())
+                end_dt = datetime.combine(fecha_fin_comp, datetime.max.time())
+                filtered_pedidos_comprobante = filtered_pedidos_comprobante[
+                    filtered_pedidos_comprobante['Hora_Registro'].between(start_dt, end_dt)
+                ]
+            else:
+                filtered_pedidos_comprobante = filtered_pedidos_comprobante.iloc[0:0]
 
         filtered_pedidos_comprobante = filtered_pedidos_comprobante[
             filtered_pedidos_comprobante['ID_Pedido'].astype(str).str.strip().ne('') &
@@ -2525,7 +2611,10 @@ with tab3:
             pedidos_sin_comprobante = pd.DataFrame()
 
         if pedidos_sin_comprobante.empty:
-            st.success("🎉 Todos los pedidos están marcados como pagados o tienen comprobante.")
+            if not rango_valido_comp:
+                st.info("Ajusta el rango de fechas para continuar.")
+            else:
+                st.success("🎉 Todos los pedidos están marcados como pagados o tienen comprobante.")
         else:
             st.warning(f"⚠️ Hay {len(pedidos_sin_comprobante)} pedidos pendientes de comprobante.")
 
@@ -2818,10 +2907,14 @@ with tab4:
                 )
 
             with col_fecha_casos:
-                fecha_filtro_casos = st.date_input(
+                (
+                    fecha_inicio_casos,
+                    fecha_fin_casos,
+                    _rango_activo_casos,
+                    rango_valido_casos,
+                ) = render_date_filter_controls(
                     "📅 Filtrar por Fecha de Registro:",
-                    value=datetime.now().date(),
-                    key="filtro_fecha_casos_especiales"
+                    "tab4_casos_filtro",
                 )
 
             filtered_casos = df_casos.copy()
@@ -2835,12 +2928,29 @@ with tab4:
                 ]
 
             if "Hora_Registro" in filtered_casos.columns:
-                filtered_casos = filtered_casos[
-                    filtered_casos["Hora_Registro"].dt.date == fecha_filtro_casos
-                ]
+                filtered_casos = filtered_casos.copy()
+                hora_registro_series = filtered_casos["Hora_Registro"]
+                if not pd.api.types.is_datetime64_any_dtype(hora_registro_series):
+                    hora_registro_series = pd.to_datetime(
+                        hora_registro_series,
+                        errors="coerce",
+                    )
+                    filtered_casos["Hora_Registro"] = hora_registro_series
+
+                if rango_valido_casos:
+                    start_dt = datetime.combine(fecha_inicio_casos, datetime.min.time())
+                    end_dt = datetime.combine(fecha_fin_casos, datetime.max.time())
+                    filtered_casos = filtered_casos[
+                        hora_registro_series.between(start_dt, end_dt)
+                    ]
+                else:
+                    filtered_casos = filtered_casos.iloc[0:0]
 
             if filtered_casos.empty:
-                st.warning("No hay casos especiales que coincidan con los filtros seleccionados.")
+                if not rango_valido_casos:
+                    st.info("Ajusta el rango de fechas para continuar.")
+                else:
+                    st.warning("No hay casos especiales que coincidan con los filtros seleccionados.")
             else:
                 filtered_casos = filtered_casos.reset_index(drop=True)
                 columnas_mostrar = ["Estado","Cliente","Vendedor_Registro","Tipo_Envio","Seguimiento"]
