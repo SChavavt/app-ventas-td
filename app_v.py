@@ -1319,7 +1319,11 @@ with tab1:
             if st.button("Aceptar", key="acknowledge_pedido_status"):
                 preserved_keys = {
                     key: st.session_state[key]
-                    for key in ["last_selected_vendedor", "tipo_envio_selector_global"]
+                    for key in [
+                        "id_vendedor",
+                        "last_selected_vendedor",
+                        "tipo_envio_selector_global",
+                    ]
                     if key in st.session_state
                 }
 
