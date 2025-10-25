@@ -106,6 +106,24 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
 }
 
 
+USUARIOS_VALIDOS = [
+    "ADAMARIS47",
+    "ALEJANDRO38",
+    "ANA45",
+    "DANIELA73",
+    "DISTRIBUCION88",
+    "EDGAR66",
+    "GLORIA53",
+    "GRISELDA92",
+    "HECTOR64",
+    "JOSELIN31",
+    "JUAN24",
+    "NORA79",
+    "PAULINA57",
+]
+
+
+
 def normalize_case_text(value, placeholder: str = "N/A") -> str:
     """Return a clean string for optional case fields."""
     if value is None:
@@ -156,6 +174,28 @@ def clear_app_caches() -> None:
     get_google_sheets_client.clear()
     get_worksheet.clear()
     get_s3_client.clear()
+
+
+def ensure_user_logged_in() -> str:
+    """Muestra una pantalla de inicio de sesión simple y detiene la app hasta autenticar."""
+    st.session_state.setdefault("id_vendedor", "")
+    current_user = st.session_state.get("id_vendedor", "")
+
+    if current_user:
+        return current_user
+
+    st.markdown("## 🔐 Inicio de sesión")
+    username_input = st.text_input("Usuario", key="login_usuario")
+
+    if st.button("Ingresar", key="login_ingresar_btn"):
+        candidate = username_input.strip()
+        if candidate and candidate.upper() in USUARIOS_VALIDOS:
+            st.session_state["id_vendedor"] = candidate
+            st.rerun()
+        else:
+            st.error("❌ Usuario no válido. Verifica tu nombre y número.")
+
+    st.stop()
 
 
 def render_date_filter_controls(
@@ -431,6 +471,10 @@ def cargar_pedidos():
     sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet("datos_pedidos")
     data = sheet.get_all_records()
     return pd.DataFrame(data)
+
+
+usuario_activo = ensure_user_logged_in()
+st.markdown(f"### 👋 Bienvenido, {usuario_activo}")
 
 if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
     if allow_refresh("main_last_refresh"):
@@ -1697,6 +1741,8 @@ with tab1:
                     values.append(id_pedido)
                 elif header == "Hora_Registro":
                     values.append(hora_registro)
+                elif header.lower() == "id_vendedor":
+                    values.append(st.session_state.get("id_vendedor", ""))
                 elif header in ["Vendedor", "Vendedor_Registro"]:
                     values.append(vendedor)
                 elif header in ["Cliente", "RegistroCliente"]:
