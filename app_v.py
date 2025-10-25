@@ -2104,7 +2104,8 @@ with tab2:
 
             filtered_orders['display_label'] = filtered_orders.apply(
                 lambda row: (
-                    f"📄 {(_s(row['Folio_Factura']) or _s(row['ID_Pedido']))}"
+                    f"📄 {(_s(row['Folio_Factura']) or 'Sin Folio')}"
+                    f" | ID {(_s(row.get('ID_Pedido', '')) or 'S/I')}"
                     f" - {_s(row['Cliente'])}"
                     f" - {_s(row['Estado'])}"
                     f" - {_s(row['Tipo_Envio'])}"
@@ -2113,15 +2114,42 @@ with tab2:
                 axis=1
             )
 
+            base_option_values = filtered_orders.apply(
+                lambda row: (
+                    f"{row.get('Fuente', 'datos_pedidos')}|"
+                    f"{_s(row.get('ID_Pedido', '')) or 'sin_id'}"
+                ),
+                axis=1
+            )
+
+            filtered_orders['option_value'] = base_option_values
+
+            duplicate_mask = filtered_orders['option_value'].duplicated(keep=False)
+            if duplicate_mask.any():
+                filtered_orders.loc[duplicate_mask, 'option_value'] = filtered_orders.loc[duplicate_mask].apply(
+                    lambda row: f"{base_option_values[row.name]}|{row.name}",
+                    axis=1
+                )
+
+            option_label_map = dict(
+                zip(filtered_orders['option_value'], filtered_orders['display_label'])
+            )
+
+            def _format_option(option_key: str) -> str:
+                return option_label_map.get(option_key, option_key)
+
             # ----------------- Selector de pedido -----------------
-            selected_order_display = st.selectbox(
+            selected_option_key = st.selectbox(
                 "📝 Seleccionar Pedido para Modificar",
-                filtered_orders['display_label'].tolist(),
+                list(option_label_map.keys()),
+                format_func=_format_option,
                 key="select_order_to_modify"
             )
 
-            if selected_order_display:
-                matched = filtered_orders[filtered_orders['display_label'] == selected_order_display].iloc[0]
+            if selected_option_key:
+                matched = filtered_orders[
+                    filtered_orders['option_value'] == selected_option_key
+                ].iloc[0]
                 selected_order_id = matched['ID_Pedido']
                 selected_source = matched.get('Fuente', 'datos_pedidos')  # 'datos_pedidos' o 'casos_especiales'
 
