@@ -181,6 +181,15 @@ def ensure_user_logged_in() -> str:
     st.session_state.setdefault("id_vendedor", "")
     current_user = st.session_state.get("id_vendedor", "")
 
+    if not current_user:
+        query_params = st.experimental_get_query_params()
+        usuario_param = query_params.get("usuario")
+        if usuario_param:
+            candidate = usuario_param[0].strip().upper()
+            if candidate and candidate in USUARIOS_VALIDOS:
+                st.session_state["id_vendedor"] = candidate
+                return candidate
+
     if current_user:
         return current_user
 
@@ -190,7 +199,9 @@ def ensure_user_logged_in() -> str:
     if st.button("Ingresar", key="login_ingresar_btn"):
         candidate = username_input.strip()
         if candidate and candidate.upper() in USUARIOS_VALIDOS:
-            st.session_state["id_vendedor"] = candidate
+            normalized_candidate = candidate.upper()
+            st.session_state["id_vendedor"] = normalized_candidate
+            st.experimental_set_query_params(usuario=normalized_candidate)
             st.rerun()
         else:
             st.error("❌ Usuario no válido. Verifica tu nombre y número.")
