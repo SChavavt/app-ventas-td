@@ -4395,6 +4395,7 @@ with tab4:
         "Estado", "Estado_Caso", "Estado_Recepcion", "Tipo_Envio_Original", "Estatus_OrigenF",
         "Resultado_Esperado", "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado",
         "Numero_Serie", "Fecha_Compra", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable", "Turno", "Fecha_Entrega",
+        "Seguimiento",
         GUIAS_DEVOLUCION_COL
     ]:
         if c not in df_ce.columns:
@@ -4411,14 +4412,28 @@ with tab4:
     df_ce["Link_Doc_Adicional"] = df_ce["Documento_Adicional_URL"].astype(str).fillna("")
 
     # ------- Filtros rápidos -------
-    colf1, colf2 = st.columns([1.2, 2.8])
+    colf1, colf2, colf3 = st.columns([1.2, 1.4, 2.4])
     with colf1:
         filtro_tipo = st.selectbox(
             "Tipo de caso",
             options=["Todos", "🔁 Devolución", "🛠 Garantía"],
             index=0
         )
+    seguimiento_options = sorted(
+        {
+            str(val).strip()
+            for val in df_ce.get("Seguimiento", [])
+            if str(val).strip() and str(val).strip().lower() not in {"nan", "none"}
+        }
+    )
+    seguimiento_options = ["Todos"] + seguimiento_options
     with colf2:
+        filtro_seguimiento = st.selectbox(
+            "Seguimiento",
+            options=seguimiento_options,
+            index=0,
+        )
+    with colf3:
         term = st.text_input("Buscar (Cliente / Folio )", "")
 
     df_view = df_ce.copy()
@@ -4428,6 +4443,11 @@ with tab4:
         tipo_col = "Tipo_Envio" if "Tipo_Envio" in df_view.columns else ("Tipo_Caso" if "Tipo_Caso" in df_view.columns else None)
         if tipo_col:
             df_view = df_view[df_view[tipo_col].astype(str).str.strip() == filtro_tipo]
+
+    if "Seguimiento" in df_view.columns and filtro_seguimiento != "Todos":
+        df_view = df_view[
+            df_view["Seguimiento"].astype(str).str.strip() == filtro_seguimiento
+        ]
 
     if term.strip():
         t = term.strip().lower()
@@ -4463,7 +4483,7 @@ with tab4:
     columnas_base = [
         "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
         "Numero_Serie","Fecha_Compra",
-        "Tipo_Envio","Estado","Estado_Caso","Estado_Recepcion",
+        "Tipo_Envio","Estado","Estado_Caso","Estado_Recepcion","Seguimiento",
         "Tipo_Envio_Original","Estatus_OrigenF","Turno","Fecha_Entrega",
         "Resultado_Esperado","Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
         "Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
