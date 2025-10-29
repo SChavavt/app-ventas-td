@@ -3197,19 +3197,54 @@ with tab5:
                 on_change=fijar_tab5_activa
             )
 
+        fecha_inicio_rango = None
+        fecha_fin_rango = None
+        fecha_filtro_tab5 = None
+
         with col2_tab5:
+            usar_rango_fechas = st.checkbox(
+                "Activar búsqueda por rango de fechas",
+                key="filtro_guias_rango_activo",
+                on_change=fijar_tab5_activa
+            )
+            if usar_rango_fechas and st.session_state.get("filtro_guias_7_dias"):
+                st.session_state["filtro_guias_7_dias"] = False
             filtrar_7_dias = st.checkbox(
                 "Mostrar últimos 7 días",
                 key="filtro_guias_7_dias",
+                disabled=usar_rango_fechas,
                 on_change=fijar_tab5_activa
             )
-            fecha_filtro_tab5 = st.date_input(
-                "📅 Filtrar por Fecha de Registro:",
-                value=st.session_state.get("filtro_fecha_guias", datetime.now().date()),
-                key="filtro_fecha_guias",
-                disabled=filtrar_7_dias,
-                on_change=fijar_tab5_activa
-            )
+
+            if usar_rango_fechas:
+                fecha_inicio_rango = st.date_input(
+                    "📅 Fecha inicial:",
+                    value=st.session_state.get(
+                        "filtro_fecha_inicio_guias",
+                        datetime.now().date() - timedelta(days=7)
+                    ),
+                    key="filtro_fecha_inicio_guias",
+                    on_change=fijar_tab5_activa
+                )
+                fecha_fin_rango = st.date_input(
+                    "📅 Fecha final:",
+                    value=st.session_state.get(
+                        "filtro_fecha_fin_guias",
+                        datetime.now().date()
+                    ),
+                    key="filtro_fecha_fin_guias",
+                    on_change=fijar_tab5_activa
+                )
+                if fecha_inicio_rango and fecha_fin_rango and fecha_inicio_rango > fecha_fin_rango:
+                    st.warning("⚠️ La fecha inicial no puede ser mayor que la fecha final.")
+            else:
+                fecha_filtro_tab5 = st.date_input(
+                    "📅 Filtrar por Fecha de Registro:",
+                    value=st.session_state.get("filtro_fecha_guias", datetime.now().date()),
+                    key="filtro_fecha_guias",
+                    disabled=filtrar_7_dias,
+                    on_change=fijar_tab5_activa
+                )
 
         fecha_col_para_filtrar = None
         if "Hora_Registro" in df_guias.columns and df_guias["Hora_Registro"].notna().any():
@@ -3218,11 +3253,17 @@ with tab5:
             fecha_col_para_filtrar = "Fecha_Entrega"
 
         if fecha_col_para_filtrar:
-            if filtrar_7_dias:
+            if usar_rango_fechas:
+                fecha_inicio_rango = fecha_inicio_rango or st.session_state.get("filtro_fecha_inicio_guias")
+                fecha_fin_rango = fecha_fin_rango or st.session_state.get("filtro_fecha_fin_guias")
+                if fecha_inicio_rango and fecha_fin_rango and fecha_inicio_rango <= fecha_fin_rango:
+                    df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date.between(fecha_inicio_rango, fecha_fin_rango)]
+            elif filtrar_7_dias:
                 hoy = datetime.now().date()
                 rango_inicio = hoy - timedelta(days=6)
                 df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date.between(rango_inicio, hoy)]
             else:
+                fecha_filtro_tab5 = fecha_filtro_tab5 or st.session_state.get("filtro_fecha_guias", datetime.now().date())
                 df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date == fecha_filtro_tab5]
 
         if vendedor_filtrado != "Todos":
