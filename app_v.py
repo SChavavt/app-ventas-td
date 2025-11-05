@@ -11,6 +11,7 @@ import pdfplumber
 import unicodedata
 from io import BytesIO
 import time
+import socket
 import re
 import gspread
 import html
@@ -379,19 +380,6 @@ def get_sheet_headers(sheet_name: str):
     return ws.row_values(1) if ws else []
 
 
-# ✅ Cliente listo para usar en cualquier parte
-g_spread_client = get_google_sheets_client()
-if g_spread_client is None:
-    st.warning(st.session_state.get("gsheet_error", "No se pudo conectar a Google Sheets."))
-    if st.button("Reintentar conexión"):
-        get_google_sheets_client.clear()
-        g_spread_client = get_google_sheets_client()
-        if g_spread_client is None:
-            st.stop()
-    else:
-        st.stop()
-
-
 # --- AWS S3 CONFIGURATION (NEW) ---
 # Load AWS credentials from Streamlit secrets
 try:
@@ -420,10 +408,169 @@ def get_s3_client():
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
             region_name=AWS_REGION
         )
+        st.session_state.pop("s3_error", None)
         return s3
     except Exception as e:
-        st.error(f"❌ Error al inicializar el cliente S3: {e}")
-        st.stop()
+        st.session_state["s3_error"] = f"❌ Error al inicializar el cliente S3: {e}"
+        return None
+
+
+@st.cache_data(ttl=60)
+def check_basic_internet_connectivity(timeout: float = 5.0) -> tuple[bool, str]:
+    """Comprueba si hay conexión básica a Internet realizando una solicitud simple."""
+    test_url = "https://www.google.com"
+    try:
+        request = Request(test_url)
+        with urlopen(request, timeout=timeout):
+            pass
+        return True, "Conexión a Internet estable."
+    except HTTPError as exc:
+        return False, f"Error HTTP al verificar Internet ({exc.code})."
+    except (URLError, InvalidURL, TimeoutError, socket.timeout) as exc:
+        return False, f"No hay conexión estable a Internet: {exc}"
+    except Exception as exc:  # pragma: no cover - captura errores imprevistos
+        return False, f"Error inesperado de Internet: {exc}"
+
+
+def build_connection_statuses(g_client, s3_client) -> list[dict[str, object]]:
+    """Genera el estado de conexión para los servicios críticos de la app."""
+
+    statuses: list[dict[str, object]] = []
+
+    internet_ok, internet_message = check_basic_internet_connectivity()
+    statuses.append(
+        {
+            "name": "Internet",
+            "ok": internet_ok,
+            "message": internet_message,
+            "critical": True,
+        }
+    )
+
+    if g_client is not None:
+        statuses.append(
+            {
+                "name": "Google Sheets",
+                "ok": True,
+                "message": "Conexión con Google Sheets activa.",
+                "critical": True,
+            }
+        )
+    else:
+        statuses.append(
+            {
+                "name": "Google Sheets",
+                "ok": False,
+                "message": st.session_state.get(
+                    "gsheet_error",
+                    "❌ Error desconocido al conectar con Google Sheets.",
+                ),
+                "critical": True,
+            }
+        )
+
+    if s3_client is not None:
+        try:
+            s3_client.head_bucket(Bucket=S3_BUCKET_NAME)
+            statuses.append(
+                {
+                    "name": "AWS S3",
+                    "ok": True,
+                    "message": "Conexión con AWS S3 verificada.",
+                    "critical": True,
+                }
+            )
+        except Exception as exc:
+            statuses.append(
+                {
+                    "name": "AWS S3",
+                    "ok": False,
+                    "message": f"❌ Error al verificar AWS S3: {exc}",
+                    "critical": True,
+                }
+            )
+    else:
+        statuses.append(
+            {
+                "name": "AWS S3",
+                "ok": False,
+                "message": st.session_state.get(
+                    "s3_error",
+                    "❌ Error desconocido al inicializar AWS S3.",
+                ),
+                "critical": True,
+            }
+        )
+
+    return statuses
+
+
+def display_connection_status_badge(statuses: list[dict[str, object]]) -> None:
+    """Muestra un indicador fijo en pantalla con el estado de las conexiones."""
+
+    overall_ok = all(status.get("ok", False) for status in statuses)
+    icon = "🟢" if overall_ok else "🔴"
+    label = "Conexión segura" if overall_ok else "Problemas de conexión"
+
+    detail_lines = [
+        f"{status['name']}: {'✅' if status.get('ok') else '❌'} {status.get('message', '')}"
+        for status in statuses
+    ]
+    escaped_lines = [html.escape(line, quote=True) for line in detail_lines]
+    tooltip_text = "&#10;".join(escaped_lines)
+
+    status_class = "ok" if overall_ok else "error"
+
+    badge_html = f"""
+    <style>
+    .connection-status-container {{
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        z-index: 1000;
+    }}
+    .connection-status-badge {{
+        display: inline-flex;
+        align-items: center;
+        padding: 0.4rem 0.75rem;
+        border-radius: 999px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        cursor: default;
+        gap: 0.5rem;
+    }}
+    .connection-status-badge--ok {{
+        background: linear-gradient(135deg, #2ecc71, #27ae60);
+        color: #ffffff;
+    }}
+    .connection-status-badge--error {{
+        background: linear-gradient(135deg, #e74c3c, #c0392b);
+        color: #ffffff;
+    }}
+    .connection-status-badge:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+    }}
+    .connection-status-icon {{
+        font-size: 1.1rem;
+    }}
+    </style>
+    <div class="connection-status-container">
+        <div class="connection-status-badge connection-status-badge--{status_class}" title="{tooltip_text}">
+            <span class="connection-status-icon">{icon}</span>
+            <span>{label}</span>
+        </div>
+    </div>
+    """
+
+    st.markdown(badge_html, unsafe_allow_html=True)
+
+
+# ✅ Clientes listos para usar en cualquier parte
+g_spread_client = get_google_sheets_client()
+s3_client = get_s3_client()
 
 def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     """
@@ -486,6 +633,34 @@ def cargar_pedidos():
 
 
 usuario_activo = ensure_user_logged_in()
+
+connection_statuses = build_connection_statuses(g_spread_client, s3_client)
+display_connection_status_badge(connection_statuses)
+
+status_by_name = {status["name"]: status for status in connection_statuses}
+
+internet_status = status_by_name.get("Internet")
+if internet_status and not internet_status.get("ok", False):
+    st.warning(internet_status.get("message", "Problema al verificar la conexión a Internet."))
+
+gsheet_status = status_by_name.get("Google Sheets")
+if gsheet_status and not gsheet_status.get("ok", False):
+    st.error(gsheet_status.get("message", "No se pudo conectar con Google Sheets."))
+    if st.button("Reintentar conexión con Google Sheets", key="retry_gsheets_badge"):
+        get_google_sheets_client.clear()
+        st.session_state.pop("gsheet_error", None)
+        st.rerun()
+    st.stop()
+
+s3_status = status_by_name.get("AWS S3")
+if s3_status and not s3_status.get("ok", False):
+    st.error(s3_status.get("message", "No se pudo conectar con AWS S3."))
+    if st.button("Reintentar conexión con AWS S3", key="retry_s3_badge"):
+        get_s3_client.clear()
+        st.session_state.pop("s3_error", None)
+        st.rerun()
+    st.stop()
+
 st.markdown(f"### 👋 Bienvenido, {usuario_activo}")
 
 if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
