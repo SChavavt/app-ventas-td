@@ -524,17 +524,22 @@ def display_connection_status_badge(statuses: list[dict[str, object]]) -> None:
     badge_html = f"""
     <style>
     .connection-status-container {{
-        position: fixed;
-        top: 1rem;
-        right: 1rem;
+        position: sticky;
+        top: 4.5rem;
         z-index: 1000;
+        display: flex;
+        justify-content: flex-end;
+        width: 100%;
+        max-width: 1200px;
+        margin: 0 auto 0.5rem;
+        padding: 0 1.5rem;
     }}
     .connection-status-badge {{
         display: inline-flex;
         align-items: center;
-        padding: 0.4rem 0.75rem;
+        padding: 0.45rem 0.9rem;
         border-radius: 999px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
         font-weight: 600;
         font-size: 0.95rem;
         transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -542,7 +547,7 @@ def display_connection_status_badge(statuses: list[dict[str, object]]) -> None:
         gap: 0.5rem;
     }}
     .connection-status-badge--ok {{
-        background: linear-gradient(135deg, #2ecc71, #27ae60);
+        background: linear-gradient(135deg, #1f8f4d, #16693a);
         color: #ffffff;
     }}
     .connection-status-badge--error {{
@@ -550,11 +555,21 @@ def display_connection_status_badge(statuses: list[dict[str, object]]) -> None:
         color: #ffffff;
     }}
     .connection-status-badge:hover {{
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+        transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
     }}
     .connection-status-icon {{
         font-size: 1.1rem;
+    }}
+    @media (max-width: 768px) {{
+        .connection-status-container {{
+            top: 3.5rem;
+            padding: 0 1rem;
+        }}
+        .connection-status-badge {{
+            width: 100%;
+            justify-content: center;
+        }}
     }}
     </style>
     <div class="connection-status-container">
