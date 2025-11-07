@@ -157,6 +157,57 @@ def format_estado_entrega(value) -> str:
     return cleaned if cleaned else "Sin info de entrega"
 
 
+def extract_id_vendedor(data, placeholder: str = "N/A") -> str:
+    """Return a readable vendor ID from heterogeneous row/dict structures."""
+
+    if data is None:
+        return placeholder
+
+    candidate_keys = (
+        "id_vendedor",
+        "ID_Vendedor",
+        "Id_Vendedor",
+        "IDVendedor",
+        "IdVendedor",
+        "ID Vendedor",
+        "Id Vendedor",
+        "ID_VENDEDOR",
+        "IDVENDEDOR",
+    )
+
+    for key in candidate_keys:
+        value = None
+        if hasattr(data, "get"):
+            try:
+                value = data.get(key)
+            except Exception:
+                value = None
+
+        if value is None and isinstance(data, pd.Series) and key in data.index:
+            value = data[key]
+
+        if value is None:
+            continue
+
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if cleaned and cleaned.lower() not in {"nan", "none"}:
+                return cleaned
+            continue
+
+        try:
+            if pd.isna(value):
+                continue
+        except Exception:
+            pass
+
+        cleaned = str(value).strip()
+        if cleaned and cleaned.lower() not in {"nan", "none"}:
+            return cleaned
+
+    return placeholder
+
+
 def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
     """Rate-limit manual reloads to avoid hitting services too often."""
     now = time.time()
@@ -965,6 +1016,7 @@ def render_caso_especial(row):
     st.markdown(f"### {title}")
 
     vendedor = row.get("Vendedor_Registro", "") or row.get("Vendedor", "")
+    id_vendedor_val = extract_id_vendedor(row)
     hora = row.get("Hora_Registro", "")
 
     if is_dev:
@@ -974,12 +1026,14 @@ def render_caso_especial(row):
             f"📄 **Folio Nuevo:** `{folio_nuevo or 'N/A'}`  |  "
             f"📄 **Folio Error:** `{folio_error or 'N/A'}`  |  "
             f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
+            f"🆔 **ID Vendedor:** `{id_vendedor_val}`  |  "
             f"🕒 **Hora:** `{hora or 'N/A'}`"
         )
     else:
         st.markdown(
             f"📄 **Folio:** `{row.get('Folio_Factura','') or 'N/A'}`  |  "
             f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
+            f"🆔 **ID Vendedor:** `{id_vendedor_val}`  |  "
             f"🕒 **Hora:** `{hora or 'N/A'}`"
         )
 
@@ -2110,9 +2164,13 @@ with tab1:
                         break
             if exito:
                 reset_tab1_form_state()
+                id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
+                id_vendedor_segment = (
+                    f" (ID vendedor: {id_vendedor_actual})" if id_vendedor_actual else ""
+                )
                 set_pedido_submission_status(
                     "success",
-                    f"✅ El pedido {id_pedido} fue subido correctamente.",
+                    f"✅ El pedido {id_pedido}{id_vendedor_segment} fue subido correctamente.",
                     attachments=adjuntos_urls,
                     missing_attachments_warning=pedido_sin_adjuntos,
                 )
@@ -2491,6 +2549,7 @@ with tab2:
                     st.subheader(f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')} (ID {selected_order_id})")
                     st.write(f"**Fuente:** {'📄 datos_pedidos' if selected_source=='datos_pedidos' else '🔁 casos_especiales'}")
                     st.write(f"**Vendedor:** {selected_row_data.get('Vendedor', selected_row_data.get('Vendedor_Registro', 'No especificado'))}")
+                    st.write(f"**ID Vendedor:** {extract_id_vendedor(selected_row_data)}")
                     st.write(f"**Cliente:** {selected_row_data.get('Cliente', 'N/A')}")
                     st.write(f"**Folio de Factura:** {selected_row_data.get('Folio_Factura', 'N/A')}")
                     st.write(f"**Estado Actual:** {selected_row_data.get('Estado', 'N/A')}")
@@ -3769,6 +3828,7 @@ with tab7:
                     "Turno": row.get("Turno", ""),
                     "Estado_Entrega": row.get("Estado_Entrega", ""),
                     "Vendedor": row.get("Vendedor_Registro", ""),
+                    "ID_Vendedor": extract_id_vendedor(row, ""),
                     "Folio": row.get("Folio_Factura", ""),
                     "Motivo_NotaVenta": row.get("Motivo_NotaVenta", ""),
                     "Hora_Registro": row.get("Hora_Registro", ""),
@@ -3810,6 +3870,7 @@ with tab7:
                     "ID_Pedido": str(row.get("ID_Pedido","")).strip(),
                     "Cliente": row.get("Cliente",""),
                     "Vendedor": row.get("Vendedor_Registro",""),
+                    "ID_Vendedor": extract_id_vendedor(row, ""),
                     # Folios
                     "Folio": row.get("Folio_Factura",""),
                     "Folio_Factura_Error": row.get("Folio_Factura_Error",""),
@@ -3905,6 +3966,7 @@ with tab7:
                             "Turno": row.get("Turno", ""),
                             "Estado_Entrega": row.get("Estado_Entrega", ""),
                             "Vendedor": row.get("Vendedor_Registro", ""),
+                            "ID_Vendedor": extract_id_vendedor(row, ""),
                             "Folio": row.get("Folio_Factura", ""),
                             "Hora_Registro": row.get("Hora_Registro", ""),
                             "Seguimiento": row.get("Seguimiento", ""),
@@ -3941,6 +4003,7 @@ with tab7:
             resultados = sorted(resultados, key=lambda r: _parse_dt(r.get("Hora_Registro")), reverse=True)
 
             for res in resultados:
+                id_vendedor_display = extract_id_vendedor(res)
                 if res.get("__source") == "casos":
                     # ---------- Render de CASOS ESPECIALES (solo lectura) ----------
                     titulo = f"🧾 Caso Especial – {res.get('Tipo_Envio','') or 'N/A'}"
@@ -3953,12 +4016,16 @@ with tab7:
                         folio_error = res.get("Folio_Factura_Error","") or "N/A"
                         st.markdown(
                             f"📄 **Folio Nuevo:** `{folio_nuevo}`  |  📄 **Folio Error:** `{folio_error}`  |  "
-                            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
+                            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  "
+                            f"🆔 **ID Vendedor:** `{id_vendedor_display}`  |  "
+                            f"🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
                         )
                     else:
                         st.markdown(
                             f"📄 **Folio:** `{res.get('Folio','') or 'N/A'}`  |  "
-                            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
+                            f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  "
+                            f"🆔 **ID Vendedor:** `{id_vendedor_display}`  |  "
+                            f"🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
                         )
 
                         # ⭐⭐⭐ NUEVO: Mostrar datos de Garantía ⭐⭐⭐
@@ -4070,7 +4137,9 @@ with tab7:
                     st.markdown(f"### 🤝 {res['Cliente'] or 'Cliente N/D'}")
                     st.markdown(
                         f"📄 **Folio:** `{res['Folio'] or 'N/D'}`  |  🔍 **Estado:** `{res['Estado'] or 'N/D'}`  |  "
-                        f"🧑‍💼 **Vendedor:** `{res['Vendedor'] or 'N/D'}`  |  🕒 **Hora:** `{res['Hora_Registro'] or 'N/D'}`"
+                        f"🧑‍💼 **Vendedor:** `{res['Vendedor'] or 'N/D'}`  |  "
+                        f"🆔 **ID Vendedor:** `{id_vendedor_display}`  |  "
+                        f"🕒 **Hora:** `{res['Hora_Registro'] or 'N/D'}`"
                     )
                     if res.get("Tipo_Envio") == "📍 Pedido Local":
                         turno_local = normalize_case_text(res.get("Turno"), "N/A")
