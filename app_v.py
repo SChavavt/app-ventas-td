@@ -208,6 +208,80 @@ def extract_id_vendedor(data, placeholder: str = "N/A") -> str:
     return placeholder
 
 
+def extract_id_vendedor_mod(data, placeholder: str = "") -> str:
+    """Return normalized modifier vendor IDs, handling multiple entries."""
+
+    if data is None:
+        return placeholder
+
+    candidate_keys = (
+        "id_vendedor_Mod",
+        "ID_Vendedor_Mod",
+        "Id_Vendedor_Mod",
+        "IDVendedor_Mod",
+        "ID_VENDEDOR_MOD",
+    )
+
+    raw_value = None
+    for key in candidate_keys:
+        value = None
+        if hasattr(data, "get"):
+            try:
+                value = data.get(key)
+            except Exception:
+                value = None
+
+        if value is None and isinstance(data, pd.Series) and key in data.index:
+            value = data[key]
+
+        if value is None:
+            continue
+
+        raw_value = value
+        break
+
+    if raw_value is None:
+        return placeholder
+
+    if isinstance(raw_value, str):
+        tokens = [
+            entry.strip()
+            for entry in re.split(r"[;,\n]", raw_value)
+            if entry and entry.strip()
+        ]
+    elif isinstance(raw_value, (list, tuple, set)):
+        tokens = [str(entry).strip() for entry in raw_value if str(entry).strip()]
+    else:
+        normalized = str(raw_value).strip()
+        tokens = [normalized] if normalized else []
+
+    if not tokens:
+        return placeholder
+
+    unique_tokens: list[str] = []
+    seen = set()
+    for token in tokens:
+        upper_token = token.upper()
+        if upper_token not in seen:
+            seen.add(upper_token)
+            unique_tokens.append(upper_token)
+
+    return ", ".join(unique_tokens) if unique_tokens else placeholder
+
+
+def format_id_vendedor_with_mod(data, placeholder: str = "N/A") -> str:
+    """Compose the display string for vendor IDs including modifiers."""
+
+    id_principal = extract_id_vendedor(data, placeholder)
+    id_modificador = extract_id_vendedor_mod(data, "")
+
+    base_segment = f"🆔 **ID Vendedor:** `{id_principal}`"
+    if id_modificador:
+        base_segment += f"  |  🛠️ **ID Vendedor Mod:** `{id_modificador}`"
+
+    return base_segment
+
+
 def allow_refresh(key: str, container=st, cooldown: int = REFRESH_COOLDOWN) -> bool:
     """Rate-limit manual reloads to avoid hitting services too often."""
     now = time.time()
@@ -1016,7 +1090,7 @@ def render_caso_especial(row):
     st.markdown(f"### {title}")
 
     vendedor = row.get("Vendedor_Registro", "") or row.get("Vendedor", "")
-    id_vendedor_val = extract_id_vendedor(row)
+    id_vendedor_segment = format_id_vendedor_with_mod(row)
     hora = row.get("Hora_Registro", "")
 
     if is_dev:
@@ -1026,14 +1100,14 @@ def render_caso_especial(row):
             f"📄 **Folio Nuevo:** `{folio_nuevo or 'N/A'}`  |  "
             f"📄 **Folio Error:** `{folio_error or 'N/A'}`  |  "
             f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
-            f"🆔 **ID Vendedor:** `{id_vendedor_val}`  |  "
+            f"{id_vendedor_segment}  |  "
             f"🕒 **Hora:** `{hora or 'N/A'}`"
         )
     else:
         st.markdown(
             f"📄 **Folio:** `{row.get('Folio_Factura','') or 'N/A'}`  |  "
             f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
-            f"🆔 **ID Vendedor:** `{id_vendedor_val}`  |  "
+            f"{id_vendedor_segment}  |  "
             f"🕒 **Hora:** `{hora or 'N/A'}`"
         )
 
@@ -2548,21 +2622,60 @@ with tab2:
                     render_caso_especial(selected_row_data)
                 else:
                     # ----------------- Detalles básicos (para datos_pedidos u otros) -----------------
-                    st.subheader(f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')} (ID {selected_order_id})")
-                    st.write(f"**Fuente:** {'📄 datos_pedidos' if selected_source=='datos_pedidos' else '🔁 casos_especiales'}")
-                    st.write(f"**Vendedor:** {selected_row_data.get('Vendedor', selected_row_data.get('Vendedor_Registro', 'No especificado'))}")
-                    st.write(f"**ID Vendedor:** {extract_id_vendedor(selected_row_data)}")
-                    st.write(f"**Cliente:** {selected_row_data.get('Cliente', 'N/A')}")
-                    st.write(f"**Folio de Factura:** {selected_row_data.get('Folio_Factura', 'N/A')}")
-                    st.write(f"**Estado Actual:** {selected_row_data.get('Estado', 'N/A')}")
-                    st.write(f"**Tipo de Envío:** {selected_row_data.get('Tipo_Envio', 'N/A')}")
-                    if selected_row_data.get('Tipo_Envio') == "📍 Pedido Local":
-                        st.write(f"**Turno Local:** {selected_row_data.get('Turno', 'N/A')}")
-                        estado_entrega_local = format_estado_entrega(selected_row_data.get('Estado_Entrega'))
-                        st.write(f"**Estado_Entrega:** {estado_entrega_local}")
-                    st.write(f"**Fecha de Entrega:** {selected_row_data.get('Fecha_Entrega', 'N/A')}")
-                    st.write(f"**Comentario Original:** {selected_row_data.get('Comentario', 'N/A')}")
-                    st.write(f"**Estado de Pago:** {selected_row_data.get('Estado_Pago', '🔴 No Pagado')}")
+                    st.subheader(
+                        f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')} (ID {selected_order_id})"
+                    )
+
+                    fuente_display = (
+                        "📄 datos_pedidos"
+                        if selected_source == "datos_pedidos"
+                        else "🔁 casos_especiales"
+                    )
+                    vendedor_preferido = selected_row_data.get("Vendedor", "")
+                    if not vendedor_preferido or str(vendedor_preferido).strip().lower() in {"nan", "none"}:
+                        vendedor_preferido = selected_row_data.get(
+                            "Vendedor_Registro", "No especificado"
+                        )
+                    vendedor_display = normalize_case_text(
+                        vendedor_preferido, "No especificado"
+                    )
+                    tipo_envio_val = selected_row_data.get("Tipo_Envio", "N/A")
+                    es_local = tipo_envio_val == "📍 Pedido Local"
+                    if es_local:
+                        turno_local = selected_row_data.get("Turno", "N/A")
+                        estado_entrega_local = format_estado_entrega(
+                            selected_row_data.get("Estado_Entrega")
+                        )
+                    else:
+                        turno_local = None
+                        estado_entrega_local = None
+
+                    detalles_col_izq, detalles_col_der = st.columns(2)
+
+                    with detalles_col_izq:
+                        st.markdown(f"**Fuente:** {fuente_display}")
+                        st.markdown(f"**Vendedor:** {vendedor_display}")
+                        st.markdown(format_id_vendedor_with_mod(selected_row_data))
+                        st.markdown(f"**Cliente:** {selected_row_data.get('Cliente', 'N/A')}")
+                        st.markdown(
+                            f"**Folio de Factura:** {selected_row_data.get('Folio_Factura', 'N/A')}"
+                        )
+
+                    with detalles_col_der:
+                        st.markdown(f"**Estado Actual:** {selected_row_data.get('Estado', 'N/A')}")
+                        st.markdown(
+                            f"**Estado de Pago:** {selected_row_data.get('Estado_Pago', '🔴 No Pagado')}"
+                        )
+                        st.markdown(f"**Tipo de Envío:** {tipo_envio_val}")
+                        if es_local:
+                            st.markdown(f"**Turno Local:** {turno_local}")
+                            st.markdown(f"**Estado_Entrega:** {estado_entrega_local}")
+                        st.markdown(
+                            f"**Fecha de Entrega:** {selected_row_data.get('Fecha_Entrega', 'N/A')}"
+                        )
+
+                    st.markdown("**Comentario Original:**")
+                    st.write(selected_row_data.get("Comentario", "N/A"))
 
                     current_adjuntos_str_basic = selected_row_data.get('Adjuntos', '')
                     current_adjuntos_list_basic = [f.strip() for f in str(current_adjuntos_str_basic).split(',') if f.strip()]
@@ -4025,7 +4138,7 @@ with tab7:
             resultados = sorted(resultados, key=lambda r: _parse_dt(r.get("Hora_Registro")), reverse=True)
 
             for res in resultados:
-                id_vendedor_display = extract_id_vendedor(res)
+                id_vendedor_segment = format_id_vendedor_with_mod(res)
                 if res.get("__source") == "casos":
                     # ---------- Render de CASOS ESPECIALES (solo lectura) ----------
                     titulo = f"🧾 Caso Especial – {res.get('Tipo_Envio','') or 'N/A'}"
@@ -4039,14 +4152,14 @@ with tab7:
                         st.markdown(
                             f"📄 **Folio Nuevo:** `{folio_nuevo}`  |  📄 **Folio Error:** `{folio_error}`  |  "
                             f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  "
-                            f"🆔 **ID Vendedor:** `{id_vendedor_display}`  |  "
+                            f"{id_vendedor_segment}  |  "
                             f"🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
                         )
                     else:
                         st.markdown(
                             f"📄 **Folio:** `{res.get('Folio','') or 'N/A'}`  |  "
                             f"🧑‍💼 **Vendedor:** `{res.get('Vendedor','') or 'N/A'}`  |  "
-                            f"🆔 **ID Vendedor:** `{id_vendedor_display}`  |  "
+                            f"{id_vendedor_segment}  |  "
                             f"🕒 **Hora:** `{res.get('Hora_Registro','') or 'N/A'}`"
                         )
 
@@ -4160,7 +4273,7 @@ with tab7:
                     st.markdown(
                         f"📄 **Folio:** `{res['Folio'] or 'N/D'}`  |  🔍 **Estado:** `{res['Estado'] or 'N/D'}`  |  "
                         f"🧑‍💼 **Vendedor:** `{res['Vendedor'] or 'N/D'}`  |  "
-                        f"🆔 **ID Vendedor:** `{id_vendedor_display}`  |  "
+                        f"{id_vendedor_segment}  |  "
                         f"🕒 **Hora:** `{res['Hora_Registro'] or 'N/D'}`"
                     )
                     if res.get("Tipo_Envio") == "📍 Pedido Local":
