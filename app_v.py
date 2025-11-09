@@ -2233,6 +2233,8 @@ def cargar_pedidos_combinados():
             'Adjuntos','Adjuntos_Guia','Adjuntos_Surtido','Modificacion_Surtido',
             # refacturación
             'Refacturacion_Tipo','Refacturacion_Subtipo','Folio_Factura_Refacturada',
+            # seguimiento de modificaciones
+            'id_vendedor_Mod',
             # para homogeneidad con casos (puede venir vacío en datos)
             'Folio_Factura_Error','Estado_Caso','Numero_Cliente_RFC','Tipo_Envio','Tipo_Envio_Original',
             'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
@@ -2249,7 +2251,7 @@ def cargar_pedidos_combinados():
         df_datos['Seguimiento'] = df_datos['Seguimiento'].fillna("")
 
         # asegura tipos string uniformes importantes
-        for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Refacturada']:
+        for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Refacturada','id_vendedor_Mod']:
             if c in df_datos.columns:
                 df_datos[c] = df_datos[c].astype(str)
 
@@ -2692,6 +2694,7 @@ with tab2:
                                 changes_made = False
 
                                 cell_updates = []
+                                actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
 
                                 def col_exists(col):
                                     return col in headers
@@ -2728,7 +2731,6 @@ with tab2:
                                             )
 
                                 if new_adjuntos_surtido_urls and col_exists("Adjuntos_Surtido"):
-                                    actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
                                     current_urls = [x.strip() for x in str(actual_row.get("Adjuntos_Surtido","")).split(",") if x.strip()]
                                     updated_str = ", ".join(current_urls + new_adjuntos_surtido_urls)
                                     cell_updates.append({
@@ -2756,7 +2758,6 @@ with tab2:
                                             )
 
                                     if comprobante_urls and col_exists("Adjuntos"):
-                                        actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
                                         current_adjuntos = [x.strip() for x in str(actual_row.get("Adjuntos","")).split(",") if x.strip()]
                                         updated_adjuntos = ", ".join(current_adjuntos + comprobante_urls)
                                         cell_updates.append({
@@ -2816,10 +2817,31 @@ with tab2:
                                         "values": [[""]],
                                     })
 
+                                # 7) Registrar quién modificó el pedido
+                                id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
+                                if id_vendedor_actual and col_exists("id_vendedor_Mod"):
+                                    existing_ids_raw = str(actual_row.get("id_vendedor_Mod", "")).strip()
+                                    existing_ids = [
+                                        entry.strip().upper()
+                                        for entry in existing_ids_raw.split(",")
+                                        if entry.strip()
+                                    ]
+                                    normalized_vendedor = id_vendedor_actual.upper()
+                                    if normalized_vendedor not in existing_ids:
+                                        updated_ids = existing_ids + [normalized_vendedor]
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index,
+                                                col_idx("id_vendedor_Mod"),
+                                            ),
+                                            "values": [[", ".join(updated_ids)]],
+                                        })
+                                        changes_made = True
+
                                 if cell_updates:
                                     safe_batch_update(worksheet, cell_updates)
 
-                                # 7) Mensajes y limpieza de inputs
+                                # 8) Mensajes y limpieza de inputs
                                 if changes_made:
                                     st.session_state["reset_inputs_tab2"] = True
                                     st.session_state["show_success_message"] = True
