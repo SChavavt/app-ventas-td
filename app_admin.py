@@ -169,6 +169,43 @@ def _filter_cancelled_pedidos(df: pd.DataFrame) -> pd.DataFrame:
     return trabajo
 
 
+def refresh_pedidos_pagados_no_confirmados(
+    df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Recalcula y guarda en sesión los pedidos con comprobante pendiente."""
+
+    if df is None:
+        df = st.session_state.get("df_pedidos")
+
+    if df is None or df.empty:
+        pendientes = pd.DataFrame()
+    else:
+        trabajo = df.copy()
+
+        if "Comprobante_Confirmado" in trabajo.columns:
+            mask_no_confirmado = (
+                trabajo["Comprobante_Confirmado"].astype(str).str.strip().str.lower()
+                != "sí"
+            )
+            pendientes = trabajo[mask_no_confirmado].copy()
+        else:
+            pendientes = trabajo.iloc[0:0].copy()
+
+        if "Tipo_Envio" in pendientes.columns:
+            pendientes = pendientes[
+                ~pendientes["Tipo_Envio"].isin(
+                    ["🎓 Cursos y Eventos", "📋 Solicitudes de Guía"]
+                )
+            ].copy()
+
+    if not pendientes.empty:
+        pendientes = _filter_cancelled_pedidos(pendientes)
+        pendientes = pendientes.drop(columns=["display_label"], errors="ignore")
+
+    st.session_state.pedidos_pagados_no_confirmados = pendientes
+    return pendientes
+
+
 if "pedidos_reload_nonce" not in st.session_state:
     st.session_state["pedidos_reload_nonce"] = 0
 
@@ -917,22 +954,17 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
         df_pedidos[FECHA_CONFIRMADO_COL] = ""
     st.session_state.df_pedidos = df_pedidos
     st.session_state.headers = headers
-    if 'Comprobante_Confirmado' in df_pedidos.columns:
-        pendientes = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
-        pendientes = _filter_cancelled_pedidos(pendientes)
-        st.session_state.pedidos_pagados_no_confirmados = pendientes
+    refresh_pedidos_pagados_no_confirmados(df_pedidos)
 
 df_pedidos = st.session_state.df_pedidos
 headers = st.session_state.headers
 pedidos_pagados_no_confirmados = st.session_state.get('pedidos_pagados_no_confirmados', pd.DataFrame())
 if not pedidos_pagados_no_confirmados.empty and FECHA_CONFIRMADO_COL not in pedidos_pagados_no_confirmados.columns:
     pedidos_pagados_no_confirmados[FECHA_CONFIRMADO_COL] = ""
-if not pedidos_pagados_no_confirmados.empty and 'Tipo_Envio' in pedidos_pagados_no_confirmados.columns:
-    pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
-        ~pedidos_pagados_no_confirmados['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
-    ].copy()
 if not pedidos_pagados_no_confirmados.empty:
-    pedidos_pagados_no_confirmados = _filter_cancelled_pedidos(pedidos_pagados_no_confirmados)
+    pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados.drop(
+        columns=["display_label"], errors="ignore"
+    )
     st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
 
 df_casos, headers_casos = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "casos_especiales")
@@ -1567,10 +1599,7 @@ with tab1:
                 df_pedidos[ESTADO_ENTREGA_COL] = ""
             st.session_state.df_pedidos = df_pedidos
             st.session_state.headers = headers
-            if 'Comprobante_Confirmado' in df_pedidos.columns:
-                pendientes = df_pedidos[df_pedidos['Comprobante_Confirmado'] != 'Sí'].copy()
-                pendientes = _filter_cancelled_pedidos(pendientes)
-                st.session_state.pedidos_pagados_no_confirmados = pendientes
+            refresh_pedidos_pagados_no_confirmados(df_pedidos)
             st.toast("Pedidos recargados", icon="🔄")
 
     if df_pedidos.empty:
@@ -1808,11 +1837,10 @@ with tab1:
                                     for col, val in local_updates.items():
                                         if col in df_pedidos.columns:
                                             df_pedidos.at[df_idx, col] = val
-                                pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
-                                    pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_data["ID_Pedido"]
-                                ].copy()
                                 st.session_state.df_pedidos = df_pedidos
-                                st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+                                pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
+                                    df_pedidos
+                                )
 
                                 st.success("✅ Confirmación de crédito guardada exitosamente.")
                                 st.balloons()
@@ -2158,9 +2186,10 @@ with tab1:
                                         df_pedidos.at[df_idx, col] = val
                                 if nuevo_valor_adjuntos and 'Adjuntos' in df_pedidos.columns:
                                     df_pedidos.at[df_idx, 'Adjuntos'] = nuevo_valor_adjuntos
-                            pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_data["ID_Pedido"]]
                             st.session_state.df_pedidos = df_pedidos
-                            st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+                            pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
+                                df_pedidos
+                            )
 
                             clear_comprobante_form_state()
                             st.session_state.pop("last_selected_pedido_key", None)
@@ -2438,10 +2467,9 @@ with tab1:
                                             df_pedidos.at[df_idx, col] = val
                                     st.session_state.df_pedidos = df_pedidos
 
-                                pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
-                                    pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search
-                                ]
-                                st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+                                pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
+                                    df_pedidos
+                                )
                                 clear_comprobante_form_state()
                                 st.session_state.pop("last_selected_pedido_key", None)
                                 st.success("🎉 Comprobante confirmado exitosamente.")
@@ -2530,15 +2558,9 @@ with tab1:
                                                         df_pedidos.at[df_idx, col] = val
                                                 st.session_state.df_pedidos = df_pedidos
 
-                                            pendientes_idx = pedidos_pagados_no_confirmados[
-                                                pedidos_pagados_no_confirmados['ID_Pedido'] == selected_pedido_id_for_s3_search
-                                            ].index
-                                            if len(pendientes_idx) > 0:
-                                                pendientes_idx = pendientes_idx[0]
-                                                for col, val in updates.items():
-                                                    if col in pedidos_pagados_no_confirmados.columns:
-                                                        pedidos_pagados_no_confirmados.at[pendientes_idx, col] = val
-                                                st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
+                                            pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
+                                                df_pedidos
+                                            )
 
                                             st.success("🚫 Comprobante rechazado correctamente.")
                                             st.session_state.pop(reject_toggle_key, None)
@@ -2613,13 +2635,9 @@ with tab1:
                                                     df_pedidos.at[df_idx, col] = val
                                             st.session_state.df_pedidos = df_pedidos
 
-                                        pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados[
-                                            pedidos_pagados_no_confirmados['ID_Pedido'] != selected_pedido_id_for_s3_search
-                                        ].copy()
-                                        pedidos_pagados_no_confirmados = _filter_cancelled_pedidos(
-                                            pedidos_pagados_no_confirmados
+                                        pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
+                                            df_pedidos
                                         )
-                                        st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
 
                                         st.success("🛑 Pedido cancelado y ocultado de la vista.")
                                         st.session_state.pop(cancel_toggle_key, None)
