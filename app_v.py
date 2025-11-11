@@ -1232,6 +1232,7 @@ tabs_labels = [
     "🧾 Pedidos Pendientes de Comprobante",
     "🗂 Casos Especiales",
     "📦 Guías Cargadas",
+    "⏳ Pedidos No Entregados",
     "⬇️ Descargar Datos",
     "🔍 Buscar Pedido"
 ]
@@ -1305,7 +1306,7 @@ components.html(
     """,
     height=0,
 )
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = tabs
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
@@ -3691,11 +3692,224 @@ with tab5:
             else:
                 st.warning("⚠️ No se encontró una URL válida para la guía.")
 
-# --- TAB 6: DOWNLOAD DATA ---
+# --- TAB 6: PEDIDOS NO ENTREGADOS ---
 with tab6:
     tab6_is_active = default_tab == 5
     if tab6_is_active:
         st.session_state["current_tab_index"] = 5
+    st.header("⏳ Pedidos No Entregados")
+
+    if st.button("🔄 Actualizar listado", key="refresh_no_entregados"):
+        if allow_refresh("no_entregados_last_refresh"):
+            cargar_pedidos.clear()
+            st.toast("🔄 Datos de pedidos recargados")
+            st.rerun()
+
+    try:
+        df_pedidos_no_entregados = cargar_pedidos()
+    except Exception as e:
+        st.error(f"❌ Error al cargar los pedidos: {e}")
+        df_pedidos_no_entregados = pd.DataFrame()
+
+    if df_pedidos_no_entregados.empty:
+        st.info("No se encontraron pedidos para mostrar.")
+    elif "Estado_Entrega" not in df_pedidos_no_entregados.columns:
+        st.warning("La columna 'Estado_Entrega' no se encontró en los datos de pedidos.")
+    else:
+        df_pedidos_no_entregados = df_pedidos_no_entregados.copy()
+        df_pedidos_no_entregados["Estado_Entrega"] = (
+            df_pedidos_no_entregados["Estado_Entrega"].astype(str).str.strip()
+        )
+        filtro_no_entregados = df_pedidos_no_entregados["Estado_Entrega"] == "⏳ No Entregado"
+        df_pedidos_no_entregados = df_pedidos_no_entregados[filtro_no_entregados].reset_index(drop=True)
+
+        if df_pedidos_no_entregados.empty:
+            st.success("🎉 No hay pedidos marcados como '⏳ No Entregado' en este momento.")
+        else:
+            columnas_tabla = [
+                col
+                for col in [
+                    "ID_Pedido",
+                    "Cliente",
+                    "Tipo_Envio",
+                    "Estado",
+                    "Fecha_Entrega",
+                    "Turno",
+                    "Comprobante_Confirmado",
+                ]
+                if col in df_pedidos_no_entregados.columns
+            ]
+
+            if columnas_tabla:
+                tabla_visual = df_pedidos_no_entregados[columnas_tabla].copy()
+                if "Fecha_Entrega" in tabla_visual.columns:
+                    tabla_visual["Fecha_Entrega"] = pd.to_datetime(
+                        tabla_visual["Fecha_Entrega"], errors="coerce"
+                    ).dt.strftime("%Y-%m-%d")
+                st.dataframe(tabla_visual, use_container_width=True, hide_index=True)
+
+            df_pedidos_no_entregados["display_label"] = df_pedidos_no_entregados.apply(
+                lambda row: " - ".join(
+                    [
+                        str(row.get("ID_Pedido", "")).strip() or "Sin ID",
+                        str(row.get("Cliente", "")).strip() or "Sin Cliente",
+                        str(row.get("Tipo_Envio", "")).strip() or "Sin Tipo",
+                    ]
+                ),
+                axis=1,
+            )
+
+            pedido_seleccionado_no_entregado = st.selectbox(
+                "📋 Selecciona un pedido para actualizar la entrega",
+                options=df_pedidos_no_entregados["display_label"].tolist(),
+                key="select_pedido_no_entregado",
+            )
+
+            if pedido_seleccionado_no_entregado:
+                pedido_fila = df_pedidos_no_entregados[
+                    df_pedidos_no_entregados["display_label"] == pedido_seleccionado_no_entregado
+                ].iloc[0]
+
+                pedido_id = str(pedido_fila.get("ID_Pedido", "")).strip()
+                tipo_envio = str(pedido_fila.get("Tipo_Envio", "")).strip()
+                fecha_actual = pd.to_datetime(pedido_fila.get("Fecha_Entrega"), errors="coerce")
+                turno_actual = str(pedido_fila.get("Turno", "")).strip()
+
+                st.markdown(
+                    f"**Cliente:** {pedido_fila.get('Cliente', 'N/D')}  |  **ID Pedido:** {pedido_id or 'N/D'}"
+                )
+                st.markdown(
+                    f"**Tipo de envío:** {tipo_envio or 'N/D'}  |  **Estado actual de entrega:** {pedido_fila.get('Estado_Entrega', 'N/D')}"
+                )
+                st.markdown(
+                    f"**Fecha de entrega registrada:** {fecha_actual.date() if pd.notna(fecha_actual) else 'Sin fecha'}  |  **Turno registrado:** {turno_actual or 'Sin turno'}"
+                )
+
+                if tipo_envio != "📍 Pedido Local":
+                    st.info("Solo se pueden actualizar fecha y turno para pedidos con tipo de envío '📍 Pedido Local'.")
+                elif not pedido_id:
+                    st.warning("El pedido seleccionado no tiene un 'ID_Pedido' válido para actualizar en Google Sheets.")
+                else:
+                    turno_options = ["", "Mañana", "Tarde", "Saltillo", "En Bodega"]
+                    turno_index = 0
+                    for idx, opcion in enumerate(turno_options):
+                        if opcion and opcion.lower() == turno_actual.lower():
+                            turno_index = idx
+                            break
+
+                    fecha_defecto = fecha_actual.date() if pd.notna(fecha_actual) else date.today()
+
+                    with st.form(key=f"form_actualizar_entrega_{pedido_id}"):
+                        nueva_fecha_entrega = st.date_input(
+                            "Nueva fecha de entrega",
+                            value=fecha_defecto,
+                            key=f"fecha_no_entregado_{pedido_id}",
+                        )
+                        nuevo_turno = st.selectbox(
+                            "Selecciona el turno",
+                            turno_options,
+                            index=turno_index,
+                            format_func=lambda x: "Selecciona un turno" if x == "" else x,
+                            key=f"turno_no_entregado_{pedido_id}",
+                        )
+                        submitted = st.form_submit_button("💾 Guardar cambios")
+
+                    if submitted:
+                        if nuevo_turno == "":
+                            st.warning("Selecciona un turno para continuar.")
+                        else:
+                            worksheet = get_worksheet()
+                            if worksheet is None:
+                                st.error("❌ No se pudo acceder a la hoja de Google Sheets para actualizar el pedido.")
+                            else:
+                                headers = worksheet.row_values(1)
+                                try:
+                                    df_completo = cargar_pedidos()
+                                except Exception as e:
+                                    st.error(f"❌ No se pudieron recargar los pedidos desde Google Sheets: {e}")
+                                    df_completo = pd.DataFrame()
+
+                                if df_completo.empty or "ID_Pedido" not in df_completo.columns:
+                                    st.error("❌ No se encontró la columna 'ID_Pedido' en los datos originales.")
+                                elif pedido_id not in df_completo["ID_Pedido"].astype(str).str.strip().tolist():
+                                    st.error("❌ No se encontró el pedido seleccionado en los datos originales.")
+                                else:
+                                    fila_filtrada = df_completo[
+                                        df_completo["ID_Pedido"].astype(str).str.strip() == pedido_id
+                                    ]
+                                    if fila_filtrada.empty:
+                                        st.error("❌ No se encontró el pedido seleccionado en la hoja de cálculo.")
+                                    else:
+                                        fila_original = fila_filtrada.iloc[0]
+                                        gsheet_row_index = fila_filtrada.index[0] + 2
+
+                                        updates = []
+                                        missing_columns = []
+
+                                        def agregar_actualizacion(columna: str, valor: str) -> None:
+                                            if columna not in headers:
+                                                missing_columns.append(columna)
+                                                return
+                                            updates.append(
+                                                {
+                                                    "range": rowcol_to_a1(
+                                                        gsheet_row_index,
+                                                        headers.index(columna) + 1,
+                                                    ),
+                                                    "values": [[valor]],
+                                                }
+                                            )
+
+                                        fecha_formateada = (
+                                            nueva_fecha_entrega.strftime("%Y-%m-%d")
+                                            if isinstance(nueva_fecha_entrega, date)
+                                            else ""
+                                        )
+
+                                        if fecha_formateada:
+                                            fecha_existente = pd.to_datetime(
+                                                fila_original.get("Fecha_Entrega"), errors="coerce"
+                                            )
+                                            fecha_existente_date = (
+                                                fecha_existente.date() if pd.notna(fecha_existente) else None
+                                            )
+                                            if fecha_existente_date != nueva_fecha_entrega:
+                                                agregar_actualizacion("Fecha_Entrega", fecha_formateada)
+
+                                        if nuevo_turno and nuevo_turno.lower() != turno_actual.lower():
+                                            agregar_actualizacion("Turno", nuevo_turno)
+
+                                        comprobante_actual = str(
+                                            fila_original.get("Comprobante_Confirmado", "")
+                                        ).strip()
+                                        comprobante_normalizado = unicodedata.normalize(
+                                            "NFKD", comprobante_actual
+                                        ).encode("ASCII", "ignore").decode("utf-8").lower()
+                                        if comprobante_normalizado == "si":
+                                            agregar_actualizacion("Comprobante_Confirmado", "")
+
+                                        if missing_columns:
+                                            st.warning(
+                                                "No se pudieron actualizar algunas columnas porque no existen en la hoja: "
+                                                + ", ".join(missing_columns)
+                                            )
+
+                                        if not updates:
+                                            st.info("No hay cambios para guardar.")
+                                        else:
+                                            try:
+                                                safe_batch_update(worksheet, updates)
+                                                cargar_pedidos.clear()
+                                                st.success("✅ Pedido actualizado correctamente.")
+                                                st.rerun()
+                                            except Exception as e:
+                                                st.error(f"❌ Error al actualizar el pedido: {e}")
+
+# --- TAB 7: DOWNLOAD DATA ---
+with tab7:
+    tab7_is_active = default_tab == 6
+    if tab7_is_active:
+        st.session_state["current_tab_index"] = 6
     st.header("⬇️ Descargar Datos de Pedidos")
 
     @st.cache_data(ttl=60)
@@ -3883,31 +4097,31 @@ with tab6:
             )
         else:
             st.info("No hay datos que coincidan con los filtros seleccionados para descargar.")
-# --- TAB 7: SEARCH ORDER ---
-with tab7:
-    tab7_is_active = default_tab == 6
-    if tab7_is_active:
-        st.session_state["current_tab_index"] = 6
+# --- TAB 8: SEARCH ORDER ---
+with tab8:
+    tab8_is_active = default_tab == 7
+    if tab8_is_active:
+        st.session_state["current_tab_index"] = 7
     st.subheader("🔍 Buscador de Pedidos por Guía o Cliente")
 
     modo_busqueda = st.radio(
         "Selecciona el modo de búsqueda:",
         ["🔢 Por número de guía", "🧑 Por cliente/factura"],
-        key="tab7_modo_busqueda_radio"
+        key="tab8_modo_busqueda_radio"
     )
 
     if modo_busqueda == "🔢 Por número de guía":
         keyword = st.text_input(
             "📦 Ingresa una palabra clave, número de guía, fragmento o código a buscar:",
-            key="tab7_keyword_guia"
+            key="tab8_keyword_guia"
         )
-        buscar_btn = st.button("🔎 Buscar", key="tab7_btn_buscar_guia")
+        buscar_btn = st.button("🔎 Buscar", key="tab8_btn_buscar_guia")
     else:
         keyword = st.text_input(
             "🧑 Ingresa el nombre del cliente o el folio de la factura a buscar (sin importar mayúsculas ni acentos para el cliente):",
-            key="tab7_keyword_cliente"
+            key="tab8_keyword_cliente"
         )
-        buscar_btn = st.button("🔍 Buscar Pedido por Cliente o Folio", key="tab7_btn_buscar_cliente")
+        buscar_btn = st.button("🔍 Buscar Pedido por Cliente o Folio", key="tab8_btn_buscar_cliente")
 
     if buscar_btn:
         if modo_busqueda == "🔢 Por número de guía":
