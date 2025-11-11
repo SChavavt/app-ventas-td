@@ -15,6 +15,7 @@ import socket
 import re
 import gspread
 import html
+from typing import Optional
 from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -156,6 +157,34 @@ def format_estado_entrega(value) -> str:
         return "Sin info de entrega"
     cleaned = str(value).strip()
     return cleaned if cleaned else "Sin info de entrega"
+
+
+def parse_sheet_row_number(value) -> Optional[int]:
+    """Return a normalized Google Sheet row number or ``None`` if missing."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        candidate = int(value)
+        return candidate if candidate > 0 else None
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            candidate = int(float(cleaned))
+        except ValueError:
+            return None
+        return candidate if candidate > 0 else None
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        return None
+    try:
+        candidate = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return candidate if candidate > 0 else None
 
 
 def extract_id_vendedor(data, placeholder: str = "N/A") -> str:
@@ -2295,6 +2324,7 @@ def cargar_pedidos_combinados():
         df_datos = pd.DataFrame()
 
     if not df_datos.empty:
+        df_datos.insert(0, "Sheet_Row_Number", pd.Series(range(2, len(df_datos) + 2)))
         # quita filas totalmente vacías en claves mínimas
         claves = ['ID_Pedido', 'Cliente', 'Folio_Factura']
         df_datos = df_datos.dropna(subset=claves, how='all')
@@ -2346,6 +2376,7 @@ def cargar_pedidos_combinados():
         df_casos = pd.DataFrame()
 
     if not df_casos.empty:
+        df_casos.insert(0, "Sheet_Row_Number", pd.Series(range(2, len(df_casos) + 2)))
         if 'ID_Pedido' in df_casos.columns:
             df_casos = df_casos[df_casos['ID_Pedido'].astype(str).str.strip().ne("")]
         else:
@@ -2801,16 +2832,52 @@ with tab2:
                                     feedback_slot.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
                                     st.stop()
 
-                                if selected_order_id not in df_actual['ID_Pedido'].values:
-                                    feedback_slot.empty()
-                                    feedback_slot.error(f"❌ El ID {selected_order_id} no existe en {hoja_objetivo}.")
-                                    st.stop()
+                                sheet_row_number = parse_sheet_row_number(
+                                    selected_row_data.get("Sheet_Row_Number")
+                                )
+                                row_candidates = pd.DataFrame()
+                                gsheet_row_index = None
 
-                                gsheet_row_index = df_actual[df_actual['ID_Pedido'] == selected_order_id].index[0] + 2
+                                if sheet_row_number is not None and "Sheet_Row_Number" in df_actual.columns:
+                                    sheet_numbers_series = pd.to_numeric(
+                                        df_actual["Sheet_Row_Number"], errors="coerce"
+                                    )
+                                    row_candidates = df_actual.loc[
+                                        sheet_numbers_series == sheet_row_number
+                                    ]
+                                    if not row_candidates.empty:
+                                        gsheet_row_index = sheet_row_number
+
+                                if row_candidates.empty:
+                                    if selected_order_id not in df_actual['ID_Pedido'].values:
+                                        feedback_slot.empty()
+                                        feedback_slot.error(
+                                            f"❌ El ID {selected_order_id} no existe en {hoja_objetivo}."
+                                        )
+                                        st.stop()
+
+                                    row_candidates = df_actual[df_actual['ID_Pedido'] == selected_order_id]
+                                    if row_candidates.empty:
+                                        feedback_slot.empty()
+                                        feedback_slot.error(
+                                            f"❌ No se encontró la fila para el pedido {selected_order_id}."
+                                        )
+                                        st.stop()
+
+                                    if "Sheet_Row_Number" in row_candidates.columns:
+                                        candidate_numbers = pd.to_numeric(
+                                            row_candidates["Sheet_Row_Number"], errors="coerce"
+                                        ).dropna()
+                                        if not candidate_numbers.empty:
+                                            gsheet_row_index = int(candidate_numbers.iloc[0])
+
+                                    if gsheet_row_index is None:
+                                        gsheet_row_index = row_candidates.index[0] + 2
+
                                 changes_made = False
 
                                 cell_updates = []
-                                actual_row = df_actual[df_actual['ID_Pedido'] == selected_order_id].iloc[0]
+                                actual_row = row_candidates.iloc[0]
 
                                 def col_exists(col):
                                     return col in headers
