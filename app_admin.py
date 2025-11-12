@@ -2474,10 +2474,19 @@ with tab1:
                                 st.session_state.pop("last_selected_pedido_key", None)
                                 st.success("🎉 Comprobante confirmado exitosamente.")
                                 st.balloons()
-                                rerun_current_tab()
+                                st.session_state["show_accept_after_confirm"] = True
 
                             except Exception as e:
                                 st.error(f"❌ Error al confirmar comprobante: {e}")
+
+                        if st.session_state.get("show_accept_after_confirm"):
+                            if st.button(
+                                "Aceptar",
+                                key="confirm_accept_refresh",
+                                use_container_width=True,
+                            ):
+                                st.session_state.pop("show_accept_after_confirm", None)
+                                rerun_current_tab()
 
                     with col3:
                         if num_comprobantes == 0:
