@@ -3857,12 +3857,36 @@ with tab6:
                 elif not pedido_id:
                     st.warning("El pedido seleccionado no tiene un 'ID_Pedido' válido para actualizar en Google Sheets.")
                 else:
-                    turno_options = ["", "Mañana", "Tarde", "Saltillo", "En Bodega"]
+                    turno_options = [
+                        "",
+                        "🌙 Local Tarde",
+                        "☀️ Local Mañana",
+                        "📦 Pasa a Bodega",
+                        "🌵 Saltillo",
+                    ]
+                    turno_normalization_map = {
+                        "🌙 local tarde": "🌙 Local Tarde",
+                        "local tarde": "🌙 Local Tarde",
+                        "tarde": "🌙 Local Tarde",
+                        "☀️ local mañana": "☀️ Local Mañana",
+                        "local mañana": "☀️ Local Mañana",
+                        "mañana": "☀️ Local Mañana",
+                        "📦 pasa a bodega": "📦 Pasa a Bodega",
+                        "pasa a bodega": "📦 Pasa a Bodega",
+                        "en bodega": "📦 Pasa a Bodega",
+                        "bodega": "📦 Pasa a Bodega",
+                        "🌵 saltillo": "🌵 Saltillo",
+                        "saltillo": "🌵 Saltillo",
+                    }
                     turno_index = 0
-                    for idx, opcion in enumerate(turno_options):
-                        if opcion and opcion.lower() == turno_actual.lower():
-                            turno_index = idx
-                            break
+                    turno_actual_key = turno_actual.lower()
+                    if turno_actual_key == "nan":
+                        turno_actual_key = ""
+                    turno_actual_estandar = turno_normalization_map.get(
+                        turno_actual_key, turno_actual
+                    )
+                    if turno_actual_estandar in turno_options:
+                        turno_index = turno_options.index(turno_actual_estandar)
 
                     fecha_defecto = fecha_actual.date() if pd.notna(fecha_actual) else date.today()
 
@@ -3943,7 +3967,16 @@ with tab6:
                                             if fecha_existente_date != nueva_fecha_entrega:
                                                 agregar_actualizacion("Fecha_Entrega", fecha_formateada)
 
-                                        if nuevo_turno and nuevo_turno.lower() != turno_actual.lower():
+                                        turno_actual_estandar = turno_normalization_map.get(
+                                            turno_actual.lower() if turno_actual else "",
+                                            turno_actual,
+                                        )
+                                        if turno_actual_estandar == "nan":
+                                            turno_actual_estandar = ""
+                                        if (
+                                            nuevo_turno
+                                            and turno_actual_estandar != nuevo_turno
+                                        ):
                                             agregar_actualizacion("Turno", nuevo_turno)
 
                                         comprobante_actual = str(
