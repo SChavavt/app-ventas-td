@@ -183,13 +183,10 @@ def refresh_pedidos_pagados_no_confirmados(
         trabajo = df.copy()
 
         if "Comprobante_Confirmado" in trabajo.columns:
-            confirmados_normalizados = (
-                trabajo["Comprobante_Confirmado"]
-                .astype(str)
-                .str.strip()
-                .str.lower()
+            mask_no_confirmado = (
+                trabajo["Comprobante_Confirmado"].astype(str).str.strip().str.lower()
+                != "sí"
             )
-            mask_no_confirmado = ~confirmados_normalizados.isin({"sí", "si"})
             pendientes = trabajo[mask_no_confirmado].copy()
         else:
             pendientes = trabajo.iloc[0:0].copy()
@@ -940,8 +937,6 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
         df_pedidos[MOTIVO_RECHAZO_CANCELACION_COL] = ""
     if ESTADO_ENTREGA_COL not in df_pedidos.columns:
         df_pedidos[ESTADO_ENTREGA_COL] = ""
-    if "Comprobante_Confirmado" not in df_pedidos.columns:
-        df_pedidos["Comprobante_Confirmado"] = ""
     if df_pedidos.empty:
         st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
         if st.button("🔁 Reintentar conexión", key="retry_pedidos_inicial"):
@@ -957,8 +952,6 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
         # No st.stop(): deja que otras pestañas/partes sigan funcionando
     if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
         df_pedidos[FECHA_CONFIRMADO_COL] = ""
-    if "Comprobante_Confirmado" not in df_pedidos.columns:
-        df_pedidos["Comprobante_Confirmado"] = ""
     st.session_state.df_pedidos = df_pedidos
     st.session_state.headers = headers
     refresh_pedidos_pagados_no_confirmados(df_pedidos)
@@ -1771,9 +1764,6 @@ with tab1:
 
                                 # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                                 worksheet = _get_ws_datos()
-                                headers = ensure_sheet_column(
-                                    worksheet, headers, "Comprobante_Confirmado"
-                                )
                                 headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
                                 if is_pedido_local:
                                     headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
@@ -2152,9 +2142,6 @@ with tab1:
     
                             # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                             worksheet = _get_ws_datos()
-                            headers = ensure_sheet_column(
-                                worksheet, headers, "Comprobante_Confirmado"
-                            )
                             headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
                             if is_pedido_local:
                                 headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
@@ -2451,9 +2438,6 @@ with tab1:
 
                                 # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
                                 worksheet = _get_ws_datos()
-                                headers = ensure_sheet_column(
-                                    worksheet, headers, "Comprobante_Confirmado"
-                                )
                                 headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
                                 if is_pedido_local:
                                     headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
@@ -2542,9 +2526,6 @@ with tab1:
                                             }
 
                                             worksheet = _get_ws_datos()
-                                            headers = ensure_sheet_column(
-                                                worksheet, headers, "Comprobante_Confirmado"
-                                            )
                                             headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
                                             st.session_state.headers = headers
 
