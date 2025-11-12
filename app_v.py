@@ -15,7 +15,7 @@ import socket
 import re
 import gspread
 import html
-from typing import Optional
+from typing import Dict, List, Optional
 from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -185,6 +185,47 @@ def parse_sheet_row_number(value) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return candidate if candidate > 0 else None
+
+
+def load_sheet_records_with_row_numbers(worksheet):
+    """Return DataFrame rows with their real Google Sheet indices preserved."""
+
+    try:
+        all_values = worksheet.get_all_values()
+    except Exception:
+        return pd.DataFrame(), []
+
+    if not all_values:
+        return pd.DataFrame(), []
+
+    headers_raw = all_values[0]
+    headers = [str(h).strip() for h in headers_raw]
+
+    max_columns = len(headers)
+    records: List[Dict[str, str]] = []
+    row_numbers: List[int] = []
+
+    for row_index, row_values in enumerate(all_values[1:], start=2):
+        normalized_row = list(row_values[:max_columns])
+        if len(normalized_row) < max_columns:
+            normalized_row.extend([""] * (max_columns - len(normalized_row)))
+
+        if not any(str(cell).strip() for cell in normalized_row):
+            continue
+
+        record = {
+            headers[col_idx]: normalized_row[col_idx] if col_idx < len(normalized_row) else ""
+            for col_idx in range(max_columns)
+        }
+        records.append(record)
+        row_numbers.append(row_index)
+
+    df_records = pd.DataFrame(records)
+    if df_records.empty:
+        return df_records, headers
+
+    df_records.insert(0, "Sheet_Row_Number", row_numbers)
+    return df_records, headers
 
 
 def extract_id_vendedor(data, placeholder: str = "N/A") -> str:
@@ -2317,14 +2358,12 @@ def cargar_pedidos_combinados():
     # ---------------------------
     try:
         ws_datos = sh.worksheet("datos_pedidos")
-        headers_datos = ws_datos.row_values(1)
-        df_datos = pd.DataFrame(ws_datos.get_all_records()) if headers_datos else pd.DataFrame()
+        df_datos, headers_datos = load_sheet_records_with_row_numbers(ws_datos)
     except Exception:
         headers_datos = []
         df_datos = pd.DataFrame()
 
     if not df_datos.empty:
-        df_datos.insert(0, "Sheet_Row_Number", pd.Series(range(2, len(df_datos) + 2)))
         # quita filas totalmente vacías en claves mínimas
         claves = ['ID_Pedido', 'Cliente', 'Folio_Factura']
         df_datos = df_datos.dropna(subset=claves, how='all')
@@ -2369,14 +2408,12 @@ def cargar_pedidos_combinados():
     # ---------------------------
     try:
         ws_casos = sh.worksheet("casos_especiales")
-        headers_casos = ws_casos.row_values(1)
-        df_casos = pd.DataFrame(ws_casos.get_all_records()) if headers_casos else pd.DataFrame()
+        df_casos, headers_casos = load_sheet_records_with_row_numbers(ws_casos)
     except Exception:
         headers_casos = []
         df_casos = pd.DataFrame()
 
     if not df_casos.empty:
-        df_casos.insert(0, "Sheet_Row_Number", pd.Series(range(2, len(df_casos) + 2)))
         if 'ID_Pedido' in df_casos.columns:
             df_casos = df_casos[df_casos['ID_Pedido'].astype(str).str.strip().ne("")]
         else:
@@ -2872,7 +2909,11 @@ with tab2:
                                             gsheet_row_index = int(candidate_numbers.iloc[0])
 
                                     if gsheet_row_index is None:
-                                        gsheet_row_index = row_candidates.index[0] + 2
+                                        feedback_slot.empty()
+                                        feedback_slot.error(
+                                            "❌ No se pudo determinar la fila en Google Sheets para el pedido seleccionado."
+                                        )
+                                        st.stop()
 
                                 changes_made = False
 
