@@ -3341,9 +3341,56 @@ with tab2:
                     subset="ID_Pedido", keep="last"
                 )
 
+            fecha_sort_col = "_fecha_confirmado_sort"
+            if FECHA_CONFIRMADO_COL in df_local_confirmados.columns:
+                df_local_confirmados[fecha_sort_col] = pd.to_datetime(
+                    df_local_confirmados[FECHA_CONFIRMADO_COL],
+                    errors="coerce",
+                )
+            else:
+                df_local_confirmados[fecha_sort_col] = pd.NaT
+
+            df_local_confirmados = df_local_confirmados.sort_values(
+                fecha_sort_col,
+                ascending=False,
+                na_position="last",
+            )
+
             df_local_confirmados[ESTADO_ENTREGA_COL] = df_local_confirmados[
                 ESTADO_ENTREGA_COL
             ].apply(normalize_estado_entrega)
+
+            busqueda_local = st.text_input(
+                "🔍 Buscar pedido por folio o cliente",
+                key="buscar_pedido_local_entrega_confirmados",
+            ).strip()
+
+            if busqueda_local:
+                criterio = busqueda_local.lower()
+
+                folios = (
+                    df_local_confirmados.get("Folio_Factura", pd.Series(dtype=str))
+                    .astype(str)
+                    .str.lower()
+                )
+                clientes = (
+                    df_local_confirmados.get("Cliente", pd.Series(dtype=str))
+                    .astype(str)
+                    .str.lower()
+                )
+
+                mask_busqueda = (
+                    folios.str.contains(criterio, na=False)
+                    | clientes.str.contains(criterio, na=False)
+                )
+                df_local_filtrado = df_local_confirmados[mask_busqueda].copy()
+            else:
+                df_local_filtrado = df_local_confirmados.copy()
+
+            df_local_filtrado = df_local_filtrado.drop(columns=[fecha_sort_col], errors="ignore")
+            df_local_confirmados = df_local_confirmados.drop(
+                columns=[fecha_sort_col], errors="ignore"
+            )
 
             def _local_display_label(row: pd.Series) -> str:
                 folio = row.get("Folio_Factura", "N/A")
@@ -3351,23 +3398,26 @@ with tab2:
                 estado = row.get(ESTADO_ENTREGA_COL, "") or "Sin estado"
                 return f"📄 {folio} - 👤 {cliente} · {estado}"
 
-            local_options = [
-                _local_display_label(row)
-                for _, row in df_local_confirmados.iterrows()
-            ]
-
-            if not local_options:
-                st.info("ℹ️ No hay pedidos locales disponibles para actualizar.")
+            if df_local_filtrado.empty:
+                st.info("ℹ️ No se encontraron pedidos que coincidan con la búsqueda.")
             else:
-                option_keys = list(range(len(local_options)))
-                selected_idx_local = st.selectbox(
-                    "Selecciona un pedido local para ajustar su entrega",
-                    options=option_keys,
-                    format_func=lambda i: local_options[i],
+                local_options = {
+                    idx: _local_display_label(row)
+                    for idx, row in df_local_filtrado.iterrows()
+                }
+
+                if not local_options:
+                    st.info("ℹ️ No hay pedidos locales disponibles para actualizar.")
+                else:
+                    option_keys = list(local_options.keys())
+                    selected_idx_local = st.selectbox(
+                        "Selecciona un pedido local para ajustar su entrega",
+                        options=option_keys,
+                        format_func=lambda i: local_options[i],
                     key="select_local_entrega_confirmados",
                 )
 
-                selected_local_row = df_local_confirmados.iloc[selected_idx_local]
+                selected_local_row = df_local_filtrado.loc[selected_idx_local]
                 estado_actual = normalize_estado_entrega(
                     selected_local_row.get(ESTADO_ENTREGA_COL, "")
                 )
