@@ -1585,6 +1585,8 @@ with tab1:
 
     if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
         if allow_refresh("pedidos_last_refresh"):
+            # Borra el snapshot cacheado para forzar que la lectura venga fresca de Google Sheets.
+            cargar_pedidos_desde_google_sheet.clear()
             st.session_state["pedidos_reload_nonce"] += 1
             df_pedidos, headers = cargar_pedidos_desde_google_sheet(
                 GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
