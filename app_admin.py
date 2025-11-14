@@ -1618,10 +1618,61 @@ with tab1:
                 'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio',
                 'Fecha_Entrega', 'Estado', 'Estado_Pago'
             ]
-            existing_columns = [col for col in columns_to_show if col in pedidos_pagados_no_confirmados.columns]
+            turno_display_col = "Turno (Local)"
+            has_turno_data = "Turno" in pedidos_pagados_no_confirmados.columns
+
+            if has_turno_data:
+                try:
+                    insert_idx = columns_to_show.index("Tipo_Envio") + 1
+                except ValueError:
+                    insert_idx = len(columns_to_show)
+                columns_to_show.insert(insert_idx, turno_display_col)
+
+            existing_columns: list[str] = []
+            for col in columns_to_show:
+                if col == turno_display_col:
+                    if has_turno_data:
+                        existing_columns.append(col)
+                elif col in pedidos_pagados_no_confirmados.columns:
+                    existing_columns.append(col)
 
             if existing_columns:
-                df_vista = pedidos_pagados_no_confirmados[existing_columns].copy()
+                base_columns = [c for c in existing_columns if c != turno_display_col]
+                df_vista = pedidos_pagados_no_confirmados[base_columns].copy()
+
+                if has_turno_data:
+                    turno_icon_map = {
+                        "mat": "🌅",  # matutino / mañana
+                        "mañ": "🌅",
+                        "ves": "🌇",  # vespertino / tarde
+                        "tar": "🌇",
+                        "noc": "🌙",  # nocturno / noche
+                        "noche": "🌙",
+                    }
+
+                    def _format_turno_display(row: pd.Series) -> str:
+                        tipo_envio = str(row.get("Tipo_Envio", "")).strip()
+                        if tipo_envio != "📍 Pedido Local":
+                            return ""
+
+                        turno_raw = str(row.get("Turno", "") or "").strip()
+                        if not turno_raw or turno_raw.lower() in {"nan", "none"}:
+                            return "—"
+
+                        turno_norm = turno_raw.lower()
+                        for token, icon in turno_icon_map.items():
+                            if token in turno_norm:
+                                return f"{icon} {turno_raw}"
+
+                        return f"🕒 {turno_raw}"
+
+                    df_vista[turno_display_col] = pedidos_pagados_no_confirmados.apply(
+                        _format_turno_display, axis=1
+                    )
+                    ordered_cols = [
+                        col for col in existing_columns if col in df_vista.columns
+                    ]
+                    df_vista = df_vista[ordered_cols]
 
                 if 'Fecha_Entrega' in df_vista.columns:
                     df_vista['Fecha_Entrega'] = pd.to_datetime(df_vista['Fecha_Entrega'], errors='coerce').dt.strftime('%d/%m/%Y')
