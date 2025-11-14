@@ -1641,27 +1641,6 @@ with tab1:
                 df_vista = pedidos_pagados_no_confirmados[base_columns].copy()
 
                 if has_turno_data:
-                    turno_icon_map = {
-                        "mat": "🌅",  # matutino / mañana
-                        "mañ": "🌅",
-                        "ves": "🌇",  # vespertino / tarde
-                        "tar": "🌇",
-                        "noc": "🌙",  # nocturno / noche
-                        "noche": "🌙",
-                    }
-
-                    def _turno_already_has_icon(value: str) -> bool:
-                        """Detecta si el texto del turno ya incluye alguno de los iconos conocidos."""
-                        stripped = value.strip()
-                        if not stripped:
-                            return False
-
-                        for icon in (*turno_icon_map.values(), "🕒"):
-                            if icon in stripped:
-                                return True
-
-                        return False
-
                     def _format_turno_display(row: pd.Series) -> str:
                         tipo_envio = str(row.get("Tipo_Envio", "")).strip()
                         if tipo_envio != "📍 Pedido Local":
@@ -1669,17 +1648,9 @@ with tab1:
 
                         turno_raw = str(row.get("Turno", "") or "").strip()
                         if not turno_raw or turno_raw.lower() in {"nan", "none"}:
-                            return "—"
+                            return ""
 
-                        turno_norm = turno_raw.lower()
-                        for token, icon in turno_icon_map.items():
-                            if token in turno_norm:
-                                return turno_raw if _turno_already_has_icon(turno_raw) else f"{icon} {turno_raw}"
-
-                        if _turno_already_has_icon(turno_raw):
-                            return turno_raw
-
-                        return f"🕒 {turno_raw}"
+                        return turno_raw
 
                     df_vista[turno_display_col] = pedidos_pagados_no_confirmados.apply(
                         _format_turno_display, axis=1
