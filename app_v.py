@@ -614,9 +614,17 @@ def get_s3_client():
 @st.cache_data(ttl=60)
 def check_basic_internet_connectivity(timeout: float = 5.0) -> tuple[bool, str]:
     """Comprueba si hay conexión básica a Internet realizando una solicitud simple."""
-    test_url = "https://www.google.com"
+    # Usamos el endpoint generate_204, recomendado por Google para comprobar
+    # conectividad sin desencadenar respuestas 403 destinadas a los navegadores.
+    test_url = "https://clients3.google.com/generate_204"
     try:
-        request = Request(test_url)
+        request = Request(
+            test_url,
+            headers={
+                # Algunos endpoints devuelven 403 si falta un User-Agent.
+                "User-Agent": "Mozilla/5.0 (compatible; StreamlitApp/1.0)"
+            },
+        )
         with urlopen(request, timeout=timeout):
             pass
         return True, "Conexión a Internet estable."
