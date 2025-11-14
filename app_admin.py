@@ -1650,6 +1650,18 @@ with tab1:
                         "noche": "🌙",
                     }
 
+                    def _turno_already_has_icon(value: str) -> bool:
+                        """Detecta si el texto del turno ya incluye alguno de los iconos conocidos."""
+                        stripped = value.strip()
+                        if not stripped:
+                            return False
+
+                        for icon in (*turno_icon_map.values(), "🕒"):
+                            if icon in stripped:
+                                return True
+
+                        return False
+
                     def _format_turno_display(row: pd.Series) -> str:
                         tipo_envio = str(row.get("Tipo_Envio", "")).strip()
                         if tipo_envio != "📍 Pedido Local":
@@ -1662,7 +1674,10 @@ with tab1:
                         turno_norm = turno_raw.lower()
                         for token, icon in turno_icon_map.items():
                             if token in turno_norm:
-                                return f"{icon} {turno_raw}"
+                                return turno_raw if _turno_already_has_icon(turno_raw) else f"{icon} {turno_raw}"
+
+                        if _turno_already_has_icon(turno_raw):
+                            return turno_raw
 
                         return f"🕒 {turno_raw}"
 
