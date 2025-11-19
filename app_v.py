@@ -3867,7 +3867,11 @@ with tab6:
             df_pedidos_no_entregados["display_label"] = df_pedidos_no_entregados.apply(
                 lambda row: " - ".join(
                     [
-                        str(row.get("ID_Pedido", "")).strip() or "Sin ID",
+                        (
+                            str(row.get("Folio_Factura", "")).strip()
+                            or str(row.get("ID_Pedido", "")).strip()
+                            or "Sin folio"
+                        ),
                         str(row.get("Cliente", "")).strip() or "Sin Cliente",
                         str(row.get("Tipo_Envio", "")).strip() or "Sin Tipo",
                     ]
@@ -3887,12 +3891,14 @@ with tab6:
                 ].iloc[0]
 
                 pedido_id = str(pedido_fila.get("ID_Pedido", "")).strip()
+                pedido_folio = str(pedido_fila.get("Folio_Factura", "")).strip()
+                folio_display = pedido_folio or pedido_id
                 tipo_envio = str(pedido_fila.get("Tipo_Envio", "")).strip()
                 fecha_actual = pd.to_datetime(pedido_fila.get("Fecha_Entrega"), errors="coerce")
                 turno_actual = str(pedido_fila.get("Turno", "")).strip()
 
                 st.markdown(
-                    f"**Cliente:** {pedido_fila.get('Cliente', 'N/D')}  |  **ID Pedido:** {pedido_id or 'N/D'}"
+                    f"**Cliente:** {pedido_fila.get('Cliente', 'N/D')}  |  **Folio:** {folio_display or 'N/D'}"
                 )
                 st.markdown(
                     f"**Tipo de envío:** {tipo_envio or 'N/D'}  |  **Estado actual de entrega:** {pedido_fila.get('Estado_Entrega', 'N/D')}"
