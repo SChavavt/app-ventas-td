@@ -3091,6 +3091,18 @@ with tab2:
                                         changes_made = True
 
                                 if cell_updates:
+                                    if col_exists("Fecha_Modificacion"):
+                                        fecha_mod = datetime.now(timezone("America/Mexico_City")).strftime(
+                                            "%Y-%m-%d %H:%M:%S"
+                                        )
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index,
+                                                col_idx("Fecha_Modificacion"),
+                                            ),
+                                            "values": [[fecha_mod]],
+                                        })
+                                        changes_made = True
                                     safe_batch_update(worksheet, cell_updates)
 
                                 # 8) Mensajes y limpieza de inputs
