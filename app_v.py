@@ -3028,19 +3028,39 @@ with tab2:
                                                 "values": [[""]],
                                             })
 
-                                # 6) Cambiar estado del pedido a 'En Proceso'
+                                # 6) Ajustar estado del pedido según su valor actual
                                 if col_exists("Estado"):
-                                    cell_updates.append({
-                                        "range": rowcol_to_a1(
-                                            gsheet_row_index,
-                                            col_idx("Estado"),
-                                        ),
-                                        "values": [["🔵 En Proceso"]],
-                                    })
-                                    changes_made = True
-                                    feedback_slot.empty()
-                                    feedback_slot.info("🔵 El estado del pedido se cambió a 'En Proceso'.")
-                                if selected_source == "datos_pedidos" and col_exists("Fecha_Completado"):
+                                    estado_actual_raw = str(actual_row.get("Estado", "")).strip()
+                                    estado_actual_lower = estado_actual_raw.lower()
+
+                                    nuevo_estado = estado_actual_raw or "🟡 Pendiente"
+                                    if "proceso" in estado_actual_lower:
+                                        nuevo_estado = "🔵 En Proceso"
+                                    elif "pendiente" in estado_actual_lower:
+                                        nuevo_estado = "🟡 Pendiente"
+                                    elif "demorado" in estado_actual_lower:
+                                        nuevo_estado = "🟡 Pendiente"
+                                    elif "complet" in estado_actual_lower:
+                                        nuevo_estado = "🟡 Pendiente"
+
+                                    if nuevo_estado != estado_actual_raw:
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index,
+                                                col_idx("Estado"),
+                                            ),
+                                            "values": [[nuevo_estado]],
+                                        })
+                                        changes_made = True
+                                        feedback_slot.empty()
+                                        feedback_slot.info(
+                                            f"📌 El estado del pedido se actualizó a '{nuevo_estado}'."
+                                        )
+
+                                if (
+                                    selected_source == "datos_pedidos"
+                                    and col_exists("Fecha_Completado")
+                                ):
                                     cell_updates.append({
                                         "range": rowcol_to_a1(
                                             gsheet_row_index,
