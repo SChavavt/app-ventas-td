@@ -3030,33 +3030,23 @@ with tab2:
                                                 "values": [[""]],
                                             })
 
-                                # 6) Ajustar estado del pedido según su valor actual
+                                # 6) Ajustar estado del pedido para reflejar modificación
                                 if col_exists("Estado"):
                                     estado_actual_raw = str(actual_row.get("Estado", "")).strip()
-                                    estado_actual_lower = estado_actual_raw.lower()
+                                    estado_modificacion = "✏️ Modificación"
 
-                                    nuevo_estado = estado_actual_raw or "🟡 Pendiente"
-                                    if "proceso" in estado_actual_lower:
-                                        nuevo_estado = "🔵 En Proceso"
-                                    elif "pendiente" in estado_actual_lower:
-                                        nuevo_estado = "🟡 Pendiente"
-                                    elif "demorado" in estado_actual_lower:
-                                        nuevo_estado = "🟡 Pendiente"
-                                    elif "complet" in estado_actual_lower:
-                                        nuevo_estado = "🟡 Pendiente"
-
-                                    if nuevo_estado != estado_actual_raw:
+                                    if estado_actual_raw != estado_modificacion:
                                         cell_updates.append({
                                             "range": rowcol_to_a1(
                                                 gsheet_row_index,
                                                 col_idx("Estado"),
                                             ),
-                                            "values": [[nuevo_estado]],
+                                            "values": [[estado_modificacion]],
                                         })
                                         changes_made = True
                                         feedback_slot.empty()
                                         feedback_slot.info(
-                                            f"📌 El estado del pedido se actualizó a '{nuevo_estado}'."
+                                            f"📌 El estado del pedido se actualizó a '{estado_modificacion}'."
                                         )
 
                                 if (
