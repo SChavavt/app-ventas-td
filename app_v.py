@@ -2697,6 +2697,13 @@ with tab2:
                 if 'Seguimiento' not in selected_row_data.index:
                     selected_row_data['Seguimiento'] = ''
 
+                # Guarda la fila real de Google Sheets para evitar desalineaciones
+                selected_row_number = parse_sheet_row_number(
+                    selected_row_data.get("Sheet_Row_Number")
+                )
+                st.session_state["tab2_row_to_edit"] = selected_row_number
+                st.session_state["tab2_row_source"] = selected_source
+
                 # Si viene de casos_especiales y es Devolución/Garantía -> render especial
                 tipo_det = __s(selected_row_data.get('Tipo_Envio', ''))
                 if selected_source == "casos_especiales" and tipo_det in ("🔁 Devolución", "🛠 Garantía"):
@@ -2880,50 +2887,33 @@ with tab2:
                                     st.stop()
 
                                 sheet_row_number = parse_sheet_row_number(
-                                    selected_row_data.get("Sheet_Row_Number")
+                                    st.session_state.get("tab2_row_to_edit")
                                 )
-                                row_candidates = pd.DataFrame()
-                                gsheet_row_index = None
+                                if sheet_row_number is None:
+                                    sheet_row_number = parse_sheet_row_number(
+                                        selected_row_data.get("Sheet_Row_Number")
+                                    )
 
-                                if sheet_row_number is not None and "Sheet_Row_Number" in df_actual.columns:
-                                    sheet_numbers_series = pd.to_numeric(
+                                if sheet_row_number is None:
+                                    feedback_slot.empty()
+                                    feedback_slot.error(
+                                        "❌ No se pudo determinar la fila real en Google Sheets para el pedido seleccionado."
+                                    )
+                                    st.stop()
+
+                                gsheet_row_index = int(sheet_row_number)
+                                row_candidates = df_actual[
+                                    pd.to_numeric(
                                         df_actual["Sheet_Row_Number"], errors="coerce"
                                     )
-                                    row_candidates = df_actual.loc[
-                                        sheet_numbers_series == sheet_row_number
-                                    ]
-                                    if not row_candidates.empty:
-                                        gsheet_row_index = sheet_row_number
-
+                                    == gsheet_row_index
+                                ]
                                 if row_candidates.empty:
-                                    if selected_order_id not in df_actual['ID_Pedido'].values:
-                                        feedback_slot.empty()
-                                        feedback_slot.error(
-                                            f"❌ El ID {selected_order_id} no existe en {hoja_objetivo}."
-                                        )
-                                        st.stop()
-
-                                    row_candidates = df_actual[df_actual['ID_Pedido'] == selected_order_id]
-                                    if row_candidates.empty:
-                                        feedback_slot.empty()
-                                        feedback_slot.error(
-                                            f"❌ No se encontró la fila para el pedido {selected_order_id}."
-                                        )
-                                        st.stop()
-
-                                    if "Sheet_Row_Number" in row_candidates.columns:
-                                        candidate_numbers = pd.to_numeric(
-                                            row_candidates["Sheet_Row_Number"], errors="coerce"
-                                        ).dropna()
-                                        if not candidate_numbers.empty:
-                                            gsheet_row_index = int(candidate_numbers.iloc[0])
-
-                                    if gsheet_row_index is None:
-                                        feedback_slot.empty()
-                                        feedback_slot.error(
-                                            "❌ No se pudo determinar la fila en Google Sheets para el pedido seleccionado."
-                                        )
-                                        st.stop()
+                                    feedback_slot.empty()
+                                    feedback_slot.error(
+                                        "❌ No se encontró la fila correspondiente en Google Sheets para el pedido seleccionado."
+                                    )
+                                    st.stop()
 
                                 changes_made = False
 
