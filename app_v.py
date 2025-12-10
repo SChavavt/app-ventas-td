@@ -2600,6 +2600,15 @@ with tab2:
         # ----------------- Aplicar filtros -----------------
         filtered_orders = df_pedidos.copy()
 
+        # 🔒 Asegura que se preserve el número real de fila en la hoja
+        if "Sheet_Row_Number" not in filtered_orders.columns:
+            if "Sheet_Row_Number" in df_pedidos.columns:
+                filtered_orders["Sheet_Row_Number"] = df_pedidos.loc[
+                    filtered_orders.index, "Sheet_Row_Number"
+                ].values
+            else:
+                filtered_orders["Sheet_Row_Number"] = ""
+
         if selected_vendedor_mod != "Todos":
             filtered_orders = filtered_orders[filtered_orders['Vendedor_Registro'] == selected_vendedor_mod]
 
