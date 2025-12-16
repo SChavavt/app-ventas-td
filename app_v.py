@@ -2068,15 +2068,17 @@ with tab1:
                         )
                         st.rerun()
 
-                    headers = worksheet.row_values(1)
+                    raw_headers = worksheet.row_values(1)
+                    headers = [h.strip() for h in raw_headers]
                     required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio", "Estatus_OrigenF"]
                     missing_headers = [col for col in required_headers if col not in headers]
                     if missing_headers:
                         try:
-                            new_headers = headers + missing_headers
+                            new_headers = raw_headers + missing_headers
                             worksheet.update('A1', [new_headers])
                             get_sheet_headers.clear()
-                            headers = worksheet.row_values(1)
+                            raw_headers = worksheet.row_values(1)
+                            headers = [h.strip() for h in raw_headers]
                         except Exception as header_error:
                             set_pedido_submission_status(
                                 "error",
@@ -2093,7 +2095,8 @@ with tab1:
                             "No fue posible acceder a la hoja de pedidos.",
                         )
                         st.rerun()
-                    headers = worksheet.row_values(1)
+                    raw_headers = worksheet.row_values(1)
+                    headers = [h.strip() for h in raw_headers]
                     required_headers = []
                     if tipo_envio == "🚚 Pedido Foráneo":
                         required_headers.append("Direccion_Guia_Retorno")
@@ -2101,10 +2104,11 @@ with tab1:
                         missing_headers = [col for col in required_headers if col not in headers]
                         if missing_headers:
                             try:
-                                new_headers = headers + missing_headers
+                                new_headers = raw_headers + missing_headers
                                 worksheet.update('A1', [new_headers])
                                 get_sheet_headers.clear()
-                                headers = worksheet.row_values(1)
+                                raw_headers = worksheet.row_values(1)
+                                headers = [h.strip() for h in raw_headers]
                             except Exception as header_error:
                                 set_pedido_submission_status(
                                     "error",
