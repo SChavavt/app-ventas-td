@@ -814,6 +814,45 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
         return True, file_url, None
     except Exception as e:
         return False, None, str(e)
+
+
+def upload_files_or_fail(files, s3_client, bucket, prefix):
+    uploaded_urls = []
+    for file_obj in files or []:
+        file_obj.seek(0)
+        safe_name = file_obj.name.replace(" ", "_")
+        s3_key = f"{prefix}{safe_name}"
+        ok, url, error = upload_file_to_s3(s3_client, bucket, file_obj, s3_key)
+        if not ok:
+            raise Exception(f"Error subiendo {file_obj.name}: {error}")
+        uploaded_urls.append(url)
+    return uploaded_urls
+
+
+def append_row_with_confirmation(
+    worksheet,
+    values,
+    pedido_id,
+    id_col_index,
+    retries=5,
+    base_delay=1.0,
+):
+    last_error = None
+    for attempt in range(retries):
+        try:
+            worksheet.append_row(values, value_input_option="USER_ENTERED")
+            time.sleep(1 + attempt * 0.5)
+            last_row = worksheet.row_values(worksheet.row_count)
+            # Nota técnica: si se requieren garantías adicionales en escenarios
+            # de alta concurrencia, se puede buscar el pedido_id en varias
+            # filas recientes en lugar de solo la última.
+            if len(last_row) > id_col_index and last_row[id_col_index] == pedido_id:
+                return True
+            raise Exception("La escritura no se confirmó")
+        except Exception as e:
+            last_error = e
+            time.sleep(base_delay * (attempt + 1))
+    raise Exception(f"No se pudo confirmar la escritura en Google Sheets: {last_error}")
     
 # --- Función para actualizar una celda de Google Sheets de forma segura ---
 def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
@@ -1986,7 +2025,9 @@ with tab1:
                 st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
 
-            pedido_sin_adjuntos = not uploaded_files
+            pedido_sin_adjuntos = not (
+                uploaded_files or comprobante_pago_files or comprobante_cliente
+            )
 
             # Normalización de campos para Casos Especiales
             if tipo_envio == "🔁 Devolución":
@@ -2083,7 +2124,8 @@ with tab1:
                 # Hora local de CDMX para ID y Hora_Registro
                 zona_mexico = timezone("America/Mexico_City")
                 now = datetime.now(zona_mexico)
-                id_pedido = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
+                pedido_id = str(uuid.uuid4())
+                s3_prefix = f"adjuntos_pedidos/{pedido_id}/"
                 hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
 
             except gspread.exceptions.APIError as e:
@@ -2100,54 +2142,39 @@ with tab1:
                     )
                     st.rerun()
 
-            # Subida de adjuntos (pedido + pagos + evidencias)
             adjuntos_urls = []
-
-            if uploaded_files:
-                for file in uploaded_files:
-                    ext = os.path.splitext(file.name)[1]
-                    s3_key = f"{id_pedido}/{file.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
-                    success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, file, s3_key)
-                    if success:
-                        adjuntos_urls.append(url)
-                    else:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            f"No se pudo subir {file.name} a S3: {error_msg or 'Error desconocido'}",
-                        )
-                        st.rerun()
-
-            if comprobante_pago_files:
-                for archivo in comprobante_pago_files:
-                    ext_cp = os.path.splitext(archivo.name)[1]
-                    s3_key_cp = f"{id_pedido}/comprobante_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cp}"
-                    success_cp, url_cp, error_msg_cp = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key_cp)
-                    if success_cp:
-                        adjuntos_urls.append(url_cp)
-                    else:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            f"No se pudo subir {archivo.name} a S3: {error_msg_cp or 'Error desconocido'}",
-                        )
-                        st.rerun()
-
-            # Evidencias de Casos Especiales (Devolución/Garantía)
-            if comprobante_cliente:
-                for archivo_cc in comprobante_cliente:
-                    ext_cc = os.path.splitext(archivo_cc.name)[1]
-                    s3_key_cc = f"{id_pedido}/evidencia_{id_pedido}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext_cc}"
-                    success_cc, url_cc, error_msg_cc = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo_cc, s3_key_cc)
-                    if success_cc:
-                        adjuntos_urls.append(url_cc)
-                    else:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            f"No se pudo subir {archivo_cc.name} a S3: {error_msg_cc or 'Error desconocido'}",
-                        )
-                        st.rerun()
+            try:
+                adjuntos_urls.extend(
+                    upload_files_or_fail(
+                        uploaded_files,
+                        s3_client,
+                        S3_BUCKET_NAME,
+                        s3_prefix,
+                    )
+                )
+                adjuntos_urls.extend(
+                    upload_files_or_fail(
+                        comprobante_pago_files,
+                        s3_client,
+                        S3_BUCKET_NAME,
+                        s3_prefix,
+                    )
+                )
+                adjuntos_urls.extend(
+                    upload_files_or_fail(
+                        comprobante_cliente,
+                        s3_client,
+                        S3_BUCKET_NAME,
+                        s3_prefix,
+                    )
+                )
+            except Exception as e:
+                set_pedido_submission_status(
+                    status="error",
+                    message="❌ No se pudieron subir los archivos del pedido.",
+                    detail=str(e),
+                )
+                st.stop()
 
             adjuntos_str = ", ".join(adjuntos_urls)
 
@@ -2155,7 +2182,7 @@ with tab1:
             values = []
             for header in headers:
                 if header == "ID_Pedido":
-                    values.append(id_pedido)
+                    values.append(pedido_id)
                 elif header == "Hora_Registro":
                     values.append(hora_registro)
                 elif header.lower() == "id_vendedor":
@@ -2300,47 +2327,45 @@ with tab1:
                 else:
                     values.append("")
 
-            exito = False
-            for intento in range(3):
-                try:
-                    worksheet.append_row(values)
-                    exito = True
-                    break
-                except gspread.exceptions.APIError as e:
-                    if "RESOURCE_EXHAUSTED" in str(e) or (
-                        hasattr(e, "response") and getattr(e.response, "status_code", None) == 429
-                    ):
-                        time.sleep(2 ** intento)
-                    else:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            f"Error al registrar el pedido: {e}",
-                        )
-                        st.rerun()
-                        break
-            if exito:
-                reset_tab1_form_state()
-                id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
-                id_vendedor_segment = (
-                    f" (ID vendedor: {id_vendedor_actual})" if id_vendedor_actual else ""
-                )
-                set_pedido_submission_status(
-                    "success",
-                    f"✅ El pedido {id_pedido}{id_vendedor_segment} fue subido correctamente.",
-                    attachments=adjuntos_urls,
-                    missing_attachments_warning=pedido_sin_adjuntos,
-                )
-                if tab1_is_active and st.session_state.get("current_tab_index") == 0:
-                    st.query_params.update({"tab": "0"})
-                st.rerun()
-            else:
+            try:
+                id_col_index = headers.index("ID_Pedido")
+            except ValueError:
                 set_pedido_submission_status(
                     "error",
                     "❌ Falla al subir el pedido.",
-                    "No se pudo registrar el pedido después de varios intentos.",
+                    "No se encontró la columna ID_Pedido en la hoja.",
+                )
+                st.stop()
+
+            try:
+                append_row_with_confirmation(
+                    worksheet=worksheet,
+                    values=values,
+                    pedido_id=pedido_id,
+                    id_col_index=id_col_index,
+                )
+            except Exception as e:
+                set_pedido_submission_status(
+                    "error",
+                    "❌ Falla al subir el pedido.",
+                    f"Error al registrar el pedido: {e}",
                 )
                 st.rerun()
+
+            reset_tab1_form_state()
+            id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
+            id_vendedor_segment = (
+                f" (ID vendedor: {id_vendedor_actual})" if id_vendedor_actual else ""
+            )
+            set_pedido_submission_status(
+                "success",
+                f"✅ El pedido {pedido_id}{id_vendedor_segment} fue subido correctamente.",
+                attachments=adjuntos_urls,
+                missing_attachments_warning=pedido_sin_adjuntos,
+            )
+            if tab1_is_active and st.session_state.get("current_tab_index") == 0:
+                st.query_params.update({"tab": "0"})
+            st.rerun()
 
         except Exception as e:
             set_pedido_submission_status(
