@@ -837,16 +837,32 @@ def append_row_with_confirmation(
     retries=5,
     base_delay=1.0,
 ):
+    def ensure_worksheet_capacity(target_row: int):
+        """Expande la hoja si el siguiente renglón excede el límite actual."""
+
+        try:
+            current_rows = worksheet.row_count
+            if target_row <= current_rows:
+                return
+            rows_to_add = (target_row - current_rows) + 50  # agrega margen para futuras inserciones
+            worksheet.add_rows(rows_to_add)
+        except Exception as capacity_error:
+            raise Exception(f"No se pudo expandir la hoja: {capacity_error}")
+
     last_error = None
     for attempt in range(retries):
         try:
+            existing_rows = len(worksheet.get_all_values()) + 1
+            ensure_worksheet_capacity(existing_rows)
+
             worksheet.append_row(values, value_input_option="USER_ENTERED")
             time.sleep(1 + attempt * 0.5)
-            last_row = worksheet.row_values(worksheet.row_count)
+
+            appended_row = worksheet.row_values(existing_rows)
             # Nota técnica: si se requieren garantías adicionales en escenarios
             # de alta concurrencia, se puede buscar el pedido_id en varias
             # filas recientes en lugar de solo la última.
-            if len(last_row) > id_col_index and last_row[id_col_index] == pedido_id:
+            if len(appended_row) > id_col_index and appended_row[id_col_index] == pedido_id:
                 return True
             raise Exception("La escritura no se confirmó")
         except Exception as e:
