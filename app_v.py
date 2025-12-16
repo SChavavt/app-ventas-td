@@ -2124,7 +2124,7 @@ with tab1:
                 # Hora local de CDMX para ID y Hora_Registro
                 zona_mexico = timezone("America/Mexico_City")
                 now = datetime.now(zona_mexico)
-                pedido_id = str(uuid.uuid4())
+                pedido_id = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8].upper()}"
                 s3_prefix = f"adjuntos_pedidos/{pedido_id}/"
                 hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
 
