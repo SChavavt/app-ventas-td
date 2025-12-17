@@ -2318,6 +2318,15 @@ with tab1:
     
                     # Detectar cuántos comprobantes hay
                     num_comprobantes = len(comprobantes) if 'comprobantes' in locals() else 0
+                    estado_pago_raw = str(selected_pedido_data.get("Estado_Pago", "")).strip()
+                    pedido_pagado_sin_confirmar = estado_pago_raw.startswith("✅")
+
+                    # Para pedidos marcados como pagados, permite capturar datos aunque no haya archivos en S3
+                    if pedido_pagado_sin_confirmar and num_comprobantes == 0:
+                        num_comprobantes = 1
+                        st.info(
+                            "ℹ️ El pedido ya está marcado como pagado. Puedes llenar el formulario y confirmar el comprobante aunque no existan archivos adjuntos."
+                        )
 
                     st.subheader("✅ Confirmar Comprobante")
 
@@ -2443,7 +2452,7 @@ with tab1:
                     with col1:
                         st.info("👆 Revisa los comprobantes antes de confirmar.")
 
-                    confirm_disabled = num_comprobantes == 0
+                    confirm_disabled = num_comprobantes == 0 and not pedido_pagado_sin_confirmar
                     with col2:
                         if st.button(
                             "✅ Confirmar Comprobante",
