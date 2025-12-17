@@ -1114,6 +1114,38 @@ def get_s3_file_download_url(s3_client_instance, object_key): # Acepta s3_client
 
     st.error("❌ No se pudo construir una URL pública de S3 porque falta la configuración base.")
     return "#"
+
+
+def clasificar_archivos_adjuntos(files: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+    """Clasifica archivos en comprobantes, facturas y otros.
+
+    - Las imágenes se consideran comprobantes.
+    - Los PDFs que no son guías se consideran facturas, aun si no dicen "factura".
+    - Los archivos con "comprobante" se clasifican como comprobantes aunque no sean imagen.
+    """
+    comprobantes: list[dict] = []
+    facturas: list[dict] = []
+    otros: list[dict] = []
+    image_exts = {".jpg", ".jpeg", ".png", ".gif", ".heic", ".webp"}
+
+    for file in files:
+        title = file.get("title", "")
+        title_lower = title.lower()
+        ext = os.path.splitext(title_lower)[1]
+        is_image = ext in image_exts
+        is_guia = "guia" in title_lower or "guía" in title_lower
+
+        if "comprobante" in title_lower or is_image:
+            comprobantes.append(file)
+            continue
+
+        if "factura" in title_lower or (ext == ".pdf" and not is_guia):
+            facturas.append(file)
+            continue
+
+        otros.append(file)
+
+    return comprobantes, facturas, otros
     
 def _is_acl_not_supported_error(error: Exception) -> bool:
     """Return True if the boto error corresponds to AccessControlListNotSupported."""
@@ -1761,9 +1793,7 @@ with tab1:
                             files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
 
                             if files:
-                                comprobantes = [f for f in files if 'comprobante' in f['title'].lower()]
-                                facturas = [f for f in files if 'factura' in f['title'].lower()]
-                                otros = [f for f in files if f not in comprobantes and f not in facturas]
+                                comprobantes, facturas, otros = clasificar_archivos_adjuntos(files)
 
                                 if comprobantes:
                                     st.write("**🧾 Comprobantes de Pago:**")
@@ -2284,12 +2314,10 @@ with tab1:
                         if s3_client:
                             pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
                             files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
-    
+
                             if files:
-                                comprobantes = [f for f in files if 'comprobante' in f['title'].lower()]
-                                facturas = [f for f in files if 'factura' in f['title'].lower()]
-                                otros = [f for f in files if f not in comprobantes and f not in facturas]
-    
+                                comprobantes, facturas, otros = clasificar_archivos_adjuntos(files)
+
                                 if comprobantes:
                                     st.write("**🧾 Comprobantes de Pago:**")
                                     for f in comprobantes:
