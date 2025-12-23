@@ -117,6 +117,15 @@ def normalize_estado_entrega(value) -> str:
     return raw
 
 
+def normalize_user_field(value: str | None) -> str:
+    """Normaliza campos de usuario para mostrarlos solo si traen información."""
+    raw = str(value or "").strip()
+    if not raw or raw.lower() in {"nan", "none"}:
+        return ""
+
+    return raw
+
+
 def ensure_sheet_column(worksheet, headers: list[str], column_name: str) -> list[str]:
     """Garantiza que exista una columna en la hoja de Google Sheets."""
     headers_list = list(headers) if headers else []
@@ -1769,6 +1778,12 @@ with tab1:
                 estado_entrega_index = ESTADO_ENTREGA_OPCIONES.index(estado_entrega_stored)
                 estado_entrega_value = estado_entrega_stored
                 estado_entrega_widget_key = _comprobante_form_key("estado_entrega_local")
+                id_vendedor_user = normalize_user_field(
+                    selected_pedido_data.get("id_vendedor")
+                )
+                id_vendedor_mod_user = normalize_user_field(
+                    selected_pedido_data.get("id_vendedor_Mod")
+                )
 
                 # 🚨 Lógica especial si es pedido a crédito
                 if selected_pedido_data.get("Estado_Pago", "").strip() == "💳 CREDITO":
@@ -1786,6 +1801,10 @@ with tab1:
                         st.write(f"**🗒 Comentario del Pedido:** {selected_pedido_data.get('Comentario', 'Sin comentario')}")
                         st.write(f"**🤝 Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
                         st.write(f"**🧑‍💼 Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
+                        if id_vendedor_user:
+                            st.write(f"**Usuario:** {id_vendedor_user}")
+                        if id_vendedor_mod_user:
+                            st.write(f"**Usuario Mod:** {id_vendedor_mod_user}")
                         st.write(f"**Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
                         st.write(f"**📅 Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
@@ -2315,6 +2334,10 @@ with tab1:
                         st.write(f"**🗒 Comentario del Pedido:** {selected_pedido_data.get('Comentario', 'Sin comentario')}")
                         st.write(f"**Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
                         st.write(f"**Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
+                        if id_vendedor_user:
+                            st.write(f"**Usuario:** {id_vendedor_user}")
+                        if id_vendedor_mod_user:
+                            st.write(f"**Usuario Mod:** {id_vendedor_mod_user}")
                         st.write(f"**Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
                         st.write(f"**Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
