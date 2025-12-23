@@ -1075,17 +1075,23 @@ def find_pedido_subfolder_prefix(s3_client_instance, parent_prefix, folder_name)
 def get_files_in_s3_prefix(s3_client_instance, prefix): # Acepta s3_client_instance
     if not s3_client_instance or not prefix:
         return []
-    
+
+    files = []
+    continuation_token = None
+
     try:
-        response = s3_client_instance.list_objects_v2( # Usa s3_client_instance
-            Bucket=S3_BUCKET_NAME, 
-            Prefix=prefix,
-            MaxKeys=100
-        )
-        
-        files = []
-        if 'Contents' in response:
-            for item in response['Contents']:
+        while True:
+            request_args = {
+                "Bucket": S3_BUCKET_NAME,
+                "Prefix": prefix,
+                "MaxKeys": 1000,
+            }
+            if continuation_token:
+                request_args["ContinuationToken"] = continuation_token
+
+            response = s3_client_instance.list_objects_v2(**request_args)  # Usa s3_client_instance
+
+            for item in response.get('Contents', []):
                 if not item['Key'].endswith('/'):
                     file_name = item['Key'].split('/')[-1]
                     if file_name:
@@ -1095,8 +1101,14 @@ def get_files_in_s3_prefix(s3_client_instance, prefix): # Acepta s3_client_insta
                             'size': item['Size'],
                             'last_modified': item['LastModified']
                         })
+
+            if response.get('IsTruncated'):
+                continuation_token = response.get('NextContinuationToken')
+            else:
+                break
+
         return files
-        
+
     except Exception as e:
         st.error(f"❌ Error al obtener archivos del prefijo S3 '{prefix}': {e}")
         return []
