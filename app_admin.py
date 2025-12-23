@@ -117,6 +117,57 @@ def normalize_estado_entrega(value) -> str:
     return raw
 
 
+def extract_id_vendedor(data, placeholder: str = "N/A") -> str:
+    """Obtiene el ID/usuario del vendedor desde distintas variantes de columna."""
+
+    if data is None:
+        return placeholder
+
+    candidate_keys = (
+        "id_vendedor",
+        "ID_Vendedor",
+        "Id_Vendedor",
+        "IDVendedor",
+        "IdVendedor",
+        "ID Vendedor",
+        "Id Vendedor",
+        "ID_VENDEDOR",
+        "IDVENDEDOR",
+    )
+
+    for key in candidate_keys:
+        value = None
+        if hasattr(data, "get"):
+            try:
+                value = data.get(key)
+            except Exception:
+                value = None
+
+        if value is None and isinstance(data, pd.Series) and key in data.index:
+            value = data[key]
+
+        if value is None:
+            continue
+
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if cleaned and cleaned.lower() not in {"nan", "none"}:
+                return cleaned
+            continue
+
+        try:
+            if pd.isna(value):
+                continue
+        except Exception:
+            pass
+
+        cleaned = str(value).strip()
+        if cleaned and cleaned.lower() not in {"nan", "none"}:
+            return cleaned
+
+    return placeholder
+
+
 def ensure_sheet_column(worksheet, headers: list[str], column_name: str) -> list[str]:
     """Garantiza que exista una columna en la hoja de Google Sheets."""
     headers_list = list(headers) if headers else []
@@ -1786,6 +1837,9 @@ with tab1:
                         st.write(f"**🗒 Comentario del Pedido:** {selected_pedido_data.get('Comentario', 'Sin comentario')}")
                         st.write(f"**🤝 Cliente:** {selected_pedido_data.get('Cliente', 'N/A')}")
                         st.write(f"**🧑‍💼 Vendedor:** {selected_pedido_data.get('Vendedor_Registro', 'N/A')}")
+                        st.caption(
+                            f"👤 Usuario: {extract_id_vendedor(selected_pedido_data, 'N/A')}"
+                        )
                         st.write(f"**Tipo de Envío:** {selected_pedido_data.get('Tipo_Envio', 'N/A')}")
                         st.write(f"**📅 Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
