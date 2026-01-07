@@ -1622,7 +1622,7 @@ with tab1:
 
         if tipo_envio == "🚚 Pedido Foráneo":
             direccion_guia_retorno = st.text_area(
-                "📬 Dirección para guía de retorno",
+                "📬 Dirección para Envió",
                 key="direccion_guia_retorno_foraneo",
             )
 
