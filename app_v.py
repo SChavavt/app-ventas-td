@@ -111,6 +111,7 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
 USUARIOS_VALIDOS = [
     "DIANASOFIA47",
     "ALEJANDRO38",
+    "ALFONSO01",
     "ANA45",
     "CURSOS92",
     "DANIELA73",
@@ -1446,6 +1447,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = tabs
 VENDEDORES_LIST = sorted([
     "DIANA SOFIA",
     "ALEJANDRO RODRIGUEZ",
+    "ALFONSO",
     "ANA KAREN ORTEGA MAHUAD",
     "CURSOS Y EVENTOS",
     "DANIELA LOPEZ RAMIREZ",
