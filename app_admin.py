@@ -1389,10 +1389,9 @@ def discover_comprobante_assets(
 
     prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
     files = get_files_in_s3_prefix(s3_client_instance, prefix)
-
-    comprobantes = [
-        f for f in files if "comprobante" in str(f.get("title", "")).lower()
-    ] if files else []
+    comprobantes, facturas, _ = (
+        clasificar_archivos_adjuntos(files) if files else ([], [], [])
+    )
 
     if not files or not comprobantes:
         original_prefix = find_pedido_subfolder_prefix(
@@ -1423,18 +1422,14 @@ def discover_comprobante_assets(
                             existing_keys.add(extra_key)
                     files = combined_files
 
-                comprobantes = [
-                    f for f in files if "comprobante" in str(f.get("title", "")).lower()
-                ]
+                comprobantes, facturas, _ = clasificar_archivos_adjuntos(files)
 
     result["files"] = files
     if not files:
         return result
 
     # Recalcula comprobantes a partir de la lista final para asegurar que el índice considere todos los elementos
-    comprobantes = [
-        f for f in files if "comprobante" in str(f.get("title", "")).lower()
-    ]
+    comprobantes, facturas, _ = clasificar_archivos_adjuntos(files)
     result["comprobantes"] = comprobantes
 
     comprobante_urls: list[str] = []
@@ -1470,9 +1465,6 @@ def discover_comprobante_assets(
         ),
     )
 
-    facturas = [
-        f for f in files if "factura" in str(f.get("title", "")).lower()
-    ]
     if facturas:
         result["factura_url"] = get_s3_file_download_url(
             s3_client_instance, facturas[0]["key"]
