@@ -126,6 +126,46 @@ def normalize_user_field(value: str | None) -> str:
     return raw
 
 
+def parse_adjuntos_urls(value) -> list[str]:
+    """Convierte un valor de adjuntos en una lista de URLs limpias."""
+    if value is None:
+        return []
+    raw = str(value).strip()
+    if not raw or raw.lower() in {"nan", "none"}:
+        return []
+
+    if "partir_urls" in globals():
+        with suppress(Exception):
+            urls = [u for u in partir_urls(raw) if u]
+            if urls:
+                return urls
+
+    partes = [p.strip() for p in re.split(r"[,\n;]+", raw) if p and p.strip()]
+    return list(dict.fromkeys(partes))
+
+
+def format_markdown_link(url: str, label: str | None = None) -> str:
+    """Genera un enlace Markdown seguro para mostrar en Streamlit."""
+    u = str(url or "").strip()
+    if not u:
+        return ""
+
+    display = label or u
+    safe_display = (
+        display.replace("[", "\\[")
+        .replace("]", "\\]")
+        .replace("`", "\\`")
+    )
+    safe_url = (
+        u.replace(" ", "%20")
+        .replace("(", "%28")
+        .replace(")", "%29")
+    )
+    if u.lower().startswith(("http://", "https://")):
+        return f"[{safe_display}]({safe_url})"
+    return safe_display
+
+
 def ensure_sheet_column(worksheet, headers: list[str], column_name: str) -> list[str]:
     """Garantiza que exista una columna en la hoja de Google Sheets."""
     headers_list = list(headers) if headers else []
@@ -1757,6 +1797,9 @@ with tab1:
                 modificacion_surtido_text = clean_modificacion_surtido(
                     selected_pedido_data.get("Modificacion_Surtido", "")
                 )
+                adjuntos_surtido_urls = parse_adjuntos_urls(
+                    selected_pedido_data.get("Adjuntos_Surtido", "")
+                )
 
                 is_pedido_local = (
                     str(selected_pedido_data.get("Tipo_Envio", "")).strip()
@@ -1811,6 +1854,11 @@ with tab1:
 
                     with col2:
                         st.subheader("📎 Archivos y Comprobantes")
+                        if adjuntos_surtido_urls:
+                            st.markdown("**Archivos de modificación:**")
+                            for url in adjuntos_surtido_urls:
+                                st.markdown(f"- {format_markdown_link(url)}")
+                            st.markdown("---")
                         if s3_client:
                             pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
                             files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
@@ -1949,6 +1997,15 @@ with tab1:
 
                 else:
                     # ✅ Continuar con lógica normal para pedidos no-crédito
+                    if modificacion_surtido_text or adjuntos_surtido_urls:
+                        st.markdown("#### 🛠 Modificación de surtido")
+                        if modificacion_surtido_text:
+                            st.info(modificacion_surtido_text)
+                        if adjuntos_surtido_urls:
+                            st.markdown("**Archivos de modificación:**")
+                            for url in adjuntos_surtido_urls:
+                                st.markdown(f"- {format_markdown_link(url)}")
+                        st.markdown("---")
                     if (
                         selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
                         selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
