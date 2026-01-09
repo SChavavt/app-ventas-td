@@ -2394,7 +2394,13 @@ with tab1:
     
                     with col2:
                         st.subheader("📎 Archivos y Comprobantes")
-    
+
+                        if adjuntos_surtido_urls:
+                            st.markdown("**Archivos de modificación:**")
+                            for url in adjuntos_surtido_urls:
+                                st.markdown(f"- {format_markdown_link(url)}")
+                            st.markdown("---")
+
                         if s3_client:
                             pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
                             files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
