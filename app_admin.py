@@ -2,6 +2,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
+import ast
 import time
 import random
 import html
@@ -130,6 +131,8 @@ def parse_adjuntos_urls(value) -> list[str]:
     """Convierte un valor de adjuntos en una lista de URLs limpias."""
     if value is None:
         return []
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value if str(v).strip()]
     raw = str(value).strip()
     if not raw or raw.lower() in {"nan", "none"}:
         return []
@@ -139,6 +142,17 @@ def parse_adjuntos_urls(value) -> list[str]:
             urls = [u for u in partir_urls(raw) if u]
             if urls:
                 return urls
+
+    parsed = None
+    with suppress(Exception):
+        parsed = json.loads(raw)
+    if isinstance(parsed, list):
+        return [str(v).strip() for v in parsed if str(v).strip()]
+
+    with suppress(Exception):
+        parsed = ast.literal_eval(raw)
+    if isinstance(parsed, list):
+        return [str(v).strip() for v in parsed if str(v).strip()]
 
     partes = [p.strip() for p in re.split(r"[,\n;]+", raw) if p and p.strip()]
     return list(dict.fromkeys(partes))
@@ -2394,7 +2408,13 @@ with tab1:
     
                     with col2:
                         st.subheader("📎 Archivos y Comprobantes")
-    
+
+                        if adjuntos_surtido_urls:
+                            st.markdown("**Archivos de modificación:**")
+                            for url in adjuntos_surtido_urls:
+                                st.markdown(f"- {format_markdown_link(url)}")
+                            st.markdown("---")
+
                         if s3_client:
                             pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
                             files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
