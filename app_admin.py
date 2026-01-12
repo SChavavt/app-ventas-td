@@ -933,37 +933,51 @@ def get_spreadsheet(sheet_id: str):
         raise
 
 
-if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
-    df_pedidos, headers = cargar_pedidos_desde_google_sheet(
+PEDIDOS_AUTO_REFRESH_SEC = 300
+
+def _cargar_pedidos_base() -> tuple[pd.DataFrame, list[str]]:
+    df_cargado, headers_cargados = cargar_pedidos_desde_google_sheet(
         GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
     )
     # Excluir pedidos de cursos y eventos para que no aparezcan en ningún flujo
-    if 'Tipo_Envio' in df_pedidos.columns:
-        df_pedidos = df_pedidos[
-            ~df_pedidos['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
+    if 'Tipo_Envio' in df_cargado.columns:
+        df_cargado = df_cargado[
+            ~df_cargado['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
         ].copy()
-    if MOTIVO_RECHAZO_CANCELACION_COL not in df_pedidos.columns:
-        df_pedidos[MOTIVO_RECHAZO_CANCELACION_COL] = ""
-    if ESTADO_ENTREGA_COL not in df_pedidos.columns:
-        df_pedidos[ESTADO_ENTREGA_COL] = ""
+    if MOTIVO_RECHAZO_CANCELACION_COL not in df_cargado.columns:
+        df_cargado[MOTIVO_RECHAZO_CANCELACION_COL] = ""
+    if ESTADO_ENTREGA_COL not in df_cargado.columns:
+        df_cargado[ESTADO_ENTREGA_COL] = ""
+    if FECHA_CONFIRMADO_COL not in df_cargado.columns:
+        df_cargado[FECHA_CONFIRMADO_COL] = ""
+    return df_cargado, headers_cargados
+
+
+def _set_pedidos_state(df_cargado: pd.DataFrame, headers_cargados: list[str]) -> None:
+    st.session_state.df_pedidos = df_cargado
+    st.session_state.headers = headers_cargados
+    st.session_state["pedidos_last_loaded"] = time.time()
+    refresh_pedidos_pagados_no_confirmados(df_cargado)
+
+
+needs_pedidos_reload = "df_pedidos" not in st.session_state or "headers" not in st.session_state
+last_loaded_at = st.session_state.get("pedidos_last_loaded", 0)
+if not needs_pedidos_reload and time.time() - last_loaded_at > PEDIDOS_AUTO_REFRESH_SEC:
+    needs_pedidos_reload = True
+
+if needs_pedidos_reload:
+    df_pedidos, headers = _cargar_pedidos_base()
     if df_pedidos.empty:
         st.warning("⚠️ No se pudieron cargar pedidos. Usa “🔄 Recargar…” o intenta en unos segundos.")
         if st.button("🔁 Reintentar conexión", key="retry_pedidos_inicial"):
             if allow_refresh("pedidos_last_refresh"):
                 st.session_state["pedidos_reload_nonce"] += 1
-                df_pedidos, headers = cargar_pedidos_desde_google_sheet(
-                    GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
-                )
-                st.session_state.df_pedidos = df_pedidos
-                st.session_state.headers = headers
+                df_pedidos, headers = _cargar_pedidos_base()
+                _set_pedidos_state(df_pedidos, headers)
                 st.toast("Reintentando...", icon="🔄")
                 rerun_current_tab()
         # No st.stop(): deja que otras pestañas/partes sigan funcionando
-    if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
-        df_pedidos[FECHA_CONFIRMADO_COL] = ""
-    st.session_state.df_pedidos = df_pedidos
-    st.session_state.headers = headers
-    refresh_pedidos_pagados_no_confirmados(df_pedidos)
+    _set_pedidos_state(df_pedidos, headers)
 
 df_pedidos = st.session_state.df_pedidos
 headers = st.session_state.headers
@@ -1641,20 +1655,8 @@ with tab1:
             # Borra el snapshot cacheado para forzar que la lectura venga fresca de Google Sheets.
             cargar_pedidos_desde_google_sheet.clear()
             st.session_state["pedidos_reload_nonce"] += 1
-            df_pedidos, headers = cargar_pedidos_desde_google_sheet(
-                GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
-            )
-            if 'Tipo_Envio' in df_pedidos.columns:
-                df_pedidos = df_pedidos[
-                    ~df_pedidos['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
-                ].copy()
-            if MOTIVO_RECHAZO_CANCELACION_COL not in df_pedidos.columns:
-                df_pedidos[MOTIVO_RECHAZO_CANCELACION_COL] = ""
-            if ESTADO_ENTREGA_COL not in df_pedidos.columns:
-                df_pedidos[ESTADO_ENTREGA_COL] = ""
-            st.session_state.df_pedidos = df_pedidos
-            st.session_state.headers = headers
-            refresh_pedidos_pagados_no_confirmados(df_pedidos)
+            df_pedidos, headers = _cargar_pedidos_base()
+            _set_pedidos_state(df_pedidos, headers)
             st.toast("Pedidos recargados", icon="🔄")
 
     if df_pedidos.empty:
