@@ -269,6 +269,33 @@ def refresh_pedidos_pagados_no_confirmados(
     return pendientes
 
 
+def force_reload_pedidos_and_refresh_pendientes() -> tuple[pd.DataFrame, list[str]]:
+    """Fuerza recarga real de pedidos, refrescando pendientes y sesión."""
+    cargar_pedidos_desde_google_sheet.clear()
+    st.session_state.setdefault("pedidos_reload_nonce", 0)
+    st.session_state["pedidos_reload_nonce"] += 1
+    df_pedidos, headers = cargar_pedidos_desde_google_sheet(
+        GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
+    )
+    if "Tipo_Envio" in df_pedidos.columns:
+        df_pedidos = df_pedidos[
+            ~df_pedidos["Tipo_Envio"].isin(
+                ["🎓 Cursos y Eventos", "📋 Solicitudes de Guía"]
+            )
+        ].copy()
+    if MOTIVO_RECHAZO_CANCELACION_COL not in df_pedidos.columns:
+        df_pedidos[MOTIVO_RECHAZO_CANCELACION_COL] = ""
+    if ESTADO_ENTREGA_COL not in df_pedidos.columns:
+        df_pedidos[ESTADO_ENTREGA_COL] = ""
+    if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
+        df_pedidos[FECHA_CONFIRMADO_COL] = ""
+
+    st.session_state.df_pedidos = df_pedidos
+    st.session_state.headers = headers
+    refresh_pedidos_pagados_no_confirmados(df_pedidos)
+    return df_pedidos, headers
+
+
 if "pedidos_reload_nonce" not in st.session_state:
     st.session_state["pedidos_reload_nonce"] = 0
 
@@ -1911,7 +1938,14 @@ with tab1:
                     comentario_credito = st.text_area("✍️ Comentario administrativo")
 
                     if confirmacion_credito:
-                        if st.button("💾 Guardar Confirmación de Crédito"):
+                        if st.button(
+                            "💾 Guardar Confirmación de Crédito",
+                            disabled=st.session_state.get("confirmando_pedido", False),
+                        ):
+                            if st.session_state.get("confirmando_pedido"):
+                                st.warning("⏳ Confirmando, espera...")
+                                st.stop()
+                            st.session_state["confirmando_pedido"] = True
                             try:
                                 # Índice real (fila en Google Sheets)
                                 gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
@@ -1983,25 +2017,17 @@ with tab1:
                                 if updates:
                                     safe_batch_update(worksheet, updates)
                                     _get_ws_datos.clear()
-                                    cargar_pedidos_desde_google_sheet.clear()
-
-                                df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index
-                                if len(df_idx) > 0:
-                                    df_idx = df_idx[0]
-                                    for col, val in local_updates.items():
-                                        if col in df_pedidos.columns:
-                                            df_pedidos.at[df_idx, col] = val
-                                st.session_state.df_pedidos = df_pedidos
-                                pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
-                                    df_pedidos
-                                )
+                                    force_reload_pedidos_and_refresh_pendientes()
 
                                 st.success("✅ Confirmación de crédito guardada exitosamente.")
                                 st.balloons()
+                                st.session_state.pop("confirmando_pedido", None)
+                                time.sleep(0.3)
                                 rerun_current_tab()
 
                             except Exception as e:
                                 st.error(f"❌ Error al guardar la confirmación: {e}")
+                                st.session_state.pop("confirmando_pedido", None)
                     else:
                         st.info("Selecciona una opción para confirmar el crédito.")
 
@@ -2245,7 +2271,14 @@ with tab1:
                         referencia = f"{ref1}, {ref2}"
     
                     # ⬇️ Reemplaza desde aquí
-                    if st.button("💾 Guardar Comprobante y Datos de Pago"):
+                    if st.button(
+                        "💾 Guardar Comprobante y Datos de Pago",
+                        disabled=st.session_state.get("confirmando_pedido", False),
+                    ):
+                        if st.session_state.get("confirmando_pedido"):
+                            st.warning("⏳ Confirmando, espera...")
+                            st.stop()
+                        st.session_state["confirmando_pedido"] = True
                         try:
                             # Índice real en la hoja
                             gsheet_row_index = (
@@ -2340,28 +2373,20 @@ with tab1:
                             if cell_updates:
                                 safe_batch_update(worksheet, cell_updates)
                                 _get_ws_datos.clear()
-    
-                            df_idx = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index
-                            if len(df_idx) > 0:
-                                df_idx = df_idx[0]
-                                for col, val in updates.items():
-                                    if col in df_pedidos.columns:
-                                        df_pedidos.at[df_idx, col] = val
-                                if nuevo_valor_adjuntos and 'Adjuntos' in df_pedidos.columns:
-                                    df_pedidos.at[df_idx, 'Adjuntos'] = nuevo_valor_adjuntos
-                            st.session_state.df_pedidos = df_pedidos
-                            pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
-                                df_pedidos
-                            )
+
+                            force_reload_pedidos_and_refresh_pendientes()
 
                             clear_comprobante_form_state()
                             st.session_state.pop("last_selected_pedido_key", None)
                             st.success("✅ Comprobante y datos de pago guardados exitosamente.")
                             st.balloons()
+                            st.session_state.pop("confirmando_pedido", None)
+                            time.sleep(0.3)
                             rerun_current_tab()
     
                         except Exception as e:
                             st.error(f"❌ Error al guardar el comprobante: {e}")
+                            st.session_state.pop("confirmando_pedido", None)
     
                     # ⬆️ Hasta aquí
     
@@ -2589,8 +2614,13 @@ with tab1:
                         if st.button(
                             "✅ Confirmar Comprobante",
                             use_container_width=True,
-                            disabled=confirm_disabled,
+                            disabled=confirm_disabled
+                            or st.session_state.get("confirmando_pedido", False),
                         ) and not confirm_disabled:
+                            if st.session_state.get("confirmando_pedido"):
+                                st.warning("⏳ Confirmando, espera...")
+                                st.stop()
+                            st.session_state["confirmando_pedido"] = True
                             try:
                                 gsheet_row_index = (
                                     df_pedidos[
@@ -2637,36 +2667,18 @@ with tab1:
                                     safe_batch_update(worksheet, cell_updates)
                                     _get_ws_datos.clear()
 
-                                df_idx = df_pedidos[
-                                    df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
-                                ].index
-                                if len(df_idx) > 0:
-                                    df_idx = df_idx[0]
-                                    for col, val in updates.items():
-                                        if col in df_pedidos.columns:
-                                            df_pedidos.at[df_idx, col] = val
-                                    st.session_state.df_pedidos = df_pedidos
-
-                                pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
-                                    df_pedidos
-                                )
+                                force_reload_pedidos_and_refresh_pendientes()
                                 clear_comprobante_form_state()
                                 st.session_state.pop("last_selected_pedido_key", None)
                                 st.success("🎉 Comprobante confirmado exitosamente.")
                                 st.balloons()
-                                st.session_state["show_accept_after_confirm"] = True
+                                st.session_state.pop("confirmando_pedido", None)
+                                time.sleep(0.3)
+                                rerun_current_tab()
 
                             except Exception as e:
                                 st.error(f"❌ Error al confirmar comprobante: {e}")
-
-                        if st.session_state.get("show_accept_after_confirm"):
-                            if st.button(
-                                "Aceptar",
-                                key="confirm_accept_refresh",
-                                use_container_width=True,
-                            ):
-                                st.session_state.pop("show_accept_after_confirm", None)
-                                rerun_current_tab()
+                                st.session_state.pop("confirmando_pedido", None)
 
                     with col3:
                         if num_comprobantes == 0:
@@ -2731,31 +2743,17 @@ with tab1:
                                             if cell_updates:
                                                 safe_batch_update(worksheet, cell_updates)
                                                 _get_ws_datos.clear()
-                                                cargar_pedidos_desde_google_sheet.clear()
+                                                force_reload_pedidos_and_refresh_pendientes()
+                                                st.success("🚫 Comprobante rechazado correctamente.")
+                                                st.session_state.pop(reject_toggle_key, None)
+                                                st.session_state.pop(reject_reason_key, None)
+                                                clear_comprobante_form_state()
+                                                time.sleep(0.3)
+                                                rerun_current_tab()
                                             else:
                                                 st.warning(
                                                     "⚠️ No se encontró la columna de motivos en la hoja. Verifica la configuración."
                                                 )
-
-                                            df_idx = df_pedidos[
-                                                df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
-                                            ].index
-                                            if len(df_idx) > 0:
-                                                df_idx = df_idx[0]
-                                                for col, val in updates.items():
-                                                    if col in df_pedidos.columns:
-                                                        df_pedidos.at[df_idx, col] = val
-                                                st.session_state.df_pedidos = df_pedidos
-
-                                            pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
-                                                df_pedidos
-                                            )
-
-                                            st.success("🚫 Comprobante rechazado correctamente.")
-                                            st.session_state.pop(reject_toggle_key, None)
-                                            st.session_state.pop(reject_reason_key, None)
-                                            clear_comprobante_form_state()
-                                            rerun_current_tab()
 
                                         except Exception as e:
                                             st.error(f"❌ Error al rechazar el comprobante: {e}")
@@ -2808,31 +2806,17 @@ with tab1:
                                         if cell_updates:
                                             safe_batch_update(worksheet, cell_updates)
                                             _get_ws_datos.clear()
-                                            cargar_pedidos_desde_google_sheet.clear()
+                                            force_reload_pedidos_and_refresh_pendientes()
+                                            st.success("🛑 Pedido cancelado y ocultado de la vista.")
+                                            st.session_state.pop(cancel_toggle_key, None)
+                                            st.session_state.pop(cancel_reason_key, None)
+                                            clear_comprobante_form_state()
+                                            time.sleep(0.3)
+                                            rerun_current_tab()
                                         else:
                                             st.warning(
                                                 "⚠️ No se encontró la columna de motivos en la hoja. Verifica la configuración."
                                             )
-
-                                        df_idx = df_pedidos[
-                                            df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
-                                        ].index
-                                        if len(df_idx) > 0:
-                                            df_idx = df_idx[0]
-                                            for col, val in updates.items():
-                                                if col in df_pedidos.columns:
-                                                    df_pedidos.at[df_idx, col] = val
-                                            st.session_state.df_pedidos = df_pedidos
-
-                                        pedidos_pagados_no_confirmados = refresh_pedidos_pagados_no_confirmados(
-                                            df_pedidos
-                                        )
-
-                                        st.success("🛑 Pedido cancelado y ocultado de la vista.")
-                                        st.session_state.pop(cancel_toggle_key, None)
-                                        st.session_state.pop(cancel_reason_key, None)
-                                        clear_comprobante_form_state()
-                                        rerun_current_tab()
 
                                     except Exception as e:
                                         st.error(f"❌ Error al cancelar el pedido: {e}")
