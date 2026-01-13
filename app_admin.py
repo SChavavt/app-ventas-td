@@ -1798,6 +1798,27 @@ with tab1:
             st.markdown("---")
             st.subheader("🔍 Revisar Comprobante de Pago")
 
+            st.markdown("### 🔄 Actualización de datos (reprogramaciones)")
+
+            col_r1, col_r2 = st.columns([1, 3])
+            with col_r1:
+                if st.button("🔄 Recargar pedidos", use_container_width=True):
+                    if allow_refresh("refresh_admin_tab1"):
+                        force_reload_pedidos_and_refresh_pendientes()
+                        st.session_state.pop("select_pedido_comprobante", None)
+                        st.toast(
+                            "✅ Pedidos recargados: la nueva Fecha_Entrega ya debe verse",
+                            icon="✅"
+                        )
+                        time.sleep(0.2)
+                        rerun_current_tab()
+
+            with col_r2:
+                st.caption(
+                    "Úsalo si Bodega reprogramó un pedido (cambió Fecha_Entrega) "
+                    "y aún no se refleja aquí."
+                )
+
             # Opciones de selección
             pedidos_pagados_no_confirmados['display_label'] = pedidos_pagados_no_confirmados.apply(lambda row: (
                 f"📄 {row.get('Folio_Factura', 'N/A')} - "
