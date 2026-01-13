@@ -1806,6 +1806,7 @@ with tab1:
                     if allow_refresh("refresh_admin_tab1"):
                         force_reload_pedidos_and_refresh_pendientes()
                         st.session_state.pop("select_pedido_comprobante", None)
+                        st.session_state.pop("select_pedido_local_no_pagado", None)
                         st.toast(
                             "✅ Pedidos recargados: la nueva Fecha_Entrega ya debe verse",
                             icon="✅"
@@ -1819,24 +1820,81 @@ with tab1:
                     "y aún no se refleja aquí."
                 )
 
-            # Opciones de selección
-            pedidos_pagados_no_confirmados['display_label'] = pedidos_pagados_no_confirmados.apply(lambda row: (
-                f"📄 {row.get('Folio_Factura', 'N/A')} - "
-                f"👤 {row.get('Cliente', 'N/A')} - "
-                f"{row.get('Estado', 'N/A')} - "
-                f"{row.get('Tipo_Envio', 'N/A')}"
-            ), axis=1)
+            # Opciones de selección (TODOS)
+            if pedidos_pagados_no_confirmados.empty:
+                st.info("No hay pedidos para revisar en este momento.")
+                st.stop()
 
-            pedido_options = pedidos_pagados_no_confirmados['display_label'].tolist()
-            selected_index = st.selectbox(
-                "📝 Seleccionar Pedido para Revisar Comprobante",
-                options=range(len(pedido_options)),
-                format_func=lambda i: pedido_options[i],
-                key="select_pedido_comprobante"
+            pedidos_pagados_no_confirmados["display_label"] = (
+                pedidos_pagados_no_confirmados.apply(
+                    lambda row: (
+                        f"📄 {row.get('Folio_Factura', 'N/A')} - "
+                        f"👤 {row.get('Cliente', 'N/A')} - "
+                        f"{row.get('Estado', 'N/A')} - "
+                        f"{row.get('Tipo_Envio', 'N/A')}"
+                    ),
+                    axis=1,
+                )
             )
 
-            if selected_index is not None:
+            pedido_options = pedidos_pagados_no_confirmados["display_label"].tolist()
+            selected_index = st.selectbox(
+                "📝 Seleccionar Pedido para Revisar Comprobante",
+                options=list(range(len(pedido_options))),
+                format_func=lambda i: pedido_options[i],
+                key="select_pedido_comprobante",
+            )
+
+            selected_pedido_data = None
+            selected_index_for_key = selected_index
+
+            if selected_index is not None and not pedidos_pagados_no_confirmados.empty:
                 selected_pedido_data = pedidos_pagados_no_confirmados.iloc[selected_index]
+
+            # 🔴 Locales No Pagados (sub-sección)
+            df_local_no_pagados = pedidos_pagados_no_confirmados[
+                pedidos_pagados_no_confirmados["Tipo_Envio"].astype(str).str.strip()
+                == "📍 Pedido Local"
+            ].copy()
+
+            df_local_no_pagados = df_local_no_pagados[
+                df_local_no_pagados["Estado_Pago"].astype(str).str.strip()
+                == "🔴 No Pagado"
+            ].copy()
+
+            with st.expander(
+                f"🔴 Locales No Pagados ({len(df_local_no_pagados)})", expanded=False
+            ):
+                if df_local_no_pagados.empty:
+                    st.info("No hay pedidos locales marcados como No Pagado.")
+                else:
+                    st.warning(
+                        "Estos pedidos locales fueron marcados como 🔴 No Pagado. "
+                        "Se mantienen aquí para seguimiento."
+                    )
+                    df_local_no_pagados["display_label_np"] = (
+                        df_local_no_pagados.apply(
+                            lambda row: (
+                                f"📄 {row.get('Folio_Factura', 'N/A')} - "
+                                f"👤 {row.get('Cliente', 'N/A')} - "
+                                f"{row.get('Estado', 'N/A')} - "
+                                f"{row.get('Tipo_Envio', 'N/A')}"
+                            ),
+                            axis=1,
+                        )
+                    )
+                    np_options = df_local_no_pagados["display_label_np"].tolist()
+                    np_idx = st.selectbox(
+                        "📝 Seleccionar Pedido Local No Pagado",
+                        options=list(range(len(np_options))),
+                        format_func=lambda i: np_options[i],
+                        key="select_pedido_local_no_pagado",
+                    )
+                    if np_idx is not None:
+                        selected_pedido_data = df_local_no_pagados.iloc[np_idx]
+                        selected_index_for_key = f"NP::{np_idx}"
+
+            if selected_pedido_data is not None:
 
                 raw_pedido_id = selected_pedido_data.get("ID_Pedido")
                 normalized_pedido_id = normalize_id_pedido(raw_pedido_id)
@@ -1849,7 +1907,7 @@ with tab1:
                 elif fallback_folio:
                     current_selection_key = f"FOLIO::{fallback_folio}"
                 else:
-                    current_selection_key = f"INDEX::{selected_index}"
+                    current_selection_key = f"INDEX::{selected_index_for_key}"
 
                 last_selection_key = st.session_state.get("last_selected_pedido_key")
                 if last_selection_key != current_selection_key:
