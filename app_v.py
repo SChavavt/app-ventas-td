@@ -1585,6 +1585,11 @@ with tab1:
                 help="Indica el estatus de la factura original asociada al pedido devuelto."
             )
 
+            aplica_pago = st.checkbox(
+                "✅ Aplica pago (Cobranza debe revisar el comprobante)",
+                key="aplica_pago_checkbox",
+            )
+
             # 🆕 NUEVO: Folio Error arriba del folio normal
             folio_factura_error = st.text_input(
                 "📄 Folio Error (factura equivocada, si aplica)",
@@ -1661,11 +1666,6 @@ with tab1:
                 nombre_responsable = "No aplica"
 
             motivo_detallado = st.text_area("📝 Explicación Detallada del Caso", key="motivo_detallado")
-
-            aplica_pago = st.checkbox(
-                "✅ Aplica pago (Cobranza debe revisar el comprobante)",
-                key="aplica_pago_checkbox",
-            )
 
         # --- Campos adicionales para Garantía ---
         if tipo_envio == "🛠 Garantía":
