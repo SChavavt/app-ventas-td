@@ -4176,7 +4176,7 @@ with tab3, suppress(StopException):
     # Columnas mínimas
     needed_cols = [
         "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
-        "Tipo_Envio","Resultado_Esperado","Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
+        "Tipo_Envio","Aplica_Pago","Resultado_Esperado","Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
         "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta","Tipo_Envio_Original","Estatus_OrigenF",
         "Adjuntos","Hoja_Ruta_Mensajero","Estado_Caso","Estado_Recepcion","Turno","Fecha_Entrega",
         "Numero_Serie","Fecha_Compra","Seguimiento", GUIAS_DEVOLUCION_COL
@@ -4267,7 +4267,10 @@ with tab3, suppress(StopException):
         title = "🧾 Caso Especial – 🔁 Devolución" if is_dev else "🧾 Caso Especial – 🛠 Garantía"
         st.markdown(f"### {title}")
         val = str(row.get("Aplica_Pago", "")).strip().lower()
-        if is_dev and val in ("si", "sí", "true", "1"):
+        aplica_pago = val in ("si", "sí", "true", "1")
+        if is_dev:
+            st.markdown(f"**💳 Aplica pago:** {'Sí' if aplica_pago else 'No'}")
+        if is_dev and aplica_pago:
             st.warning(
                 "💳 Esta DEVOLUCIÓN está marcada como **APLICA PAGO**. "
                 "Revisa el comprobante dentro de **Adjuntos** y notifícalo/abónalo en el sistema."
@@ -4425,7 +4428,7 @@ with tab3, suppress(StopException):
         st.warning(f"📋 Hay {len(df_pendientes)} casos pendientes por confirmar.")
 
         columns_to_show = [
-            "Tipo_Envio","Folio_Factura","Cliente","Vendedor_Registro",
+            "Tipo_Envio","Aplica_Pago","Folio_Factura","Cliente","Vendedor_Registro",
             "Hora_Registro","Resultado_Esperado","Numero_Cliente_RFC",
             "Area_Responsable","Nombre_Responsable",
             "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta",
