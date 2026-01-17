@@ -4889,26 +4889,32 @@ with tab4:
 
     # ------- Derivados de enlaces y campos mínimos -------
     for c in [
-        "Adjuntos", "Hoja_Ruta_Mensajero", "Nota_Credito_URL",
-        "Documento_Adicional_URL", "Dictamen_Garantia_URL",
-        "Estado", "Estado_Caso", "Estado_Recepcion", "Tipo_Envio_Original", "Estatus_OrigenF",
-        "Resultado_Esperado", "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado",
-        "Numero_Serie", "Fecha_Compra", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable", "Turno", "Fecha_Entrega",
+        "ID_Pedido",
+        "Hora_Registro",
+        "Vendedor_Registro",
+        "Cliente",
+        "Tipo_Envio",
+        "Estado",
+        "Estado_Caso",
         "Seguimiento",
-        GUIAS_DEVOLUCION_COL
+        "Aplica_Pago",
+        "Comprobantes_Pago_URL",
+        "Fecha_Pago_Comprobante",
+        "Forma_Pago_Comprobante",
+        "Monto_Comprobante",
+        "Referencia_Comprobante",
+        "Terminal",
+        "Banco_Destino_Pago",
     ]:
         if c not in df_ce.columns:
             df_ce[c] = ""
 
+    def _urls_join(value):
+        urls = _normalize_urls(value)
+        return "\n".join(urls) if urls else ""
+
     # Links listos para tabla/Excel
-    df_ce["Links_Adjuntos"] = df_ce["Adjuntos"].apply(lambda v: "\n".join(_normalize_urls(v)) if str(v).strip() else "")
-    df_ce["Link_Guia"] = df_ce["Hoja_Ruta_Mensajero"].astype(str).fillna("")
-    # prioriza dictamen garantía; si no, nota crédito
-    df_ce["Link_Dictamen_o_Nota"] = df_ce.apply(
-        lambda r: (str(r.get("Dictamen_Garantia_URL","")).strip() or str(r.get("Nota_Credito_URL","")).strip()),
-        axis=1
-    )
-    df_ce["Link_Doc_Adicional"] = df_ce["Documento_Adicional_URL"].astype(str).fillna("")
+    df_ce["Links_Comprobantes_Pago"] = df_ce["Comprobantes_Pago_URL"].apply(_urls_join)
 
     # ------- Filtros rápidos -------
     colf1, colf2, colf3 = st.columns([1.2, 1.4, 2.4])
@@ -4980,15 +4986,26 @@ with tab4:
 
     # ------- Columnas a mostrar/descargar -------
     columnas_base = [
-        "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
-        "Numero_Serie","Fecha_Compra",
-        "Tipo_Envio","Estado","Estado_Caso","Estado_Recepcion","Seguimiento",
-        "Tipo_Envio_Original","Estatus_OrigenF","Turno","Fecha_Entrega",
-        "Resultado_Esperado","Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
-        "Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
-        GUIAS_DEVOLUCION_COL
+        "ID_Pedido",
+        "Hora_Registro",
+        "Vendedor_Registro",
+        "Cliente",
+        "Tipo_Envio",
+        "Estado",
+        "Estado_Caso",
+        "Seguimiento",
+        "Aplica_Pago",
+        "Fecha_Pago_Comprobante",
+        "Forma_Pago_Comprobante",
+        "Monto_Comprobante",
+        "Referencia_Comprobante",
+        "Terminal",
+        "Banco_Destino_Pago",
+        "Comprobantes_Pago_URL",
     ]
-    columnas_links = ["Links_Adjuntos","Link_Guia","Link_Dictamen_o_Nota","Link_Doc_Adicional"]
+    columnas_links = [
+        "Links_Comprobantes_Pago",
+    ]
 
     columnas_existentes = [c for c in columnas_base + columnas_links if c in df_view.columns]
     if not columnas_existentes:
