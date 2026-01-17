@@ -1531,6 +1531,7 @@ with tab1:
     nombre_responsable = ""
     monto_devuelto = 0.0
     comprobante_cliente = None
+    aplica_pago = False
 
     # Variables Garantía
     g_resultado_esperado = ""
@@ -1661,9 +1662,15 @@ with tab1:
 
             motivo_detallado = st.text_area("📝 Explicación Detallada del Caso", key="motivo_detallado")
 
+            aplica_pago = st.checkbox(
+                "✅ Aplica pago (Cobranza debe revisar el comprobante)",
+                key="aplica_pago_checkbox",
+            )
+
         # --- Campos adicionales para Garantía ---
         if tipo_envio == "🛠 Garantía":
             st.markdown("### 🛠 Información de Garantía")
+            aplica_pago = False
 
             g_resultado_esperado = st.selectbox(
                 "🎯 Resultado Esperado",
@@ -1715,6 +1722,8 @@ with tab1:
                 "📦 Dirección de envío destino",
                 key="direccion_envio_destino",
             )
+        else:
+            aplica_pago = False
 
         st.markdown("---")
         st.subheader("📎 Adjuntos del Pedido")
@@ -2246,6 +2255,8 @@ with tab1:
                         values.append(estado_pago)
                     else:
                         values.append("")
+                elif header == "Aplica_Pago":
+                    values.append("Sí" if aplica_pago else "")
                 elif header == "Fecha_Pago_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))

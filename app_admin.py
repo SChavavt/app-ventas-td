@@ -4266,6 +4266,12 @@ with tab3, suppress(StopException):
         is_dev = (tipo == "🔁 Devolución")
         title = "🧾 Caso Especial – 🔁 Devolución" if is_dev else "🧾 Caso Especial – 🛠 Garantía"
         st.markdown(f"### {title}")
+        val = str(row.get("Aplica_Pago", "")).strip().lower()
+        if is_dev and val in ("si", "sí", "true", "1"):
+            st.warning(
+                "💳 Esta DEVOLUCIÓN está marcada como **APLICA PAGO**. "
+                "Revisa el comprobante dentro de **Adjuntos** y notifícalo/abónalo en el sistema."
+            )
 
         mod_txt = clean_modificacion_surtido(row.get("Modificacion_Surtido", ""))
         mod_txt_message = f"🛠 Modificación de surtido: {mod_txt}" if mod_txt else ""
@@ -4849,6 +4855,9 @@ with tab4:
         st.info("ℹ️ No hay registros en 'casos_especiales'.")
         st.stop()
 
+    if "Aplica_Pago" not in df_ce.columns:
+        df_ce["Aplica_Pago"] = ""
+
     # ------- Normalizador de URLs (Adjuntos puede venir como JSON/CSV/texto) -------
     def _normalize_urls(value):
         if value is None:
@@ -4911,7 +4920,7 @@ with tab4:
     df_ce["Link_Doc_Adicional"] = df_ce["Documento_Adicional_URL"].astype(str).fillna("")
 
     # ------- Filtros rápidos -------
-    colf1, colf2, colf3 = st.columns([1.2, 1.4, 2.4])
+    colf1, colf2, colf3, colf4 = st.columns([1.2, 1.4, 1.6, 2.4])
     with colf1:
         filtro_tipo = st.selectbox(
             "Tipo de caso",
@@ -4933,6 +4942,12 @@ with tab4:
             index=0,
         )
     with colf3:
+        filtro_aplica_pago = st.selectbox(
+            "Aplica pago",
+            options=["Todos", "Solo devoluciones con aplica pago"],
+            index=0,
+        )
+    with colf4:
         term = st.text_input("Buscar (Cliente / Folio )", "")
 
     df_view = df_ce.copy()
@@ -4942,6 +4957,12 @@ with tab4:
         tipo_col = "Tipo_Envio" if "Tipo_Envio" in df_view.columns else ("Tipo_Caso" if "Tipo_Caso" in df_view.columns else None)
         if tipo_col:
             df_view = df_view[df_view[tipo_col].astype(str).str.strip() == filtro_tipo]
+
+    if filtro_aplica_pago == "Solo devoluciones con aplica pago":
+        df_view = df_view[
+            df_view["Tipo_Envio"].astype(str).str.contains("Devolución", case=False, na=False)
+            & df_view["Aplica_Pago"].astype(str).str.strip().str.lower().isin(["si", "sí", "true", "1"])
+        ]
 
     if "Seguimiento" in df_view.columns and filtro_seguimiento != "Todos":
         df_view = df_view[
@@ -4982,7 +5003,7 @@ with tab4:
     columnas_base = [
         "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
         "Numero_Serie","Fecha_Compra",
-        "Tipo_Envio","Estado","Estado_Caso","Estado_Recepcion","Seguimiento",
+        "Tipo_Envio","Estado","Estado_Caso","Aplica_Pago","Estado_Recepcion","Seguimiento",
         "Tipo_Envio_Original","Estatus_OrigenF","Turno","Fecha_Entrega",
         "Resultado_Esperado","Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
         "Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
