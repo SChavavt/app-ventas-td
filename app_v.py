@@ -1472,6 +1472,8 @@ with tab1:
     tab1_is_active = default_tab == 0
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
+    if "pedido_submit_in_progress" not in st.session_state:
+        st.session_state["pedido_submit_in_progress"] = False
     st.header("📝 Nuevo Pedido")
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
@@ -1548,6 +1550,11 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
+    submit_disabled = (
+        st.session_state.get("pedido_submit_in_progress", False)
+        or "pedido_submission_status" in st.session_state
+    )
+
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
@@ -1749,9 +1756,14 @@ with tab1:
             render_uploaded_files_preview("Evidencias seleccionadas", comprobante_cliente)
 
         # AL FINAL DEL FORMULARIO: botón submit
-        submit_button = st.form_submit_button("✅ Registrar Pedido")
+        submit_button = st.form_submit_button(
+            "✅ Registrar Pedido",
+            disabled=submit_disabled,
+        )
 
-    should_process_submission = submit_button
+    should_process_submission = submit_button and not submit_disabled
+    if submit_button and not submit_disabled:
+        st.session_state["pedido_submit_in_progress"] = True
 
     if not registrar_nota_venta:
         nota_venta = ""
@@ -1818,6 +1830,7 @@ with tab1:
 
                 clear_app_caches()
                 st.session_state.pop("pedido_submission_status", None)
+                st.session_state["pedido_submit_in_progress"] = False
                 st.rerun()
 
     # -------------------------------
@@ -2050,6 +2063,7 @@ with tab1:
         try:
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
+                st.session_state["pedido_submit_in_progress"] = False
                 st.stop()
 
             pedido_sin_adjuntos = not (
@@ -2080,6 +2094,7 @@ with tab1:
                 "🎓 Cursos y Eventos",
             ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
+                st.session_state["pedido_submit_in_progress"] = False
                 st.stop()
 
             # Acceso a la hoja
@@ -2201,6 +2216,7 @@ with tab1:
                     message="❌ No se pudieron subir los archivos del pedido.",
                     detail=str(e),
                 )
+                st.session_state["pedido_submit_in_progress"] = False
                 st.stop()
 
             adjuntos_str = ", ".join(adjuntos_urls)
