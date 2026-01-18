@@ -23,7 +23,7 @@ from http.client import InvalidURL
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 from gspread.utils import rowcol_to_a1
-from gspread.exceptions import APIError
+from gspread.exceptions import APIError, CellNotFound
 
 
 # NEW: Import boto3 for AWS S3
@@ -837,6 +837,7 @@ def append_row_with_confirmation(
     id_col_index,
     retries=5,
     base_delay=1.0,
+    precheck_duplicate: bool = True,
 ):
     def ensure_worksheet_capacity(target_row: int):
         """Expande la hoja si el siguiente renglón excede el límite actual."""
@@ -853,19 +854,28 @@ def append_row_with_confirmation(
     last_error = None
     for attempt in range(retries):
         try:
+            # ANTI-DUPLICADO TAB1
+            if precheck_duplicate:
+                try:
+                    cell = worksheet.find(str(pedido_id).strip())
+                    if cell.col == (id_col_index + 1):
+                        return False
+                except CellNotFound:
+                    pass
+
             existing_rows = len(worksheet.get_all_values()) + 1
             ensure_worksheet_capacity(existing_rows)
 
             worksheet.append_row(values, value_input_option="USER_ENTERED")
-            time.sleep(1 + attempt * 0.5)
+            time.sleep(0.7 + attempt * 0.5)
 
-            appended_row = worksheet.row_values(existing_rows)
-            # Nota técnica: si se requieren garantías adicionales en escenarios
-            # de alta concurrencia, se puede buscar el pedido_id en varias
-            # filas recientes en lugar de solo la última.
-            if len(appended_row) > id_col_index and appended_row[id_col_index] == pedido_id:
-                return True
-            raise Exception("La escritura no se confirmó")
+            try:
+                cell = worksheet.find(str(pedido_id).strip())
+                if cell.col == (id_col_index + 1):
+                    return True
+                raise CellNotFound()
+            except CellNotFound:
+                raise Exception("La escritura no se confirmó (no se encontró el ID).")
         except Exception as e:
             last_error = e
             time.sleep(base_delay * (attempt + 1))
@@ -1472,6 +1482,12 @@ with tab1:
     tab1_is_active = default_tab == 0
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
+    # ANTI-DUPLICADO TAB1
+    if "tab1_submit_in_progress" not in st.session_state:
+        st.session_state["tab1_submit_in_progress"] = False
+    # ANTI-DUPLICADO TAB1
+    if "tab1_pedido_id_current" not in st.session_state:
+        st.session_state["tab1_pedido_id_current"] = None
     st.header("📝 Nuevo Pedido")
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
@@ -1749,7 +1765,10 @@ with tab1:
             render_uploaded_files_preview("Evidencias seleccionadas", comprobante_cliente)
 
         # AL FINAL DEL FORMULARIO: botón submit
-        submit_button = st.form_submit_button("✅ Registrar Pedido")
+        submit_button = st.form_submit_button(
+            "✅ Registrar Pedido",
+            disabled=st.session_state.get("tab1_submit_in_progress", False),  # ANTI-DUPLICADO TAB1
+        )
 
     should_process_submission = submit_button
 
@@ -2046,363 +2065,388 @@ with tab1:
     # Registro del Pedido
     # -------------------------------
     if should_process_submission:
-        st.session_state.pop("pedido_submission_status", None)
+        # ANTI-DUPLICADO TAB1
+        if st.session_state.get("tab1_submit_in_progress"):
+            st.warning("⏳ El pedido ya se está enviando...")
+            st.stop()
+        # ANTI-DUPLICADO TAB1
+        st.session_state["tab1_submit_in_progress"] = True
         try:
-            if not vendedor or not registro_cliente:
-                st.warning("⚠️ Completa los campos obligatorios.")
-                st.stop()
+            st.session_state.pop("pedido_submission_status", None)
+            with st.spinner("Enviando pedido..."):
+                try:
+                    if not vendedor or not registro_cliente:
+                        st.warning("⚠️ Completa los campos obligatorios.")
+                        st.stop()
 
-            pedido_sin_adjuntos = not (
-                uploaded_files or comprobante_pago_files or comprobante_cliente
-            )
+                    pedido_sin_adjuntos = not (
+                        uploaded_files or comprobante_pago_files or comprobante_cliente
+                    )
 
-            # Normalización de campos para Casos Especiales
-            if tipo_envio == "🔁 Devolución":
-                resultado_esperado = normalize_case_text(resultado_esperado)
-                material_devuelto = normalize_case_text(material_devuelto)
-                motivo_detallado = normalize_case_text(motivo_detallado)
-                nombre_responsable = normalize_case_text(nombre_responsable)
-            if tipo_envio == "🛠 Garantía":
-                g_resultado_esperado = normalize_case_text(g_resultado_esperado)
-                g_descripcion_falla = normalize_case_text(g_descripcion_falla)
-                g_piezas_afectadas = normalize_case_text(g_piezas_afectadas)
-                g_nombre_responsable = normalize_case_text(g_nombre_responsable)
-                g_numero_serie = normalize_case_text(g_numero_serie)
-            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                direccion_guia_retorno = normalize_case_text(direccion_guia_retorno)
-                direccion_envio_destino = normalize_case_text(direccion_envio_destino)
+                    # Normalización de campos para Casos Especiales
+                    if tipo_envio == "🔁 Devolución":
+                        resultado_esperado = normalize_case_text(resultado_esperado)
+                        material_devuelto = normalize_case_text(material_devuelto)
+                        motivo_detallado = normalize_case_text(motivo_detallado)
+                        nombre_responsable = normalize_case_text(nombre_responsable)
+                    if tipo_envio == "🛠 Garantía":
+                        g_resultado_esperado = normalize_case_text(g_resultado_esperado)
+                        g_descripcion_falla = normalize_case_text(g_descripcion_falla)
+                        g_piezas_afectadas = normalize_case_text(g_piezas_afectadas)
+                        g_nombre_responsable = normalize_case_text(g_nombre_responsable)
+                        g_numero_serie = normalize_case_text(g_numero_serie)
+                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                        direccion_guia_retorno = normalize_case_text(direccion_guia_retorno)
+                        direccion_envio_destino = normalize_case_text(direccion_envio_destino)
 
-            # Validar comprobante de pago para tipos normales
-            if tipo_envio in [
-                "🚚 Pedido Foráneo",
-                "🏙️ Pedido CDMX",
-                "📍 Pedido Local",
-                "🎓 Cursos y Eventos",
-            ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
-                st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
-                st.stop()
+                    # Validar comprobante de pago para tipos normales
+                    if tipo_envio in [
+                        "🚚 Pedido Foráneo",
+                        "🏙️ Pedido CDMX",
+                        "📍 Pedido Local",
+                        "🎓 Cursos y Eventos",
+                    ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
+                        st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
+                        st.stop()
 
-            # Acceso a la hoja
-            headers = []
-            try:
-                if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                    worksheet = get_worksheet_casos_especiales()
-                    if worksheet is None:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            "No fue posible acceder a la hoja de casos especiales.",
-                        )
-                        st.rerun()
-
-                    headers = worksheet.row_values(1)
-                    required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio", "Estatus_OrigenF"]
-                    missing_headers = [col for col in required_headers if col not in headers]
-                    if missing_headers:
-                        try:
-                            new_headers = headers + missing_headers
-                            worksheet.update('A1', [new_headers])
-                            get_sheet_headers.clear()
-                            headers = worksheet.row_values(1)
-                        except Exception as header_error:
-                            set_pedido_submission_status(
-                                "error",
-                                "❌ Falla al subir el pedido.",
-                                f"No se pudieron preparar las columnas de direcciones: {header_error}",
-                            )
-                            st.rerun()
-                else:
-                    worksheet = get_worksheet()
-                    if worksheet is None:
-                        set_pedido_submission_status(
-                            "error",
-                            "❌ Falla al subir el pedido.",
-                            "No fue posible acceder a la hoja de pedidos.",
-                        )
-                        st.rerun()
-                    headers = worksheet.row_values(1)
-                    required_headers = []
-                    if tipo_envio == "🚚 Pedido Foráneo":
-                        required_headers.append("Direccion_Guia_Retorno")
-                    if required_headers:
-                        missing_headers = [col for col in required_headers if col not in headers]
-                        if missing_headers:
-                            try:
-                                new_headers = headers + missing_headers
-                                worksheet.update('A1', [new_headers])
-                                get_sheet_headers.clear()
-                                headers = worksheet.row_values(1)
-                            except Exception as header_error:
+                    # Acceso a la hoja
+                    headers = []
+                    try:
+                        if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                            worksheet = get_worksheet_casos_especiales()
+                            if worksheet is None:
                                 set_pedido_submission_status(
                                     "error",
                                     "❌ Falla al subir el pedido.",
-                                    f"No se pudieron preparar las columnas de direcciones: {header_error}",
+                                    "No fue posible acceder a la hoja de casos especiales.",
                                 )
                                 st.rerun()
 
-                if not headers:
+                            headers = worksheet.row_values(1)
+                            required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio", "Estatus_OrigenF"]
+                            missing_headers = [col for col in required_headers if col not in headers]
+                            if missing_headers:
+                                try:
+                                    new_headers = headers + missing_headers
+                                    worksheet.update('A1', [new_headers])
+                                    get_sheet_headers.clear()
+                                    headers = worksheet.row_values(1)
+                                except Exception as header_error:
+                                    set_pedido_submission_status(
+                                        "error",
+                                        "❌ Falla al subir el pedido.",
+                                        f"No se pudieron preparar las columnas de direcciones: {header_error}",
+                                    )
+                                    st.rerun()
+                        else:
+                            worksheet = get_worksheet()
+                            if worksheet is None:
+                                set_pedido_submission_status(
+                                    "error",
+                                    "❌ Falla al subir el pedido.",
+                                    "No fue posible acceder a la hoja de pedidos.",
+                                )
+                                st.rerun()
+                            headers = worksheet.row_values(1)
+                            required_headers = []
+                            if tipo_envio == "🚚 Pedido Foráneo":
+                                required_headers.append("Direccion_Guia_Retorno")
+                            if required_headers:
+                                missing_headers = [col for col in required_headers if col not in headers]
+                                if missing_headers:
+                                    try:
+                                        new_headers = headers + missing_headers
+                                        worksheet.update('A1', [new_headers])
+                                        get_sheet_headers.clear()
+                                        headers = worksheet.row_values(1)
+                                    except Exception as header_error:
+                                        set_pedido_submission_status(
+                                            "error",
+                                            "❌ Falla al subir el pedido.",
+                                            f"No se pudieron preparar las columnas de direcciones: {header_error}",
+                                        )
+                                        st.rerun()
+
+                        if not headers:
+                            set_pedido_submission_status(
+                                "error",
+                                "❌ Falla al subir el pedido.",
+                                "La hoja de cálculo está vacía.",
+                            )
+                            st.rerun()
+
+                        # Hora local de CDMX para ID y Hora_Registro
+                        zona_mexico = timezone("America/Mexico_City")
+                        now = datetime.now(zona_mexico)
+                        # ANTI-DUPLICADO TAB1
+                        if not st.session_state.get("tab1_pedido_id_current"):
+                            st.session_state["tab1_pedido_id_current"] = f"PED-{uuid.uuid4()}"
+                        pedido_id = st.session_state["tab1_pedido_id_current"]
+                        s3_prefix = f"adjuntos_pedidos/{pedido_id}/"
+                        hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
+
+                    except gspread.exceptions.APIError as e:
+                        if "RESOURCE_EXHAUSTED" in str(e):
+                            st.warning("⚠️ Cuota de Google Sheets alcanzada. Reintentando...")
+                            st.cache_resource.clear()
+                            time.sleep(6)
+                            st.rerun()
+                        else:
+                            set_pedido_submission_status(
+                                "error",
+                                "❌ Falla al subir el pedido.",
+                                f"Error al acceder a Google Sheets: {e}",
+                            )
+                            st.rerun()
+
+                    adjuntos_urls = []
+                    try:
+                        adjuntos_urls.extend(
+                            upload_files_or_fail(
+                                uploaded_files,
+                                s3_client,
+                                S3_BUCKET_NAME,
+                                s3_prefix,
+                            )
+                        )
+                        adjuntos_urls.extend(
+                            upload_files_or_fail(
+                                comprobante_pago_files,
+                                s3_client,
+                                S3_BUCKET_NAME,
+                                s3_prefix,
+                            )
+                        )
+                        adjuntos_urls.extend(
+                            upload_files_or_fail(
+                                comprobante_cliente,
+                                s3_client,
+                                S3_BUCKET_NAME,
+                                s3_prefix,
+                            )
+                        )
+                    except Exception as e:
+                        set_pedido_submission_status(
+                            status="error",
+                            message="❌ No se pudieron subir los archivos del pedido.",
+                            detail=str(e),
+                        )
+                        st.stop()
+
+                    adjuntos_str = ", ".join(adjuntos_urls)
+
+                    # Mapeo de columnas a valores
+                    values = []
+                    for header in headers:
+                        if header == "ID_Pedido":
+                            values.append(pedido_id)
+                        elif header == "Hora_Registro":
+                            values.append(hora_registro)
+                        elif header.lower() == "id_vendedor":
+                            values.append(st.session_state.get("id_vendedor", ""))
+                        elif header in ["Vendedor", "Vendedor_Registro"]:
+                            values.append(vendedor)
+                        elif header in ["Cliente", "RegistroCliente"]:
+                            values.append(registro_cliente)
+                        elif header == "Numero_Cliente_RFC":
+                            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                                values.append(numero_cliente_rfc)
+                            else:
+                                values.append("")
+                        elif header == "Folio_Factura":
+                            values.append(folio_factura)  # en devoluciones es "Folio Nuevo" o Nota de Venta
+                        elif header == "Folio_Factura_Error":  # 🆕 mapeo adicional
+                            values.append(folio_factura_error if tipo_envio == "🔁 Devolución" else "")
+                        elif header == "Motivo_NotaVenta":
+                            values.append(motivo_nota_venta)
+                        elif header == "Tipo_Envio":
+                            values.append(tipo_envio)
+                        elif header == "Tipo_Envio_Original":
+                            values.append(tipo_envio_original if tipo_envio == "🔁 Devolución" else "")
+                        elif header == "Estatus_OrigenF":
+                            values.append(estatus_origen_factura if tipo_envio == "🔁 Devolución" else "")
+                        elif header == "Turno":
+                            values.append(subtipo_local)
+                        elif header == "Fecha_Entrega":
+                            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                                values.append("")
+                            else:
+                                values.append(fecha_entrega.strftime('%Y-%m-%d'))
+                        elif header == "Comentario":
+                            values.append(comentario)
+                        elif header == "Adjuntos":
+                            values.append(adjuntos_str)
+                        elif header == "Adjuntos_Surtido":
+                            values.append("")
+                        elif header == "Estado":
+                            values.append("🟡 Pendiente")
+                        elif header == "Estado_Pago":
+                            if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                                values.append(estado_pago)
+                            else:
+                                values.append("")
+                        elif header == "Aplica_Pago":
+                            values.append("Sí" if aplica_pago else "")
+                        elif header == "Fecha_Pago_Comprobante":
+                            if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                                values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
+                            else:
+                                values.append("")
+                        elif header == "Forma_Pago_Comprobante":
+                            if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                                values.append(forma_pago)
+                            else:
+                                values.append("")
+                        elif header == "Terminal":
+                            if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                                values.append(terminal)
+                            else:
+                                values.append("")
+                        elif header == "Banco_Destino_Pago":
+                            if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                                values.append(banco_destino)
+                            else:
+                                values.append("")
+                        elif header == "Monto_Comprobante":
+                            if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                                values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
+                            else:
+                                values.append("")
+                        elif header == "Referencia_Comprobante":
+                            if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                                values.append(referencia_pago)
+                            else:
+                                values.append("")
+                        elif header in ["Fecha_Completado", "Hora_Proceso", "Modificacion_Surtido"]:
+                            values.append("")
+
+                        # -------- Campos Casos Especiales (reutilizados) --------
+                        elif header == "Resultado_Esperado":
+                            if tipo_envio == "🔁 Devolución":
+                                values.append(resultado_esperado)
+                            elif tipo_envio == "🛠 Garantía":
+                                values.append(g_resultado_esperado)
+                            else:
+                                values.append("")
+                        elif header == "Material_Devuelto":
+                            if tipo_envio == "🔁 Devolución":
+                                values.append(material_devuelto)
+                            elif tipo_envio == "🛠 Garantía":
+                                values.append(g_piezas_afectadas)  # Reuso columna para piezas afectadas
+                            else:
+                                values.append("")
+                        elif header == "Monto_Devuelto":
+                            if tipo_envio == "🔁 Devolución":
+                                values.append(normalize_case_amount(monto_devuelto))
+                            elif tipo_envio == "🛠 Garantía":
+                                values.append(normalize_case_amount(g_monto_estimado))
+                            else:
+                                values.append("")
+                        elif header == "Motivo_Detallado":
+                            if tipo_envio == "🔁 Devolución":
+                                values.append(motivo_detallado)
+                            elif tipo_envio == "🛠 Garantía":
+                                values.append(g_descripcion_falla)
+                            else:
+                                values.append("")
+                        elif header == "Area_Responsable":
+                            if tipo_envio == "🔁 Devolución":
+                                values.append(area_responsable)
+                            elif tipo_envio == "🛠 Garantía":
+                                values.append(g_area_responsable)
+                            else:
+                                values.append("")
+                        elif header == "Nombre_Responsable":
+                            if tipo_envio == "🔁 Devolución":
+                                values.append(nombre_responsable)
+                            elif tipo_envio == "🛠 Garantía":
+                                values.append(g_nombre_responsable)
+                            else:
+                                values.append("")
+                        elif header == "Direccion_Guia_Retorno":
+                            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                                values.append(direccion_guia_retorno)
+                            elif tipo_envio == "🚚 Pedido Foráneo" and direccion_guia_retorno.strip():
+                                values.append(direccion_guia_retorno)
+                            else:
+                                values.append("")
+                        elif header == "Direccion_Envio":
+                            if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
+                                values.append(direccion_envio_destino)
+                            else:
+                                values.append("")
+                        # -------- Opcionales si existen en la hoja --------
+                        elif header == "Numero_Serie":
+                            values.append(g_numero_serie if tipo_envio == "🛠 Garantía" else "")
+                        elif header in ["Fecha_Compra", "FechaCompra"]:
+                            if tipo_envio == "🛠 Garantía":
+                                values.append(g_fecha_compra.strftime('%Y-%m-%d') if g_fecha_compra else "")
+                            else:
+                                values.append("")
+                        else:
+                            values.append("")
+
+                    try:
+                        id_col_index = headers.index("ID_Pedido")
+                    except ValueError:
+                        set_pedido_submission_status(
+                            "error",
+                            "❌ Falla al subir el pedido.",
+                            "No se encontró la columna ID_Pedido en la hoja.",
+                        )
+                        st.stop()
+
+                    try:
+                        append_ok = append_row_with_confirmation(
+                            worksheet=worksheet,
+                            values=values,
+                            pedido_id=pedido_id,
+                            id_col_index=id_col_index,
+                            precheck_duplicate=True,
+                        )
+                        if append_ok is False:
+                            # ANTI-DUPLICADO TAB1
+                            set_pedido_submission_status(
+                                "error",
+                                "⚠️ Pedido ya registrado.",
+                                detail=f"ID: {pedido_id}. No se volvió a insertar.",
+                            )
+                            st.rerun()
+                    except Exception as e:
+                        set_pedido_submission_status(
+                            "error",
+                            "❌ Falla al subir el pedido.",
+                            f"Error al registrar el pedido: {e}",
+                        )
+                        st.rerun()
+
+                    # ANTI-DUPLICADO TAB1
+                    st.session_state.pop("tab1_pedido_id_current", None)
+                    reset_tab1_form_state()
+                    id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
+                    id_vendedor_segment = (
+                        f" (ID vendedor: {id_vendedor_actual})" if id_vendedor_actual else ""
+                    )
+                    set_pedido_submission_status(
+                        "success",
+                        f"✅ El pedido {pedido_id}{id_vendedor_segment} fue subido correctamente.",
+                        attachments=adjuntos_urls,
+                        missing_attachments_warning=pedido_sin_adjuntos,
+                    )
+                    if tab1_is_active and st.session_state.get("current_tab_index") == 0:
+                        st.query_params.update({"tab": "0"})
+                    st.rerun()
+
+                except Exception as e:
                     set_pedido_submission_status(
                         "error",
                         "❌ Falla al subir el pedido.",
-                        "La hoja de cálculo está vacía.",
+                        f"Error inesperado al registrar el pedido: {e}",
                     )
                     st.rerun()
-
-                # Hora local de CDMX para ID y Hora_Registro
-                zona_mexico = timezone("America/Mexico_City")
-                now = datetime.now(zona_mexico)
-                pedido_id = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8].upper()}"
-                s3_prefix = f"adjuntos_pedidos/{pedido_id}/"
-                hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
-
-            except gspread.exceptions.APIError as e:
-                if "RESOURCE_EXHAUSTED" in str(e):
-                    st.warning("⚠️ Cuota de Google Sheets alcanzada. Reintentando...")
-                    st.cache_resource.clear()
-                    time.sleep(6)
-                    st.rerun()
-                else:
-                    set_pedido_submission_status(
-                        "error",
-                        "❌ Falla al subir el pedido.",
-                        f"Error al acceder a Google Sheets: {e}",
-                    )
-                    st.rerun()
-
-            adjuntos_urls = []
-            try:
-                adjuntos_urls.extend(
-                    upload_files_or_fail(
-                        uploaded_files,
-                        s3_client,
-                        S3_BUCKET_NAME,
-                        s3_prefix,
-                    )
-                )
-                adjuntos_urls.extend(
-                    upload_files_or_fail(
-                        comprobante_pago_files,
-                        s3_client,
-                        S3_BUCKET_NAME,
-                        s3_prefix,
-                    )
-                )
-                adjuntos_urls.extend(
-                    upload_files_or_fail(
-                        comprobante_cliente,
-                        s3_client,
-                        S3_BUCKET_NAME,
-                        s3_prefix,
-                    )
-                )
-            except Exception as e:
-                set_pedido_submission_status(
-                    status="error",
-                    message="❌ No se pudieron subir los archivos del pedido.",
-                    detail=str(e),
-                )
-                st.stop()
-
-            adjuntos_str = ", ".join(adjuntos_urls)
-
-            # Mapeo de columnas a valores
-            values = []
-            for header in headers:
-                if header == "ID_Pedido":
-                    values.append(pedido_id)
-                elif header == "Hora_Registro":
-                    values.append(hora_registro)
-                elif header.lower() == "id_vendedor":
-                    values.append(st.session_state.get("id_vendedor", ""))
-                elif header in ["Vendedor", "Vendedor_Registro"]:
-                    values.append(vendedor)
-                elif header in ["Cliente", "RegistroCliente"]:
-                    values.append(registro_cliente)
-                elif header == "Numero_Cliente_RFC":
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        values.append(numero_cliente_rfc)
-                    else:
-                        values.append("")
-                elif header == "Folio_Factura":
-                    values.append(folio_factura)  # en devoluciones es "Folio Nuevo" o Nota de Venta
-                elif header == "Folio_Factura_Error":  # 🆕 mapeo adicional
-                    values.append(folio_factura_error if tipo_envio == "🔁 Devolución" else "")
-                elif header == "Motivo_NotaVenta":
-                    values.append(motivo_nota_venta)
-                elif header == "Tipo_Envio":
-                    values.append(tipo_envio)
-                elif header == "Tipo_Envio_Original":
-                    values.append(tipo_envio_original if tipo_envio == "🔁 Devolución" else "")
-                elif header == "Estatus_OrigenF":
-                    values.append(estatus_origen_factura if tipo_envio == "🔁 Devolución" else "")
-                elif header == "Turno":
-                    values.append(subtipo_local)
-                elif header == "Fecha_Entrega":
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        values.append("")
-                    else:
-                        values.append(fecha_entrega.strftime('%Y-%m-%d'))
-                elif header == "Comentario":
-                    values.append(comentario)
-                elif header == "Adjuntos":
-                    values.append(adjuntos_str)
-                elif header == "Adjuntos_Surtido":
-                    values.append("")
-                elif header == "Estado":
-                    values.append("🟡 Pendiente")
-                elif header == "Estado_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(estado_pago)
-                    else:
-                        values.append("")
-                elif header == "Aplica_Pago":
-                    values.append("Sí" if aplica_pago else "")
-                elif header == "Fecha_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
-                    else:
-                        values.append("")
-                elif header == "Forma_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(forma_pago)
-                    else:
-                        values.append("")
-                elif header == "Terminal":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(terminal)
-                    else:
-                        values.append("")
-                elif header == "Banco_Destino_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(banco_destino)
-                    else:
-                        values.append("")
-                elif header == "Monto_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
-                    else:
-                        values.append("")
-                elif header == "Referencia_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-                        values.append(referencia_pago)
-                    else:
-                        values.append("")
-                elif header in ["Fecha_Completado", "Hora_Proceso", "Modificacion_Surtido"]:
-                    values.append("")
-
-                # -------- Campos Casos Especiales (reutilizados) --------
-                elif header == "Resultado_Esperado":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(resultado_esperado)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_resultado_esperado)
-                    else:
-                        values.append("")
-                elif header == "Material_Devuelto":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(material_devuelto)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_piezas_afectadas)  # Reuso columna para piezas afectadas
-                    else:
-                        values.append("")
-                elif header == "Monto_Devuelto":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(normalize_case_amount(monto_devuelto))
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(normalize_case_amount(g_monto_estimado))
-                    else:
-                        values.append("")
-                elif header == "Motivo_Detallado":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(motivo_detallado)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_descripcion_falla)
-                    else:
-                        values.append("")
-                elif header == "Area_Responsable":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(area_responsable)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_area_responsable)
-                    else:
-                        values.append("")
-                elif header == "Nombre_Responsable":
-                    if tipo_envio == "🔁 Devolución":
-                        values.append(nombre_responsable)
-                    elif tipo_envio == "🛠 Garantía":
-                        values.append(g_nombre_responsable)
-                    else:
-                        values.append("")
-                elif header == "Direccion_Guia_Retorno":
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        values.append(direccion_guia_retorno)
-                    elif tipo_envio == "🚚 Pedido Foráneo" and direccion_guia_retorno.strip():
-                        values.append(direccion_guia_retorno)
-                    else:
-                        values.append("")
-                elif header == "Direccion_Envio":
-                    if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
-                        values.append(direccion_envio_destino)
-                    else:
-                        values.append("")
-                # -------- Opcionales si existen en la hoja --------
-                elif header == "Numero_Serie":
-                    values.append(g_numero_serie if tipo_envio == "🛠 Garantía" else "")
-                elif header in ["Fecha_Compra", "FechaCompra"]:
-                    if tipo_envio == "🛠 Garantía":
-                        values.append(g_fecha_compra.strftime('%Y-%m-%d') if g_fecha_compra else "")
-                    else:
-                        values.append("")
-                else:
-                    values.append("")
-
-            try:
-                id_col_index = headers.index("ID_Pedido")
-            except ValueError:
-                set_pedido_submission_status(
-                    "error",
-                    "❌ Falla al subir el pedido.",
-                    "No se encontró la columna ID_Pedido en la hoja.",
-                )
-                st.stop()
-
-            try:
-                append_row_with_confirmation(
-                    worksheet=worksheet,
-                    values=values,
-                    pedido_id=pedido_id,
-                    id_col_index=id_col_index,
-                )
-            except Exception as e:
-                set_pedido_submission_status(
-                    "error",
-                    "❌ Falla al subir el pedido.",
-                    f"Error al registrar el pedido: {e}",
-                )
-                st.rerun()
-
-            reset_tab1_form_state()
-            id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
-            id_vendedor_segment = (
-                f" (ID vendedor: {id_vendedor_actual})" if id_vendedor_actual else ""
-            )
-            set_pedido_submission_status(
-                "success",
-                f"✅ El pedido {pedido_id}{id_vendedor_segment} fue subido correctamente.",
-                attachments=adjuntos_urls,
-                missing_attachments_warning=pedido_sin_adjuntos,
-            )
-            if tab1_is_active and st.session_state.get("current_tab_index") == 0:
-                st.query_params.update({"tab": "0"})
-            st.rerun()
-
-        except Exception as e:
-            set_pedido_submission_status(
-                "error",
-                "❌ Falla al subir el pedido.",
-                f"Error inesperado al registrar el pedido: {e}",
-            )
-            st.rerun()
+        finally:
+            # ANTI-DUPLICADO TAB1
+            st.session_state["tab1_submit_in_progress"] = False
 
 
 
