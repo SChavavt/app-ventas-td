@@ -271,6 +271,7 @@ def refresh_pedidos_pagados_no_confirmados(
 
 def force_reload_pedidos_and_refresh_pendientes() -> tuple[pd.DataFrame, list[str]]:
     """Fuerza recarga real de pedidos, refrescando pendientes y sesión."""
+    _get_ws_datos.clear()
     cargar_pedidos_desde_google_sheet.clear()
     st.session_state.setdefault("pedidos_reload_nonce", 0)
     st.session_state["pedidos_reload_nonce"] += 1
@@ -1711,24 +1712,15 @@ with tab1:
 
     if st.button("🔄 Recargar Pedidos desde Google Sheets", type="secondary"):
         if allow_refresh("pedidos_last_refresh"):
-            # Borra el snapshot cacheado para forzar que la lectura venga fresca de Google Sheets.
-            cargar_pedidos_desde_google_sheet.clear()
-            st.session_state["pedidos_reload_nonce"] += 1
-            df_pedidos, headers = cargar_pedidos_desde_google_sheet(
-                GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
+            force_reload_pedidos_and_refresh_pendientes()
+            st.session_state.pop("select_pedido_comprobante", None)
+            st.session_state.pop("select_pedido_local_no_pagado", None)
+            st.session_state.pop("pedido_select_source", None)
+            st.toast(
+                "✅ Pedidos recargados: la nueva Fecha_Entrega ya debe verse",
+                icon="✅",
             )
-            if 'Tipo_Envio' in df_pedidos.columns:
-                df_pedidos = df_pedidos[
-                    ~df_pedidos['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
-                ].copy()
-            if MOTIVO_RECHAZO_CANCELACION_COL not in df_pedidos.columns:
-                df_pedidos[MOTIVO_RECHAZO_CANCELACION_COL] = ""
-            if ESTADO_ENTREGA_COL not in df_pedidos.columns:
-                df_pedidos[ESTADO_ENTREGA_COL] = ""
-            st.session_state.df_pedidos = df_pedidos
-            st.session_state.headers = headers
-            refresh_pedidos_pagados_no_confirmados(df_pedidos)
-            st.toast("Pedidos recargados", icon="🔄")
+            rerun_current_tab()
 
     if df_pedidos.empty:
         st.info("ℹ️ No hay pedidos cargados en este momento.")
@@ -1797,29 +1789,6 @@ with tab1:
 
             st.markdown("---")
             st.subheader("🔍 Revisar Comprobante de Pago")
-
-            st.markdown("### 🔄 Actualización de datos (reprogramaciones)")
-
-            col_r1, col_r2 = st.columns([1, 3])
-            with col_r1:
-                if st.button("🔄 Recargar pedidos", use_container_width=True):
-                    if allow_refresh("refresh_admin_tab1"):
-                        force_reload_pedidos_and_refresh_pendientes()
-                        st.session_state.pop("select_pedido_comprobante", None)
-                        st.session_state.pop("select_pedido_local_no_pagado", None)
-                        st.session_state.pop("pedido_select_source", None)
-                        st.toast(
-                            "✅ Pedidos recargados: la nueva Fecha_Entrega ya debe verse",
-                            icon="✅"
-                        )
-                        time.sleep(0.2)
-                        rerun_current_tab()
-
-            with col_r2:
-                st.caption(
-                    "Úsalo si Bodega reprogramó un pedido (cambió Fecha_Entrega) "
-                    "y aún no se refleja aquí."
-                )
 
             # Opciones de selección (TODOS)
             if pedidos_pagados_no_confirmados.empty:
@@ -3445,6 +3414,7 @@ with tab2:
                 st.session_state["tab2_reload_nonce"] += 1
                 cargar_confirmados_guardados_cached.clear()
                 st.toast("Datos recargados", icon="🔄")
+                force_reload_pedidos_and_refresh_pendientes()
                 rerun_current_tab()
 
             except gspread.exceptions.APIError as e:
@@ -4714,6 +4684,7 @@ with tab3, suppress(StopException):
         if ok_all and is_dev:
             tab3_alert.success("✅ Confirmación guardada.")
             st.toast("Confirmación guardada", icon="✅")
+            force_reload_pedidos_and_refresh_pendientes()
 
             try:
                 with st.spinner("Generando formato de devolución..."):
@@ -4783,6 +4754,7 @@ with tab3, suppress(StopException):
             st.session_state["tab3_reload_nonce"] += 1
             get_raw_sheet_data_cached.clear()
             st.toast("Confirmación guardada", icon="✅")
+            force_reload_pedidos_and_refresh_pendientes()
             rerun_current_tab()
         else:
             tab3_alert.error("❌ Ocurrió un problema al guardar.")
