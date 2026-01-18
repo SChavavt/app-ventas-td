@@ -1472,10 +1472,6 @@ with tab1:
     tab1_is_active = default_tab == 0
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
-    if "pedido_submit_in_progress" not in st.session_state:
-        st.session_state["pedido_submit_in_progress"] = False
-    def reset_pedido_submit_flag() -> None:
-        st.session_state["pedido_submit_in_progress"] = False
     st.header("📝 Nuevo Pedido")
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
@@ -1552,8 +1548,6 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
-    submit_disabled = st.session_state.get("pedido_submit_in_progress", False)
-
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
@@ -1755,14 +1749,9 @@ with tab1:
             render_uploaded_files_preview("Evidencias seleccionadas", comprobante_cliente)
 
         # AL FINAL DEL FORMULARIO: botón submit
-        submit_button = st.form_submit_button(
-            "✅ Registrar Pedido",
-            disabled=submit_disabled,
-        )
+        submit_button = st.form_submit_button("✅ Registrar Pedido")
 
-    should_process_submission = submit_button and not submit_disabled
-    if submit_button and not submit_disabled:
-        st.session_state["pedido_submit_in_progress"] = True
+    should_process_submission = submit_button
 
     if not registrar_nota_venta:
         nota_venta = ""
@@ -1829,7 +1818,6 @@ with tab1:
 
                 clear_app_caches()
                 st.session_state.pop("pedido_submission_status", None)
-                reset_pedido_submit_flag()
                 st.rerun()
 
     # -------------------------------
@@ -2062,7 +2050,6 @@ with tab1:
         try:
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
-                reset_pedido_submit_flag()
                 st.stop()
 
             pedido_sin_adjuntos = not (
@@ -2093,7 +2080,6 @@ with tab1:
                 "🎓 Cursos y Eventos",
             ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
-                reset_pedido_submit_flag()
                 st.stop()
 
             # Acceso a la hoja
@@ -2107,7 +2093,6 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             "No fue posible acceder a la hoja de casos especiales.",
                         )
-                        reset_pedido_submit_flag()
                         st.rerun()
 
                     headers = worksheet.row_values(1)
@@ -2125,7 +2110,6 @@ with tab1:
                                 "❌ Falla al subir el pedido.",
                                 f"No se pudieron preparar las columnas de direcciones: {header_error}",
                             )
-                            reset_pedido_submit_flag()
                             st.rerun()
                 else:
                     worksheet = get_worksheet()
@@ -2135,7 +2119,6 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             "No fue posible acceder a la hoja de pedidos.",
                         )
-                        reset_pedido_submit_flag()
                         st.rerun()
                     headers = worksheet.row_values(1)
                     required_headers = []
@@ -2155,7 +2138,6 @@ with tab1:
                                     "❌ Falla al subir el pedido.",
                                     f"No se pudieron preparar las columnas de direcciones: {header_error}",
                                 )
-                                reset_pedido_submit_flag()
                                 st.rerun()
 
                 if not headers:
@@ -2164,7 +2146,6 @@ with tab1:
                         "❌ Falla al subir el pedido.",
                         "La hoja de cálculo está vacía.",
                     )
-                    reset_pedido_submit_flag()
                     st.rerun()
 
                 # Hora local de CDMX para ID y Hora_Registro
@@ -2186,7 +2167,6 @@ with tab1:
                         "❌ Falla al subir el pedido.",
                         f"Error al acceder a Google Sheets: {e}",
                     )
-                    reset_pedido_submit_flag()
                     st.rerun()
 
             adjuntos_urls = []
@@ -2221,7 +2201,6 @@ with tab1:
                     message="❌ No se pudieron subir los archivos del pedido.",
                     detail=str(e),
                 )
-                reset_pedido_submit_flag()
                 st.stop()
 
             adjuntos_str = ", ".join(adjuntos_urls)
@@ -2385,7 +2364,6 @@ with tab1:
                     "❌ Falla al subir el pedido.",
                     "No se encontró la columna ID_Pedido en la hoja.",
                 )
-                reset_pedido_submit_flag()
                 st.stop()
 
             try:
@@ -2401,7 +2379,6 @@ with tab1:
                     "❌ Falla al subir el pedido.",
                     f"Error al registrar el pedido: {e}",
                 )
-                reset_pedido_submit_flag()
                 st.rerun()
 
             reset_tab1_form_state()
@@ -2415,7 +2392,6 @@ with tab1:
                 attachments=adjuntos_urls,
                 missing_attachments_warning=pedido_sin_adjuntos,
             )
-            reset_pedido_submit_flag()
             if tab1_is_active and st.session_state.get("current_tab_index") == 0:
                 st.query_params.update({"tab": "0"})
             st.rerun()
@@ -2426,7 +2402,6 @@ with tab1:
                 "❌ Falla al subir el pedido.",
                 f"Error inesperado al registrar el pedido: {e}",
             )
-            reset_pedido_submit_flag()
             st.rerun()
 
 
