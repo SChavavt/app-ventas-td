@@ -1799,9 +1799,13 @@ with tab1:
 
             def _use_main() -> None:
                 st.session_state["pedido_select_source"] = "main"
+                clear_comprobante_form_state()
+                st.session_state.pop("last_selected_pedido_key", None)
 
             def _use_np() -> None:
                 st.session_state["pedido_select_source"] = "np"
+                clear_comprobante_form_state()
+                st.session_state.pop("last_selected_pedido_key", None)
 
             pedidos_pagados_no_confirmados["display_label"] = (
                 pedidos_pagados_no_confirmados.apply(
