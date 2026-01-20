@@ -853,17 +853,26 @@ def append_row_with_confirmation(
     last_error = None
     for attempt in range(retries):
         try:
-            existing_rows = len(worksheet.get_all_values()) + 1
+            existing_values = worksheet.get_all_values()
+            if any(
+                len(row) > id_col_index and row[id_col_index] == pedido_id
+                for row in existing_values
+            ):
+                return True
+            existing_rows = len(existing_values) + 1
             ensure_worksheet_capacity(existing_rows)
 
             worksheet.append_row(values, value_input_option="USER_ENTERED")
             time.sleep(1 + attempt * 0.5)
 
             appended_row = worksheet.row_values(existing_rows)
-            # Nota técnica: si se requieren garantías adicionales en escenarios
-            # de alta concurrencia, se puede buscar el pedido_id en varias
-            # filas recientes en lugar de solo la última.
             if len(appended_row) > id_col_index and appended_row[id_col_index] == pedido_id:
+                return True
+            recent_values = worksheet.get_all_values()[-20:]
+            if any(
+                len(row) > id_col_index and row[id_col_index] == pedido_id
+                for row in recent_values
+            ):
                 return True
             raise Exception("La escritura no se confirmó")
         except Exception as e:
@@ -1749,9 +1758,14 @@ with tab1:
             render_uploaded_files_preview("Evidencias seleccionadas", comprobante_cliente)
 
         # AL FINAL DEL FORMULARIO: botón submit
-        submit_button = st.form_submit_button("✅ Registrar Pedido")
+        submit_button = st.form_submit_button(
+            "✅ Registrar Pedido",
+            disabled=st.session_state.get("pedido_submit_disabled", False),
+        )
 
     should_process_submission = submit_button
+    if submit_button:
+        st.session_state["pedido_submit_disabled"] = True
 
     if not registrar_nota_venta:
         nota_venta = ""
@@ -1818,6 +1832,7 @@ with tab1:
 
                 clear_app_caches()
                 st.session_state.pop("pedido_submission_status", None)
+                st.session_state["pedido_submit_disabled"] = False
                 st.rerun()
 
     # -------------------------------
