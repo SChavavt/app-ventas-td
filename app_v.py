@@ -1766,6 +1766,7 @@ with tab1:
     should_process_submission = submit_button
     if submit_button:
         st.session_state["pedido_submit_disabled"] = True
+        st.session_state["pedido_submit_disabled_at"] = time.time()
 
     if not registrar_nota_venta:
         nota_venta = ""
@@ -1809,7 +1810,7 @@ with tab1:
                     error_message = f"{error_message}\n\n🔍 Detalle: {detail}"
                 st.error(error_message)
 
-            if st.button("Aceptar", key="acknowledge_pedido_status"):
+            def reset_pedido_submit_state():
                 preserved_keys = {
                     key: st.session_state[key]
                     for key in [
@@ -1833,7 +1834,15 @@ with tab1:
                 clear_app_caches()
                 st.session_state.pop("pedido_submission_status", None)
                 st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
                 st.rerun()
+
+            disabled_at = st.session_state.get("pedido_submit_disabled_at")
+            if disabled_at and time.time() - disabled_at >= 5:
+                reset_pedido_submit_state()
+
+            if st.button("Aceptar", key="acknowledge_pedido_status"):
+                reset_pedido_submit_state()
 
     # -------------------------------
     # SECCIÓN DE ESTADO DE PAGO (FUERA DEL FORM) - sin cambios
