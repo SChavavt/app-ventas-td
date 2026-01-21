@@ -1073,6 +1073,7 @@ except KeyError as e:
     st.stop() # Detiene la ejecución de la app si no se encuentran las credenciales
 
 S3_ATTACHMENT_PREFIX = 'adjuntos_pedidos/'
+INLINE_EXT = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
 
 
 def _coerce_secret_bool(value) -> bool:
@@ -1204,19 +1205,53 @@ def get_files_in_s3_prefix(s3_client_instance, prefix): # Acepta s3_client_insta
         st.error(f"❌ Error al obtener archivos del prefijo S3 '{prefix}': {e}")
         return []
 
-def get_s3_file_download_url(s3_client_instance, object_key): # Acepta s3_client_instance
-    if not object_key:
+def extract_s3_key(object_key_or_url: str) -> str:
+    if not object_key_or_url:
+        return ""
+
+    raw_value = str(object_key_or_url).strip()
+    if not raw_value:
+        return ""
+
+    if S3_PUBLIC_BASE_URL and raw_value.startswith(S3_PUBLIC_BASE_URL):
+        raw_value = raw_value[len(S3_PUBLIC_BASE_URL):]
+
+    if "://" in raw_value:
+        parsed_url = urlparse(raw_value)
+        raw_value = parsed_url.path
+
+    return unquote(raw_value).lstrip("/")
+
+
+def get_s3_file_download_url(s3_client_instance, object_key_or_url, expires_in=3600): # Acepta s3_client_instance
+    clean_key = extract_s3_key(object_key_or_url)
+    if not clean_key:
         return "#"
 
-    key_path = str(object_key).lstrip("/")
-    if not key_path:
+    if not s3_client_instance:
+        st.error("❌ No se pudo construir la URL de S3 porque el cliente no está disponible.")
         return "#"
 
-    if S3_PUBLIC_BASE_URL:
-        return f"{S3_PUBLIC_BASE_URL}/{key_path}"
+    params = {"Bucket": S3_BUCKET_NAME, "Key": clean_key}
+    clean_key_lower = clean_key.lower()
 
-    st.error("❌ No se pudo construir una URL pública de S3 porque falta la configuración base.")
-    return "#"
+    if clean_key_lower.endswith(INLINE_EXT):
+        filename = clean_key.split("/")[-1] or "archivo"
+        params["ResponseContentDisposition"] = f'inline; filename="{filename}"'
+        if clean_key_lower.endswith(".pdf"):
+            params["ResponseContentType"] = "application/pdf"
+        elif clean_key_lower.endswith((".jpg", ".jpeg")):
+            params["ResponseContentType"] = "image/jpeg"
+        elif clean_key_lower.endswith(".png"):
+            params["ResponseContentType"] = "image/png"
+        elif clean_key_lower.endswith(".webp"):
+            params["ResponseContentType"] = "image/webp"
+
+    return s3_client_instance.generate_presigned_url(
+        "get_object",
+        Params=params,
+        ExpiresIn=expires_in,
+    )
 
 
 def clasificar_archivos_adjuntos(files: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
@@ -1265,14 +1300,22 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
     """
     try:
         file_obj.seek(0)  # Rebobina el archivo para iniciar la carga desde el inicio
-        extra_args = {"ACL": "public-read"} if S3_USE_PERMANENT_URLS else None
+        s3_key_lower = str(s3_key).lower()
+        content_disposition = "inline" if s3_key_lower.endswith(INLINE_EXT) else "attachment"
+        extra_args = {"ContentDisposition": content_disposition}
+        content_type = getattr(file_obj, "type", None)
+        if content_type:
+            extra_args["ContentType"] = content_type
+        if S3_USE_PERMANENT_URLS:
+            extra_args["ACL"] = "public-read"
         if extra_args:
             try:
                 s3_client.upload_fileobj(file_obj, bucket_name, s3_key, ExtraArgs=extra_args)
             except ClientError as err:
                 if _is_acl_not_supported_error(err):
                     file_obj.seek(0)
-                    s3_client.upload_fileobj(file_obj, bucket_name, s3_key)
+                    extra_args.pop("ACL", None)
+                    s3_client.upload_fileobj(file_obj, bucket_name, s3_key, ExtraArgs=extra_args)
                 else:
                     raise
         else:
