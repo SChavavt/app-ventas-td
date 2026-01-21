@@ -1540,7 +1540,7 @@ with tab1:
     nombre_responsable = ""
     monto_devuelto = 0.0
     comprobante_cliente = None
-    aplica_pago = "No"
+    aplica_pago = False
 
     # Variables Garantía
     g_resultado_esperado = ""
@@ -1594,13 +1594,9 @@ with tab1:
                 help="Indica el estatus de la factura original asociada al pedido devuelto."
             )
 
-            aplica_pago = st.radio(
+            aplica_pago = st.checkbox(
                 "✅ Aplica pago (Cobranza debe revisar el comprobante)",
-                options=["Sí", "No"],
-                index=1,
-                horizontal=True,
-                key="aplica_pago_selector",
-                help="Se llena este campo cuando el cliente va pagar alguna diferencia.",
+                key="aplica_pago_checkbox",
             )
 
             # 🆕 NUEVO: Folio Error arriba del folio normal
@@ -1683,7 +1679,7 @@ with tab1:
         # --- Campos adicionales para Garantía ---
         if tipo_envio == "🛠 Garantía":
             st.markdown("### 🛠 Información de Garantía")
-            aplica_pago = "No"
+            aplica_pago = False
 
             g_resultado_esperado = st.selectbox(
                 "🎯 Resultado Esperado",
@@ -1736,7 +1732,7 @@ with tab1:
                 key="direccion_envio_destino",
             )
         else:
-            aplica_pago = "No"
+            aplica_pago = False
 
         st.markdown("---")
         st.subheader("📎 Adjuntos del Pedido")
@@ -2284,7 +2280,7 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Aplica_Pago":
-                    values.append("Sí" if aplica_pago == "Sí" else "No")
+                    values.append("Sí" if aplica_pago else "")
                 elif header == "Fecha_Pago_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
