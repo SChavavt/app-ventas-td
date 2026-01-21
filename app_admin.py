@@ -19,7 +19,7 @@ from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import os
 import uuid
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, quote
 from contextlib import suppress
 from streamlit.runtime.scriptrunner import StopException
 import numbers
@@ -4918,6 +4918,31 @@ with tab4:
                 out.append(u)
         return out
 
+    def _build_document_links(value: str) -> str:
+        urls = _normalize_urls(value)
+        if not urls:
+            return ""
+        if len(urls) == 1:
+            return urls[0]
+        items = []
+        for i, url in enumerate(urls, start=1):
+            parsed = urlparse(url)
+            filename = unquote(os.path.basename(parsed.path)) if parsed.path else ""
+            label = filename or f"Documento {i}"
+            safe_url = html.escape(url, quote=True)
+            safe_label = html.escape(label)
+            items.append(
+                f'<li><a href="{safe_url}" target="_blank" rel="noopener noreferrer">{safe_label}</a></li>'
+            )
+        html_doc = (
+            "<!doctype html><html><head><meta charset=\"utf-8\">"
+            "<title>Documentos</title></head><body>"
+            "<h3>Documentos</h3><ol>"
+            + "".join(items)
+            + "</ol></body></html>"
+        )
+        return f"data:text/html;charset=utf-8,{quote(html_doc)}"
+
     # ------- Derivados de enlaces y campos mínimos -------
     for c in [
         "Adjuntos", "Hoja_Ruta_Mensajero", "Nota_Credito_URL",
@@ -5039,9 +5064,24 @@ with tab4:
 
     st.success(f"✅ {len(df_view)} casos listados (últimos primero).")
 
+    df_view_table = df_view.copy()
+    if "Link_Doc_Adicional" in df_view_table.columns:
+        df_view_table["Link_Doc_Adicional"] = df_view_table["Link_Doc_Adicional"].apply(
+            _build_document_links
+        )
+
+    column_config = {}
+    if "Link_Doc_Adicional" in df_view_table.columns:
+        column_config["Link_Doc_Adicional"] = st.column_config.LinkColumn(
+            "Link_Doc_Adicional",
+            display_text="Abrir documentos",
+        )
+
     st.dataframe(
-        df_view[columnas_existentes],
-        use_container_width=True, hide_index=True
+        df_view_table[columnas_existentes],
+        use_container_width=True,
+        hide_index=True,
+        column_config=column_config or None,
     )
 
     # ------- Descargar Excel -------
