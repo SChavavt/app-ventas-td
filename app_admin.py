@@ -758,6 +758,17 @@ def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
     return results
 
 
+def normalize_adjuntos_urls(urls: list[str], s3_client_instance) -> list[str]:
+    """Normaliza URLs de adjuntos, regenerando enlaces S3 cuando aplica."""
+    normalized: list[str] = []
+    for url in urls:
+        if is_s3_url(url):
+            normalized.append(get_s3_file_download_url(s3_client_instance, url))
+        else:
+            normalized.append(url)
+    return normalized
+
+
 def clean_cell_text(value) -> str:
     """Normaliza valores hacia cadenas limpias para escritura en Google Sheets."""
     if value is None:
@@ -849,6 +860,8 @@ def resolve_adjuntos_link(
 
     if not urls:
         return "", False
+
+    urls = normalize_adjuntos_urls(urls, s3_client_instance)
 
     if len(urls) == 1:
         return urls[0], True
@@ -1223,6 +1236,32 @@ def extract_s3_key(object_key_or_url: str) -> str:
     return unquote(raw_value).lstrip("/")
 
 
+def is_s3_url(value: str) -> bool:
+    """Valida si una URL pertenece al bucket S3 configurado."""
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return False
+    if S3_PUBLIC_BASE_URL and raw_value.startswith(S3_PUBLIC_BASE_URL):
+        return True
+
+    if "://" not in raw_value:
+        return False
+
+    parsed = urlparse(raw_value)
+    netloc = parsed.netloc.lower()
+    path = parsed.path.lower()
+    bucket_lower = (S3_BUCKET_NAME or "").lower()
+
+    if bucket_lower and bucket_lower in netloc:
+        return True
+    if "amazonaws.com" in netloc:
+        if bucket_lower and f"/{bucket_lower}/" in path:
+            return True
+        if netloc.startswith(("s3.", "s3-")):
+            return True
+    return False
+
+
 def get_s3_file_download_url(s3_client_instance, object_key_or_url, expires_in=3600): # Acepta s3_client_instance
     clean_key = extract_s3_key(object_key_or_url)
     if not clean_key:
@@ -1231,6 +1270,10 @@ def get_s3_file_download_url(s3_client_instance, object_key_or_url, expires_in=3
     if not s3_client_instance:
         st.error("❌ No se pudo construir la URL de S3 porque el cliente no está disponible.")
         return "#"
+
+    if S3_USE_PERMANENT_URLS and S3_PUBLIC_BASE_URL:
+        safe_key = quote(clean_key, safe="/")
+        return f"{S3_PUBLIC_BASE_URL}/{safe_key}"
 
     params = {"Bucket": S3_BUCKET_NAME, "Key": clean_key}
     clean_key_lower = clean_key.lower()
