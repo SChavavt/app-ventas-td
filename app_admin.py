@@ -758,6 +758,17 @@ def extract_comprobante_urls_from_adjuntos(value) -> list[str]:
     return results
 
 
+def normalize_adjuntos_urls(urls: list[str], s3_client_instance) -> list[str]:
+    """Normaliza URLs de adjuntos, regenerando enlaces S3 cuando aplica."""
+    normalized: list[str] = []
+    for url in urls:
+        if is_s3_url(url):
+            normalized.append(get_s3_file_download_url(s3_client_instance, url))
+        else:
+            normalized.append(url)
+    return normalized
+
+
 def clean_cell_text(value) -> str:
     """Normaliza valores hacia cadenas limpias para escritura en Google Sheets."""
     if value is None:
@@ -849,6 +860,8 @@ def resolve_adjuntos_link(
 
     if not urls:
         return "", False
+
+    urls = normalize_adjuntos_urls(urls, s3_client_instance)
 
     if len(urls) == 1:
         return urls[0], True
@@ -1223,6 +1236,32 @@ def extract_s3_key(object_key_or_url: str) -> str:
     return unquote(raw_value).lstrip("/")
 
 
+def is_s3_url(value: str) -> bool:
+    """Valida si una URL pertenece al bucket S3 configurado."""
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return False
+    if S3_PUBLIC_BASE_URL and raw_value.startswith(S3_PUBLIC_BASE_URL):
+        return True
+
+    if "://" not in raw_value:
+        return False
+
+    parsed = urlparse(raw_value)
+    netloc = parsed.netloc.lower()
+    path = parsed.path.lower()
+    bucket_lower = (S3_BUCKET_NAME or "").lower()
+
+    if bucket_lower and bucket_lower in netloc:
+        return True
+    if "amazonaws.com" in netloc:
+        if bucket_lower and f"/{bucket_lower}/" in path:
+            return True
+        if netloc.startswith(("s3.", "s3-")):
+            return True
+    return False
+
+
 def get_s3_file_download_url(s3_client_instance, object_key_or_url, expires_in=3600): # Acepta s3_client_instance
     clean_key = extract_s3_key(object_key_or_url)
     if not clean_key:
@@ -1231,6 +1270,10 @@ def get_s3_file_download_url(s3_client_instance, object_key_or_url, expires_in=3
     if not s3_client_instance:
         st.error("❌ No se pudo construir la URL de S3 porque el cliente no está disponible.")
         return "#"
+
+    if S3_USE_PERMANENT_URLS and S3_PUBLIC_BASE_URL:
+        safe_key = quote(clean_key, safe="/")
+        return f"{S3_PUBLIC_BASE_URL}/{safe_key}"
 
     params = {"Bucket": S3_BUCKET_NAME, "Key": clean_key}
     clean_key_lower = clean_key.lower()
@@ -3339,9 +3382,49 @@ with tab2:
                             return ""
                         return valores.get(column, "")
 
+                    spreadsheet = get_spreadsheet(GOOGLE_SHEET_ID)
+                    try:
+                        hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
+                    except gspread.exceptions.WorksheetNotFound:
+                        hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
+
                     link_adjuntos, link_adjuntos_mod, link_adjuntos_guia, link_refacturaciones = [], [], [], []
 
-                    for _, row in df_nuevos.iterrows():
+                    total_nuevos = len(df_nuevos)
+                    progress_bar = st.progress(0)
+                    progress_status = st.empty()
+                    last_flush_at = time.monotonic()
+
+                    def _flush_partial_confirmados(partial_count: int) -> None:
+                        if partial_count <= 0:
+                            return
+                        df_partial = df_nuevos.iloc[:partial_count].copy()
+                        df_partial["Link_Adjuntos"] = link_adjuntos[:partial_count]
+                        df_partial["Link_Adjuntos_Modificacion"] = link_adjuntos_mod[:partial_count]
+                        df_partial["Link_Adjuntos_Guia"] = link_adjuntos_guia[:partial_count]
+                        df_partial["Link_Refacturacion"] = link_refacturaciones[:partial_count]
+                        df_partial = df_partial.fillna("").astype(str)
+                        df_partial = df_partial.reindex(columns=columnas_objetivo_confirmados, fill_value="")
+
+                        df_existente_merge = df_confirmados_guardados.drop(columns=["__sheet_row"], errors="ignore")
+                        df_existente_merge = dedupe_confirmados(df_existente_merge)
+                        df_combined = pd.concat(
+                            [df_existente_merge, df_partial],
+                            ignore_index=True,
+                            sort=False,
+                        )
+                        df_combined = dedupe_confirmados(df_combined)
+                        df_combined = sync_estado_surtido_confirmados(df_combined, df_pedidos)
+                        df_combined = df_combined.reindex(columns=columnas_objetivo_confirmados, fill_value="")
+
+                        valores_actualizados = [columnas_objetivo_confirmados]
+                        if not df_combined.empty:
+                            valores_actualizados += df_combined.values.tolist()
+
+                        hoja_confirmados.clear()
+                        hoja_confirmados.update("A1", valores_actualizados, value_input_option="USER_ENTERED")
+
+                    for idx, (_, row) in enumerate(df_nuevos.iterrows(), start=1):
                         pedido_id = row.get("ID_Pedido")
                         tipo_envio = row.get("Tipo_Envio")
                         normalized_id = normalize_id_pedido(pedido_id)
@@ -3399,6 +3482,23 @@ with tab2:
                         link_adjuntos_guia.append(link_adjuntos_guia_value)
                         link_refacturaciones.append(link_refacturacion_value)
 
+                        progress_ratio = idx / total_nuevos if total_nuevos else 1
+                        progress_percent = int(progress_ratio * 100)
+                        progress_bar.progress(progress_ratio)
+                        progress_status.caption(
+                            f"Generando enlaces... {idx}/{total_nuevos} ({progress_percent}%)"
+                        )
+
+                        if time.monotonic() - last_flush_at >= 60:
+                            progress_status.caption(
+                                f"Guardando avance... {idx}/{total_nuevos} ({progress_percent}%)"
+                            )
+                            _flush_partial_confirmados(idx)
+                            last_flush_at = time.monotonic()
+
+                    progress_bar.progress(1.0)
+                    progress_status.empty()
+
                     df_nuevos["Link_Adjuntos"] = link_adjuntos
                     df_nuevos["Link_Adjuntos_Modificacion"] = link_adjuntos_mod
                     df_nuevos["Link_Adjuntos_Guia"] = link_adjuntos_guia
@@ -3443,12 +3543,6 @@ with tab2:
                     valores_actualizados = [columnas_finales]
                     if not df_guardar.empty:
                         valores_actualizados += df_guardar.values.tolist()
-
-                    spreadsheet = get_spreadsheet(GOOGLE_SHEET_ID)
-                    try:
-                        hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
-                    except gspread.exceptions.WorksheetNotFound:
-                        hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
 
                     hoja_confirmados.clear()
                     hoja_confirmados.update("A1", valores_actualizados, value_input_option="USER_ENTERED")
