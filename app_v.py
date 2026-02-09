@@ -2770,38 +2770,12 @@ with tab2:
                 return option_label_map.get(option_key, option_key)
 
             # ----------------- Selector de pedido -----------------
-            option_keys = list(option_label_map.keys())
-            locked_order_key = st.session_state.get("tab2_locked_order_key")
-            if locked_order_key and locked_order_key not in option_keys:
-                st.session_state.pop("tab2_locked_order_key", None)
-                locked_order_key = None
-                st.warning(
-                    "⚠️ El pedido bloqueado ya no está disponible con los filtros actuales. "
-                    "Selecciona el pedido nuevamente."
-                )
-
-            if locked_order_key:
-                selected_index = option_keys.index(locked_order_key)
-            else:
-                selected_index = 0
-
             selected_option_key = st.selectbox(
                 "📝 Seleccionar Pedido para Modificar",
-                option_keys,
+                list(option_label_map.keys()),
                 format_func=_format_option,
-                key="select_order_to_modify",
-                index=selected_index,
-                disabled=bool(locked_order_key),
+                key="select_order_to_modify"
             )
-
-            if locked_order_key:
-                if st.button("🔓 Cambiar pedido"):
-                    st.session_state.pop("tab2_locked_order_key", None)
-                    st.rerun()
-            else:
-                if st.button("🔒 Confirmar pedido"):
-                    st.session_state["tab2_locked_order_key"] = selected_option_key
-                    st.rerun()
 
             if selected_option_key:
                 matched = filtered_orders[
