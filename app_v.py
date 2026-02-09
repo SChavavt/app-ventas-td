@@ -2746,7 +2746,6 @@ with tab2:
             filtered_orders['display_label'] = filtered_orders.apply(
                 lambda row: (
                     f"📄 {(_s(row['Folio_Factura']) or 'Sin Folio')}"
-                    f" | ID {(_s(row.get('ID_Pedido', '')) or 'S/I')}"
                     f" - {_s(row['Cliente'])}"
                     f" - {_s(row['Estado'])}"
                     f" - {_s(row['Tipo_Envio'])}"
@@ -2817,7 +2816,7 @@ with tab2:
                 else:
                     # ----------------- Detalles básicos (para datos_pedidos u otros) -----------------
                     st.subheader(
-                        f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')} (ID {selected_order_id})"
+                        f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')}"
                     )
 
                     fuente_display = (
