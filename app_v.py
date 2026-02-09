@@ -77,6 +77,7 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "estado_pago",
     "chk_doble",
     "chk_triple",
+    "confirmar_tipo_envio",
     "comprobante_uploader_final",
     "fecha_pago_input",
     "forma_pago_input",
@@ -1559,6 +1560,10 @@ with tab1:
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
+        confirmar_tipo_envio = st.checkbox(
+            f"✅ Confirmo el tipo de envío seleccionado: {tipo_envio}",
+            key="confirmar_tipo_envio",
+        )
 
         try:
             initial_vendedor_index = VENDEDORES_LIST.index(st.session_state.last_selected_vendedor)
@@ -2075,6 +2080,9 @@ with tab1:
     if should_process_submission:
         st.session_state.pop("pedido_submission_status", None)
         try:
+            if not confirmar_tipo_envio:
+                st.warning("⚠️ Confirma el tipo de envío seleccionado para continuar.")
+                st.stop()
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
                 st.stop()
