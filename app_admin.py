@@ -53,6 +53,8 @@ CDMX_TIMEZONE = ZoneInfo("America/Mexico_City")
 CONFIRMADOS_SYNC_COLUMN_MAP = {
     "Estado_Surtido_Almacen": "Estado_Surtido_Almacen",
     "Fecha_Entrega": "Fecha_Entrega",
+    "Modificacion_Surtido": "Modificacion_Surtido",
+    "Link_Adjuntos_Modificacion": "Link_Adjuntos_Modificacion",
     FECHA_CONFIRMADO_COL: FECHA_CONFIRMADO_COL,
     ESTADO_ENTREGA_COL: ESTADO_ENTREGA_COL,
 }
