@@ -188,18 +188,6 @@ def parse_sheet_row_number(value) -> Optional[int]:
     return candidate if candidate > 0 else None
 
 
-def extract_last_valid_url(value: object) -> str:
-    """Return the last non-empty URL from a comma/newline-separated string."""
-    if not isinstance(value, str):
-        return ""
-    parts = [part.strip() for part in re.split(r"[,\\n]+", value) if part.strip()]
-    for part in reversed(parts):
-        if part.lower() in {"nan", "none", "n/a"}:
-            continue
-        return part
-    return ""
-
-
 def load_sheet_records_with_row_numbers(worksheet):
     """Return DataFrame rows with their real Google Sheet indices preserved."""
 
@@ -3720,7 +3708,9 @@ def cargar_datos_guias_unificadas():
     if not df_a.empty:
         df_a["Fuente"] = "datos_pedidos"
         df_a["URLs_Guia"] = df_a["Adjuntos_Guia"].astype(str)
-        df_a["Ultima_Guia"] = df_a["URLs_Guia"].apply(extract_last_valid_url)
+        df_a["Ultima_Guia"] = df_a["URLs_Guia"].apply(
+            lambda s: s.split(",")[-1].strip() if isinstance(s, str) and s.strip() else ""
+        )
 
     # ---------- B) casos_especiales ----------
     try:
@@ -3751,7 +3741,9 @@ def cargar_datos_guias_unificadas():
         else:
             df_b["Adjuntos_Guia"] = df_b["Hoja_Ruta_Mensajero"].astype(str)
             df_b["URLs_Guia"] = df_b["Adjuntos_Guia"]
-            df_b["Ultima_Guia"] = df_b["URLs_Guia"].apply(extract_last_valid_url)
+            df_b["Ultima_Guia"] = df_b["URLs_Guia"].apply(
+                lambda s: s.split(",")[-1].strip() if isinstance(s, str) and s.strip() else ""
+            )
 
             def _infer_tipo_envio(row):
                 t_env = str(row.get("Tipo_Envio","")).strip()
