@@ -3691,8 +3691,9 @@ def fijar_tab5_activa():
         st.query_params.update({"tab": "4"})
 
 @st.cache_data(ttl=60)
-def cargar_datos_guias_unificadas():
+def cargar_datos_guias_unificadas(refresh_token: float | None = None):
     # ---------- A) datos_pedidos ----------
+    _ = refresh_token
     ws_ped = get_worksheet()
     df_ped = pd.DataFrame(ws_ped.get_all_records())
 
@@ -3791,15 +3792,13 @@ with tab5:
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
     if st.button("🔄 Actualizar guías"):
-        if allow_refresh("guias_last_refresh"):
-            cargar_datos_guias_unificadas.clear()
-            get_worksheet.clear()
-            if hasattr(get_worksheet_casos_especiales, "clear"):
-                get_worksheet_casos_especiales.clear()
-            st.rerun()
+        if allow_refresh("guias_last_refresh", cooldown=15):
+            st.session_state["guias_refresh_token"] = time.time()
 
     try:
-        df_guias = cargar_datos_guias_unificadas()
+        df_guias = cargar_datos_guias_unificadas(
+            st.session_state.get("guias_refresh_token")
+        )
     except Exception as e:
         st.error(f"❌ Error al cargar datos de guías: {e}")
         df_guias = pd.DataFrame()
