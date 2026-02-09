@@ -2776,11 +2776,6 @@ with tab2:
             )
 
             if selected_option_key:
-                if st.session_state.get("tab2_selected_option_key") != selected_option_key:
-                    st.session_state["tab2_selected_option_key"] = selected_option_key
-                    st.session_state["tab2_confirm_order"] = False
-                    st.session_state.pop("new_modificacion_surtido_input", None)
-
                 matched = filtered_orders[
                     filtered_orders['option_value'] == selected_option_key
                 ].iloc[0]
@@ -2953,22 +2948,12 @@ with tab2:
                         key="uploaded_comprobantes_extra"
                     )
 
-                    confirm_order = st.checkbox(
-                        "✅ Confirmo que el pedido/cliente mostrado es el correcto",
-                        key="tab2_confirm_order"
-                    )
-
                     # Botón para procesar la modificación del pedido
                     modify_button = st.form_submit_button("✅ Procesar Modificación")
                     feedback_slot = st.empty()
 
                     if modify_button:
                         feedback_slot.empty()
-                        if not confirm_order:
-                            feedback_slot.error(
-                                "⚠️ Confirma que el pedido y cliente son correctos antes de procesar la modificación."
-                            )
-                            st.stop()
                         if not new_modificacion_surtido_input.strip():
                             feedback_slot.empty()
                             feedback_slot.error(
