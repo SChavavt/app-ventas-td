@@ -521,7 +521,8 @@ _gsheets_client = None
 
 
 @st.cache_resource
-def get_google_sheets_client():
+def get_google_sheets_client(refresh_token: float | None = None):
+    _ = refresh_token
     def try_get_client():
         credentials_json_str = st.secrets["google_credentials"]
         creds_dict = json.loads(credentials_json_str)
@@ -555,8 +556,8 @@ def get_google_sheets_client():
     return None
 
 @st.cache_resource
-def get_worksheet():
-    client = get_google_sheets_client()
+def get_worksheet(refresh_token: float | None = None):
+    client = get_google_sheets_client(refresh_token)
     if client is None:
         return None
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
@@ -3691,9 +3692,10 @@ def fijar_tab5_activa():
         st.query_params.update({"tab": "4"})
 
 @st.cache_data(ttl=60)
-def cargar_datos_guias_unificadas():
+def cargar_datos_guias_unificadas(refresh_token: float | None = None):
     # ---------- A) datos_pedidos ----------
-    ws_ped = get_worksheet()
+    _ = refresh_token
+    ws_ped = get_worksheet(refresh_token)
     df_ped = pd.DataFrame(ws_ped.get_all_records())
 
     if df_ped.empty:
@@ -3791,15 +3793,13 @@ with tab5:
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
     if st.button("🔄 Actualizar guías"):
-        if allow_refresh("guias_last_refresh"):
-            cargar_datos_guias_unificadas.clear()
-            get_worksheet.clear()
-            if hasattr(get_worksheet_casos_especiales, "clear"):
-                get_worksheet_casos_especiales.clear()
-            st.rerun()
+        if allow_refresh("guias_last_refresh", cooldown=15):
+            st.session_state["guias_refresh_token"] = time.time()
 
     try:
-        df_guias = cargar_datos_guias_unificadas()
+        df_guias = cargar_datos_guias_unificadas(
+            st.session_state.get("guias_refresh_token")
+        )
     except Exception as e:
         st.error(f"❌ Error al cargar datos de guías: {e}")
         df_guias = pd.DataFrame()
