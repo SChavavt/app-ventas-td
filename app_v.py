@@ -2805,7 +2805,7 @@ with tab2:
                 else:
                     # ----------------- Detalles básicos (para datos_pedidos u otros) -----------------
                     st.subheader(
-                        f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')} (ID {selected_order_id})"
+                        f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')}"
                     )
 
                     fuente_display = (
