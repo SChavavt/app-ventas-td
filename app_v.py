@@ -1762,13 +1762,8 @@ with tab1:
             render_uploaded_files_preview("Evidencias seleccionadas", comprobante_cliente)
 
         # Confirmación antes de registrar
-        confirmation_detail = ""
-        if tipo_envio == "📍 Pedido Local":
-            turno_local = subtipo_local if subtipo_local else "Sin turno"
-            confirmation_detail = f" | Turno: {turno_local}"
-
         confirmar_tipo_envio = st.checkbox(
-            f"✅ Confirmo el tipo de envío seleccionado: {tipo_envio}{confirmation_detail}",
+            f"✅ Confirmo el tipo de envío seleccionado: {tipo_envio}",
             key="confirmar_tipo_envio",
         )
 
