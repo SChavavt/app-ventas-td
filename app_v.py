@@ -4055,11 +4055,7 @@ with tab5:
                 f"🔔 Nuevas guías detectadas: {nuevas}",
                 icon="📦"
             )
-        elif id_vendedor_sesion and current_count > 0:
-            st.info(
-                f"📌 Tienes {current_count} pedido(s) con guía cargada en esta sesión para el ID vendedor {id_vendedor_sesion}."
-            )
-        elif id_vendedor_sesion:
+        elif id_vendedor_sesion and current_count == 0:
             st.caption(
                 f"Sin nuevas guías detectadas aún para el ID vendedor {id_vendedor_sesion}."
             )
