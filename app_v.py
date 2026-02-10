@@ -1480,7 +1480,7 @@ tabs_labels = [
     "🛒 Registrar Nuevo Pedido",
     "✏️ Modificar Pedido Existente",
     "🧾 Pedidos Pendientes de Comprobante",
-    "🗂 Casos Especiales",
+    "📁 Casos Especiales",
     "📦 Guías Cargadas",
     "⏳ Pedidos No Entregados",
     "⬇️ Descargar Datos",
@@ -3687,7 +3687,7 @@ with tab4:
     tab4_is_active = default_tab == 3
     if tab4_is_active:
         st.session_state["current_tab_index"] = 3
-    st.header("🗂 Casos Especiales")
+    st.header("📁 Casos Especiales")
 
     try:
         df_casos = cargar_casos_especiales()
