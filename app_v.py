@@ -1056,6 +1056,12 @@ if id_vendedor_sesion_global:
 def normalizar(texto):
     return unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
 
+
+def normalizar_busqueda_libre(texto: object) -> str:
+    """Normaliza texto para búsquedas flexibles ignorando espacios."""
+    return normalizar(str(texto or "")).replace(" ", "")
+
+@st.cache_data(ttl=300)
 def obtener_prefijo_s3(pedido_id):
     posibles_prefijos = [
         f"{pedido_id}/", f"adjuntos_pedidos/{pedido_id}/",
@@ -1070,6 +1076,7 @@ def obtener_prefijo_s3(pedido_id):
             continue
     return None
 
+@st.cache_data(ttl=300)
 def obtener_archivos_pdf_validos(prefix):
     try:
         respuesta = s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME, Prefix=prefix)
@@ -1079,6 +1086,7 @@ def obtener_archivos_pdf_validos(prefix):
         st.error(f"❌ Error al listar archivos en S3 para prefijo {prefix}: {e}")
         return []
 
+@st.cache_data(ttl=300)
 def obtener_todos_los_archivos(prefix):
     try:
         respuesta = s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME, Prefix=prefix)
@@ -1086,6 +1094,7 @@ def obtener_todos_los_archivos(prefix):
     except Exception:
         return []
 
+@st.cache_data(ttl=600)
 def extraer_texto_pdf(s3_key):
     try:
         response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
@@ -4592,6 +4601,7 @@ with tab8:
                 st.stop()
 
             cliente_normalizado = normalizar(criterio)
+            cliente_normalizado_sin_espacios = cliente_normalizado.replace(" ", "")
             criterio_minusculas = criterio.lower()
 
             # 1) datos_pedidos (S3 + archivos)
@@ -4603,7 +4613,13 @@ with tab8:
                 if not nombre and not folio_factura:
                     continue
                 nombre_normalizado = normalizar(nombre) if nombre else ""
-                coincide_cliente = bool(cliente_normalizado) and cliente_normalizado in nombre_normalizado
+                nombre_normalizado_sin_espacios = nombre_normalizado.replace(" ", "")
+                coincide_cliente = (
+                    bool(cliente_normalizado) and (
+                        cliente_normalizado in nombre_normalizado
+                        or (cliente_normalizado_sin_espacios and cliente_normalizado_sin_espacios in nombre_normalizado_sin_espacios)
+                    )
+                )
                 coincide_folio = bool(criterio_minusculas) and criterio_minusculas == folio_factura_minusculas
                 if not coincide_cliente and not coincide_folio:
                     continue
@@ -4660,7 +4676,13 @@ with tab8:
                 if not nombre and not folio_factura:
                     continue
                 nombre_normalizado = normalizar(nombre) if nombre else ""
-                coincide_cliente = bool(cliente_normalizado) and cliente_normalizado in nombre_normalizado
+                nombre_normalizado_sin_espacios = nombre_normalizado.replace(" ", "")
+                coincide_cliente = (
+                    bool(cliente_normalizado) and (
+                        cliente_normalizado in nombre_normalizado
+                        or (cliente_normalizado_sin_espacios and cliente_normalizado_sin_espacios in nombre_normalizado_sin_espacios)
+                    )
+                )
                 coincide_folio = bool(criterio_minusculas) and criterio_minusculas == folio_factura_minusculas
                 if not coincide_cliente and not coincide_folio:
                     continue
@@ -4720,6 +4742,11 @@ with tab8:
                 st.warning("⚠️ Ingresa una palabra clave o número de guía.")
                 st.stop()
 
+            clave_normalizada = normalizar_busqueda_libre(clave)
+            if not clave_normalizada:
+                st.warning("⚠️ Ingresa una palabra clave o número de guía válido.")
+                st.stop()
+
             for _, row in df_pedidos.iterrows():
                 pedido_id = str(row.get("ID_Pedido", "")).strip()
                 if not pedido_id:
@@ -4736,15 +4763,9 @@ with tab8:
                     key = archivo["Key"]
                     texto = extraer_texto_pdf(key)
 
-                    clave_sin_espacios = clave.replace(" ", "")
-                    texto_limpio = texto.replace(" ", "").replace("\n", "")
+                    texto_limpio = normalizar_busqueda_libre(texto)
 
-                    coincide = (
-                        clave in texto
-                        or clave_sin_espacios in texto_limpio
-                        or re.search(re.escape(clave), texto_limpio)
-                        or re.search(re.escape(clave_sin_espacios), texto_limpio)
-                    )
+                    coincide = clave_normalizada in texto_limpio
 
                     if coincide:
                         waybill_match = re.search(r"WAYBILL[\s:]*([0-9 ]{8,})", texto, re.IGNORECASE)
