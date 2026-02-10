@@ -188,6 +188,76 @@ def parse_sheet_row_number(value) -> Optional[int]:
     return candidate if candidate > 0 else None
 
 
+def normalize_vendedor_id(value: object) -> str:
+    """Normalize vendor IDs to compare them safely across sheets/sessions."""
+    return str(value or "").strip().upper()
+
+
+@st.cache_data(ttl=60)
+def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float | None = None) -> dict:
+    """Obtiene resumen de guías cargadas para mostrar aviso rápido en encabezado."""
+    _ = refresh_token
+    if not id_vendedor_norm:
+        return {"total": 0, "clientes": [], "keys": []}
+
+    try:
+        ws_ped = get_worksheet(refresh_token)
+        df_ped = pd.DataFrame(ws_ped.get_all_records())
+    except Exception:
+        df_ped = pd.DataFrame()
+
+    try:
+        ws_casos = get_worksheet_casos_especiales()
+        df_casos = pd.DataFrame(ws_casos.get_all_records())
+    except Exception:
+        df_casos = pd.DataFrame()
+
+    for col in ["id_vendedor", "Adjuntos_Guia", "Cliente", "ID_Pedido", "Folio_Factura"]:
+        if col not in df_ped.columns:
+            df_ped[col] = ""
+
+    for col in ["id_vendedor", "Hoja_Ruta_Mensajero", "Adjuntos_Guia", "Cliente", "ID_Pedido", "Folio_Factura"]:
+        if col not in df_casos.columns:
+            df_casos[col] = ""
+
+    df_ped = df_ped[
+        (df_ped["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_norm)
+        & (df_ped["Adjuntos_Guia"].astype(str).str.strip() != "")
+    ].copy()
+
+    df_casos = df_casos[
+        (df_casos["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_norm)
+        & (df_casos["Hoja_Ruta_Mensajero"].astype(str).str.strip() != "")
+    ].copy()
+
+    clientes = []
+    keys = []
+
+    for _, row in df_ped.iterrows():
+        cliente = str(row.get("Cliente", "")).strip()
+        if cliente:
+            clientes.append(cliente)
+        pedido_ref = str(row.get("ID_Pedido", "")).strip() or str(row.get("Folio_Factura", "")).strip()
+        guia_ref = str(row.get("Adjuntos_Guia", "")).strip()
+        if pedido_ref and guia_ref:
+            keys.append(f"datos_pedidos::{pedido_ref}::{guia_ref}")
+
+    for _, row in df_casos.iterrows():
+        cliente = str(row.get("Cliente", "")).strip()
+        if cliente:
+            clientes.append(cliente)
+        pedido_ref = str(row.get("ID_Pedido", "")).strip() or str(row.get("Folio_Factura", "")).strip()
+        guia_ref = str(row.get("Hoja_Ruta_Mensajero", "")).strip()
+        if pedido_ref and guia_ref:
+            keys.append(f"casos_especiales::{pedido_ref}::{guia_ref}")
+
+    return {
+        "total": int(len(df_ped) + len(df_casos)),
+        "clientes": list(dict.fromkeys(clientes)),
+        "keys": sorted(set(keys)),
+    }
+
+
 def load_sheet_records_with_row_numbers(worksheet):
     """Return DataFrame rows with their real Google Sheet indices preserved."""
 
@@ -955,6 +1025,31 @@ if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo n
 
 st.title("🛒 App de Vendedores TD")
 st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
+
+id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
+if id_vendedor_sesion_global:
+    resumen_guias = obtener_resumen_guias_vendedor(
+        id_vendedor_sesion_global,
+        st.session_state.get("guias_refresh_token"),
+    )
+    total_guias = int(resumen_guias.get("total", 0) or 0)
+    clientes_guias = resumen_guias.get("clientes", []) or []
+    current_home_keys = set(resumen_guias.get("keys", []) or [])
+    prev_home_keys_raw = st.session_state.get("home_guias_keys", [])
+    prev_home_keys = set(prev_home_keys_raw if isinstance(prev_home_keys_raw, list) else [])
+    nuevas_home_keys = sorted(current_home_keys - prev_home_keys)
+
+    if prev_home_keys and nuevas_home_keys:
+        st.warning(f"🔔 Aviso rápido: tienes {len(nuevas_home_keys)} guía(s) nueva(s).")
+
+    if total_guias > 0:
+        clientes_preview = ", ".join(clientes_guias[:2])
+        if len(clientes_guias) > 2:
+            clientes_preview = f"{clientes_preview} y {len(clientes_guias) - 2} más"
+        clientes_msg = f" Clientes: {clientes_preview}." if clientes_preview else ""
+        st.info(f"📦 Aviso: tienes {total_guias} pedido(s) con guía cargada.{clientes_msg}")
+
+    st.session_state["home_guias_keys"] = sorted(current_home_keys)
 
 def normalizar(texto):
     return unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
@@ -3710,7 +3805,7 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
         df_ped = pd.DataFrame()
 
     for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
-                "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia"]:
+                "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia","id_vendedor"]:
         if col not in df_ped.columns:
             df_ped[col] = ""
 
@@ -3733,11 +3828,11 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
         df_b = pd.DataFrame(columns=[
             "ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
             "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia",
-            "URLs_Guia","Ultima_Guia","Fuente"
+            "URLs_Guia","Ultima_Guia","Fuente","id_vendedor"
         ])
     else:
         for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
-                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Hoja_Ruta_Mensajero","Tipo_Caso"]:
+                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Hoja_Ruta_Mensajero","Tipo_Caso","id_vendedor"]:
             if col not in df_casos.columns:
                 df_casos[col] = ""
 
@@ -3746,7 +3841,7 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
             df_b = pd.DataFrame(columns=[
                 "ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
                 "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia",
-                "URLs_Guia","Ultima_Guia","Fuente"
+                "URLs_Guia","Ultima_Guia","Fuente","id_vendedor"
             ])
         else:
             df_b["Adjuntos_Guia"] = df_b["Hoja_Ruta_Mensajero"].astype(str)
@@ -3774,7 +3869,7 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
 
     columnas_finales = ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
                         "Fecha_Entrega","Hora_Registro","Folio_Factura",
-                        "Adjuntos_Guia","URLs_Guia","Ultima_Guia","Fuente"]
+                        "Adjuntos_Guia","URLs_Guia","Ultima_Guia","Fuente","id_vendedor"]
     df_a = df_a[columnas_finales] if not df_a.empty else pd.DataFrame(columns=columnas_finales)
     df_b = df_b[columnas_finales] if not df_b.empty else pd.DataFrame(columns=columnas_finales)
 
@@ -3799,6 +3894,8 @@ with tab5:
     if tab5_is_active:
         st.session_state["current_tab_index"] = 4
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
+
+    id_vendedor_sesion = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
 
     if st.button("🔄 Actualizar guías"):
         if allow_refresh("guias_last_refresh", cooldown=15):
@@ -3895,6 +3992,64 @@ with tab5:
             else:
                 fecha_filtro_tab5 = fecha_filtro_tab5 or st.session_state.get("filtro_fecha_guias", datetime.now().date())
                 df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date == fecha_filtro_tab5]
+
+        # Aviso de nuevas guías para pedidos de la sesión/vendedor actual
+        if "id_vendedor" not in df_guias.columns:
+            df_guias["id_vendedor"] = ""
+
+        df_guias = df_guias.copy()
+        df_guias["id_vendedor_norm"] = df_guias["id_vendedor"].apply(normalize_vendedor_id)
+        if id_vendedor_sesion:
+            df_guias_sesion = df_guias[df_guias["id_vendedor_norm"] == id_vendedor_sesion].copy()
+        else:
+            df_guias_sesion = pd.DataFrame(columns=df_guias.columns)
+
+        current_guias_map: Dict[str, str] = {}
+        if not df_guias_sesion.empty:
+            for _, row in df_guias_sesion.iterrows():
+                row_key = "::".join([
+                    str(row.get("Fuente", "")).strip(),
+                    str(row.get("ID_Pedido", "")).strip(),
+                    str(row.get("Ultima_Guia", "")).strip(),
+                ])
+                cliente = str(row.get("Cliente", "")).strip() or "Cliente sin nombre"
+                current_guias_map[row_key] = cliente
+
+        guias_signature = "|".join(sorted(current_guias_map.keys()))
+        prev_keys_raw = st.session_state.get("tab5_guias_keys", [])
+        prev_keys = set(prev_keys_raw if isinstance(prev_keys_raw, list) else [])
+        current_keys = set(current_guias_map.keys())
+        current_count = int(len(current_keys))
+        nuevas_keys = sorted(current_keys - prev_keys)
+
+        if id_vendedor_sesion and prev_keys and nuevas_keys:
+            nuevas = len(nuevas_keys)
+            clientes_nuevos = [current_guias_map.get(k, "Cliente sin nombre") for k in nuevas_keys]
+            clientes_unicos = list(dict.fromkeys(clientes_nuevos))
+            detalle_clientes = ", ".join(clientes_unicos[:3])
+            if len(clientes_unicos) > 3:
+                detalle_clientes = f"{detalle_clientes} y {len(clientes_unicos) - 3} más"
+
+            st.success(
+                f"🔔 Se cargaron {nuevas} guía(s) nueva(s) para tus pedidos (ID vendedor: {id_vendedor_sesion})."
+            )
+            st.info(f"👤 Clientes con nuevas guías: {detalle_clientes}.")
+            st.toast(
+                f"🔔 Nuevas guías detectadas: {nuevas}",
+                icon="📦"
+            )
+        elif id_vendedor_sesion and current_count > 0:
+            st.info(
+                f"📌 Tienes {current_count} pedido(s) con guía cargada en esta sesión para el ID vendedor {id_vendedor_sesion}."
+            )
+        elif id_vendedor_sesion:
+            st.caption(
+                f"Sin nuevas guías detectadas aún para el ID vendedor {id_vendedor_sesion}."
+            )
+
+        st.session_state["tab5_guias_signature"] = guias_signature
+        st.session_state["tab5_guias_count"] = current_count
+        st.session_state["tab5_guias_keys"] = sorted(current_keys)
 
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
