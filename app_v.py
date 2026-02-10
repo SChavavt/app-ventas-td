@@ -4368,6 +4368,9 @@ with tab7:
             return df, headers
         return pd.DataFrame(), []
 
+    df_all_pedidos = pd.DataFrame()
+    headers = []
+
     try:
         df_all_pedidos, headers = cargar_todos_los_pedidos()
     
@@ -4401,6 +4404,7 @@ with tab7:
     except Exception as e:
         st.error(f"❌ Error al cargar datos para descarga: {e}")
         st.info("Asegúrate de que la primera fila de tu Google Sheet contiene los encabezados esperados y que la API de Google Sheets está habilitada.")
+        st.stop()
 
     if df_all_pedidos.empty:
         st.info("No hay datos de pedidos para descargar.")
