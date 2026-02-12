@@ -3271,6 +3271,15 @@ with tab2:
                                         "values": [[""]],
                                     })
 
+                                if col_exists("Completados_Limpiado"):
+                                    cell_updates.append({
+                                        "range": rowcol_to_a1(
+                                            gsheet_row_index,
+                                            col_idx("Completados_Limpiado"),
+                                        ),
+                                        "values": [[""]],
+                                    })
+
                                 # 7) Registrar quién modificó el pedido
                                 id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
                                 if id_vendedor_actual and col_exists("id_vendedor_Mod"):
