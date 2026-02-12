@@ -1868,9 +1868,12 @@ with tab1:
 
         # Confirmación antes de registrar
         confirmation_detail = ""
+        if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"] and fecha_entrega:
+            confirmation_detail += f" | Fecha requerida: {fecha_entrega.strftime('%d/%m/%Y')}"
+
         if tipo_envio == "📍 Pedido Local":
             turno_local = subtipo_local if subtipo_local else "Sin turno"
-            confirmation_detail = f" | Turno: {turno_local}"
+            confirmation_detail += f" | Turno: {turno_local}"
 
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
