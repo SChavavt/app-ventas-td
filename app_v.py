@@ -2245,24 +2245,6 @@ with tab1:
                 uploaded_files or comprobante_pago_files or comprobante_cliente
             )
 
-            pedidos_con_estado_pago = [
-                "🚚 Pedido Foráneo",
-                "🏙️ Pedido CDMX",
-                "📍 Pedido Local",
-                "🎓 Cursos y Eventos",
-            ]
-
-            if (
-                tipo_envio in pedidos_con_estado_pago
-                and comprobante_pago_files
-                and estado_pago != "✅ Pagado"
-            ):
-                estado_pago = "✅ Pagado"
-                st.info(
-                    "ℹ️ Detectamos comprobante(s) de pago adjunto(s), por lo que el pedido "
-                    "se marcó automáticamente como '✅ Pagado' antes de registrarse."
-                )
-
             # Normalización de campos para Casos Especiales
             if tipo_envio == "🔁 Devolución":
                 resultado_esperado = normalize_case_text(resultado_esperado)
@@ -2280,11 +2262,12 @@ with tab1:
                 direccion_envio_destino = normalize_case_text(direccion_envio_destino)
 
             # Validar comprobante de pago para tipos normales
-            if (
-                tipo_envio in pedidos_con_estado_pago
-                and estado_pago == "✅ Pagado"
-                and not comprobante_pago_files
-            ):
+            if tipo_envio in [
+                "🚚 Pedido Foráneo",
+                "🏙️ Pedido CDMX",
+                "📍 Pedido Local",
+                "🎓 Cursos y Eventos",
+            ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                 st.stop()
 
