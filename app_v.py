@@ -1697,22 +1697,10 @@ with tab1:
     direccion_guia_retorno = ""
     direccion_envio_destino = ""
 
-    # Variables Estado de Pago
-    comprobante_pago_files = []
-    fecha_pago = None
-    forma_pago = ""
-    terminal = ""
-    banco_destino = ""
-    monto_pago = 0.0
-    referencia_pago = ""
-    pago_doble = False
-    pago_triple = False
-    estado_pago = "🔴 No Pagado"
-
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
-    with st.form(key="new_pedido_form", clear_on_submit=False):
+    with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
@@ -1927,7 +1915,7 @@ with tab1:
 
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
-        # Botón submit al final del formulario
+        # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button(
             "✅ Registrar Pedido",
             disabled=st.session_state.get("pedido_submit_disabled", False),
@@ -1937,10 +1925,6 @@ with tab1:
     if submit_button:
         st.session_state["pedido_submit_disabled"] = True
         st.session_state["pedido_submit_disabled_at"] = time.time()
-
-    def unlock_pedido_submit() -> None:
-        st.session_state["pedido_submit_disabled"] = False
-        st.session_state.pop("pedido_submit_disabled_at", None)
 
     if not registrar_nota_venta:
         nota_venta = ""
@@ -1984,7 +1968,7 @@ with tab1:
                     error_message = f"{error_message}\n\n🔍 Detalle: {detail}"
                 st.error(error_message)
 
-            def reset_pedido_submit_state(clear_form: bool = True):
+            def reset_pedido_submit_state():
                 preserved_keys = {
                     key: st.session_state[key]
                     for key in [
@@ -1995,43 +1979,56 @@ with tab1:
                     if key in st.session_state
                 }
 
-                if clear_form:
-                    keys_to_remove = [
-                        key for key in list(st.session_state.keys()) if key not in preserved_keys
-                    ]
-                    for key in keys_to_remove:
-                        del st.session_state[key]
+                keys_to_remove = [
+                    key for key in list(st.session_state.keys()) if key not in preserved_keys
+                ]
+                for key in keys_to_remove:
+                    del st.session_state[key]
 
-                    for key, value in preserved_keys.items():
-                        if key not in st.session_state:
-                            st.session_state[key] = value
+                for key, value in preserved_keys.items():
+                    if key not in st.session_state:
+                        st.session_state[key] = value
 
-                    clear_app_caches()
-
+                clear_app_caches()
                 st.session_state.pop("pedido_submission_status", None)
-                unlock_pedido_submit()
+                st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
                 st.rerun()
 
             disabled_at = st.session_state.get("pedido_submit_disabled_at")
-            if status == "success" and disabled_at and time.time() - disabled_at >= 5:
-                reset_pedido_submit_state(clear_form=True)
+            if disabled_at and time.time() - disabled_at >= 5:
+                reset_pedido_submit_state()
 
             if st.button("Aceptar", key="acknowledge_pedido_status"):
-                reset_pedido_submit_state(clear_form=(status == "success"))
+                reset_pedido_submit_state()
 
-    # Estado de pago fuera del formulario para mantener campos dinámicos visibles
+    # -------------------------------
+    # SECCIÓN DE ESTADO DE PAGO (FUERA DEL FORM) - sin cambios
+    # -------------------------------
+    comprobante_pago_files = []
+    fecha_pago = None
+    forma_pago = ""
+    terminal = ""
+    banco_destino = ""
+    monto_pago = 0.0
+    referencia_pago = ""
+    pago_doble = False
+    pago_triple = False
+    estado_pago = "🔴 No Pagado"  # Valor por defecto
+
     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
         st.markdown("---")
         st.subheader("💰 Estado de Pago")
         estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
 
-        if estado_pago in ["✅ Pagado", "Pagado"]:
+        if estado_pago == "✅ Pagado":
             col_pago_doble, col_pago_triple = st.columns([1, 1])
             with col_pago_doble:
                 pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="chk_doble")
             with col_pago_triple:
                 pago_triple = st.checkbox("✅ Pago en tres partes distintas", key="chk_triple")
 
+            # --- Un solo comprobante ---
             if not pago_doble and not pago_triple:
                 comprobante_pago_files = st.file_uploader(
                     "💲 Comprobante(s) de Pago",
@@ -2077,6 +2074,7 @@ with tab1:
                     with col5:
                         referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
 
+            # --- Dos comprobantes ---
             elif pago_doble:
                 st.markdown("### 1️⃣ Primer Pago")
                 comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
@@ -2088,7 +2086,16 @@ with tab1:
                 if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
                     terminal1 = st.selectbox(
                         "🏧 Terminal 1",
-                        ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "MERCADO PAGO"],
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
                         key="terminal1",
                     )
                 else:
@@ -2105,7 +2112,16 @@ with tab1:
                 if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
                     terminal2 = st.selectbox(
                         "🏧 Terminal 2",
-                        ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "MERCADO PAGO"],
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
                         key="terminal2",
                     )
                 else:
@@ -2120,6 +2136,7 @@ with tab1:
                 monto_pago = monto1 + monto2
                 referencia_pago = f"{ref1}, {ref2}"
 
+            # --- Tres comprobantes ---
             elif pago_triple:
                 st.markdown("### 1️⃣ Primer Pago")
                 comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
@@ -2131,7 +2148,16 @@ with tab1:
                 if forma1 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
                     terminal1 = st.selectbox(
                         "🏧 Terminal 1",
-                        ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "MERCADO PAGO"],
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
                         key="terminal1",
                     )
                 else:
@@ -2148,7 +2174,16 @@ with tab1:
                 if forma2 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
                     terminal2 = st.selectbox(
                         "🏧 Terminal 2",
-                        ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "MERCADO PAGO"],
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
                         key="terminal2",
                     )
                 else:
@@ -2165,7 +2200,16 @@ with tab1:
                 if forma3 in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
                     terminal3 = st.selectbox(
                         "🏧 Terminal 3",
-                        ["BANORTE", "AFIRME", "VELPAY", "CLIP", "PAYPAL", "BBVA", "CONEKTA", "MERCADO PAGO"],
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
                         key="terminal3",
                     )
                 else:
@@ -2180,7 +2224,6 @@ with tab1:
                 monto_pago = monto1 + monto2 + monto3
                 referencia_pago = f"{ref1}, {ref2}, {ref3}"
 
-
     # -------------------------------
     # Registro del Pedido
     # -------------------------------
@@ -2189,7 +2232,6 @@ with tab1:
         try:
             if not vendedor or not registro_cliente:
                 st.warning("⚠️ Completa los campos obligatorios.")
-                unlock_pedido_submit()
                 st.stop()
 
             pedido_sin_adjuntos = not (
@@ -2218,9 +2260,8 @@ with tab1:
                 "🏙️ Pedido CDMX",
                 "📍 Pedido Local",
                 "🎓 Cursos y Eventos",
-            ] and estado_pago in ["✅ Pagado", "Pagado"] and not comprobante_pago_files:
+            ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
-                unlock_pedido_submit()
                 st.stop()
 
             # Acceso a la hoja
@@ -2538,7 +2579,6 @@ with tab1:
             st.rerun()
 
         except Exception as e:
-            unlock_pedido_submit()
             set_pedido_submission_status(
                 "error",
                 "❌ Falla al subir el pedido.",
