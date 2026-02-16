@@ -3073,48 +3073,6 @@ with tab2:
                 st.subheader("Modificar Campos y Adjuntos (Surtido)")
                 st.markdown("### 🛠 Tipo de modificación")
 
-                tipo_envio_actual_mod = str(selected_row_data.get("Tipo_Envio", "")).strip()
-                fecha_entrega_actual_mod = pd.to_datetime(
-                    selected_row_data.get("Fecha_Entrega"), errors="coerce"
-                )
-                fecha_entrega_default_mod = (
-                    fecha_entrega_actual_mod.date()
-                    if pd.notna(fecha_entrega_actual_mod)
-                    else date.today()
-                )
-                turno_actual_mod = str(selected_row_data.get("Turno", "") or "").strip()
-                turno_options_mod = [
-                    "",
-                    "☀️ Local Mañana",
-                    "🌙 Local Tarde",
-                    "📦 Pasa a Bodega",
-                    "🌵 Saltillo",
-                ]
-                turno_normalization_map_mod = {
-                    "☀️ local mañana": "☀️ Local Mañana",
-                    "local mañana": "☀️ Local Mañana",
-                    "mañana": "☀️ Local Mañana",
-                    "🌙 local tarde": "🌙 Local Tarde",
-                    "local tarde": "🌙 Local Tarde",
-                    "tarde": "🌙 Local Tarde",
-                    "📦 pasa a bodega": "📦 Pasa a Bodega",
-                    "pasa a bodega": "📦 Pasa a Bodega",
-                    "en bodega": "📦 Pasa a Bodega",
-                    "bodega": "📦 Pasa a Bodega",
-                    "🌵 saltillo": "🌵 Saltillo",
-                    "saltillo": "🌵 Saltillo",
-                }
-
-                turno_actual_key_mod = turno_actual_mod.lower()
-                if turno_actual_key_mod == "nan":
-                    turno_actual_key_mod = ""
-                turno_actual_estandar_mod = turno_normalization_map_mod.get(
-                    turno_actual_key_mod, turno_actual_mod
-                )
-                turno_index_mod = 0
-                if turno_actual_estandar_mod in turno_options_mod:
-                    turno_index_mod = turno_options_mod.index(turno_actual_estandar_mod)
-
                 # ----------------- Tipo de modificación -----------------
                 tipo_modificacion_seleccionada = st.selectbox(
                     "📌 ¿Qué tipo de modificación estás registrando?",
@@ -3163,43 +3121,6 @@ with tab2:
                         height=100,
                         key="new_modificacion_surtido_input"
                     )
-
-                    nuevo_tipo_envio_ruta = tipo_envio_actual_mod
-                    nueva_fecha_entrega_ruta = fecha_entrega_default_mod
-                    nuevo_turno_ruta = turno_actual_estandar_mod
-
-                    if tipo_modificacion_seleccionada == "Nueva Ruta":
-                        st.markdown("### 🚚 Datos de la nueva ruta")
-                        opciones_tipo_envio_ruta = [
-                            "🚚 Pedido Foráneo",
-                            "🏙️ Pedido CDMX",
-                            "📍 Pedido Local",
-                        ]
-                        tipo_envio_index_ruta = 0
-                        if tipo_envio_actual_mod in opciones_tipo_envio_ruta:
-                            tipo_envio_index_ruta = opciones_tipo_envio_ruta.index(tipo_envio_actual_mod)
-
-                        nuevo_tipo_envio_ruta = st.selectbox(
-                            "Tipo de envío actualizado",
-                            opciones_tipo_envio_ruta,
-                            index=tipo_envio_index_ruta,
-                            key="tab2_nueva_ruta_tipo_envio",
-                        )
-
-                        if nuevo_tipo_envio_ruta == "📍 Pedido Local":
-                            nueva_fecha_entrega_ruta = st.date_input(
-                                "📅 Fecha de entrega (Nueva Ruta)",
-                                value=fecha_entrega_default_mod,
-                                key="tab2_nueva_ruta_fecha_entrega",
-                                help="Si el pedido se cambió de foráneo a local, aquí puedes asignar o corregir la fecha de entrega.",
-                            )
-                            nuevo_turno_ruta = st.selectbox(
-                                "⏰ Turno (Pedido Local)",
-                                turno_options_mod,
-                                index=turno_index_mod,
-                                format_func=lambda x: "Selecciona un turno" if x == "" else x,
-                                key="tab2_nueva_ruta_turno",
-                            )
 
                     uploaded_files_surtido = st.file_uploader(
                         "📎 Subir Archivos para Modificación/Surtido",
@@ -3305,76 +3226,6 @@ with tab2:
                                             "values": [[new_modificacion_surtido_input.strip()]],
                                         })
                                         changes_made = True
-
-                                if tipo_modificacion_seleccionada == "Nueva Ruta":
-                                    if (
-                                        col_exists("Tipo_Envio")
-                                        and nuevo_tipo_envio_ruta
-                                        and nuevo_tipo_envio_ruta != tipo_envio_actual_mod
-                                    ):
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(
-                                                gsheet_row_index,
-                                                col_idx("Tipo_Envio"),
-                                            ),
-                                            "values": [[nuevo_tipo_envio_ruta]],
-                                        })
-                                        changes_made = True
-
-                                    if nuevo_tipo_envio_ruta == "📍 Pedido Local":
-                                        fecha_nueva_ruta = (
-                                            nueva_fecha_entrega_ruta.strftime("%Y-%m-%d")
-                                            if isinstance(nueva_fecha_entrega_ruta, date)
-                                            else ""
-                                        )
-                                        fecha_existente_ruta = pd.to_datetime(
-                                            actual_row.get("Fecha_Entrega"), errors="coerce"
-                                        )
-                                        fecha_existente_ruta_date = (
-                                            fecha_existente_ruta.date()
-                                            if pd.notna(fecha_existente_ruta)
-                                            else None
-                                        )
-
-                                        if (
-                                            col_exists("Fecha_Entrega")
-                                            and fecha_nueva_ruta
-                                            and fecha_existente_ruta_date != nueva_fecha_entrega_ruta
-                                        ):
-                                            cell_updates.append({
-                                                "range": rowcol_to_a1(
-                                                    gsheet_row_index,
-                                                    col_idx("Fecha_Entrega"),
-                                                ),
-                                                "values": [[fecha_nueva_ruta]],
-                                            })
-                                            changes_made = True
-
-                                        turno_existente_ruta = str(
-                                            actual_row.get("Turno", "") or ""
-                                        ).strip()
-                                        turno_existente_ruta_std = turno_normalization_map_mod.get(
-                                            turno_existente_ruta.lower()
-                                            if turno_existente_ruta
-                                            else "",
-                                            turno_existente_ruta,
-                                        )
-                                        if turno_existente_ruta_std == "nan":
-                                            turno_existente_ruta_std = ""
-
-                                        if (
-                                            col_exists("Turno")
-                                            and nuevo_turno_ruta
-                                            and turno_existente_ruta_std != nuevo_turno_ruta
-                                        ):
-                                            cell_updates.append({
-                                                "range": rowcol_to_a1(
-                                                    gsheet_row_index,
-                                                    col_idx("Turno"),
-                                                ),
-                                                "values": [[nuevo_turno_ruta]],
-                                            })
-                                            changes_made = True
 
                                 # 3) Subida de archivos de Surtido -> Adjuntos_Surtido
                                 new_adjuntos_surtido_urls = []
