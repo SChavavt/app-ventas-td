@@ -107,6 +107,8 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "ref3",
 }
 
+TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
+
 
 USUARIOS_VALIDOS = [
     "DIANASOFIA47",
@@ -568,6 +570,29 @@ def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None)
         if key in st.session_state and st.session_state[key] == value:
             continue
 
+        st.session_state[key] = value
+
+    st.session_state.pop(TAB1_WARNING_FORM_BACKUP_KEY, None)
+
+
+def backup_tab1_form_state_for_retry() -> None:
+    """Respalda los valores del formulario de tab1 para restaurarlos tras una validación fallida."""
+
+    st.session_state[TAB1_WARNING_FORM_BACKUP_KEY] = {
+        key: st.session_state.get(key)
+        for key in TAB1_FORM_STATE_KEYS_TO_CLEAR
+        if key in st.session_state
+    }
+
+
+def restore_tab1_form_state_for_retry() -> None:
+    """Restaura valores del formulario respaldados cuando el envío no se pudo completar."""
+
+    backup_values = st.session_state.pop(TAB1_WARNING_FORM_BACKUP_KEY, None)
+    if not backup_values:
+        return
+
+    for key, value in backup_values.items():
         st.session_state[key] = value
 
 
@@ -1712,6 +1737,8 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
+    restore_tab1_form_state_for_retry()
+
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
@@ -2151,6 +2178,7 @@ with tab1:
 
     should_process_submission = submit_button
     if submit_button:
+        backup_tab1_form_state_for_retry()
         st.session_state["pedido_submit_disabled"] = True
         st.session_state["pedido_submit_disabled_at"] = time.time()
 
@@ -2190,6 +2218,10 @@ with tab1:
                     st.write(detail)
                 if status_data.get("missing_attachments_warning"):
                     st.warning("⚠️ Pedido registrado sin archivos adjuntos.")
+            elif status == "warning":
+                st.warning(status_data.get("message", "⚠️ Revisa los campos obligatorios."))
+                if detail:
+                    st.write(detail)
             else:
                 error_message = status_data.get("message", "❌ Falla al subir el pedido.")
                 if detail:
@@ -2238,8 +2270,13 @@ with tab1:
         st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
-                st.warning("⚠️ Completa los campos obligatorios.")
-                st.stop()
+                set_pedido_submission_status(
+                    "warning",
+                    "⚠️ El pedido no se subió. Completa los campos obligatorios e inténtalo de nuevo.",
+                )
+                st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
+                st.rerun()
 
             pedido_sin_adjuntos = not (
                 uploaded_files or comprobante_pago_files or comprobante_cliente
@@ -2287,8 +2324,13 @@ with tab1:
                 and estado_pago == "✅ Pagado"
                 and not comprobante_pago_files
             ):
-                st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
-                st.stop()
+                set_pedido_submission_status(
+                    "warning",
+                    "⚠️ El pedido no se subió. Adjunta un comprobante si el pedido está marcado como pagado.",
+                )
+                st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
+                st.rerun()
 
             # Acceso a la hoja
             headers = []
