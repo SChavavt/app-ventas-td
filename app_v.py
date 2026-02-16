@@ -1,7 +1,6 @@
 
 import streamlit as st
 import streamlit.components.v1 as components
-from streamlit.errors import StreamlitAPIException
 import os
 from datetime import datetime, timedelta, date
 import json
@@ -106,17 +105,6 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "terminal3",
     "banco3",
     "ref3",
-}
-
-TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
-
-TAB1_RESTORE_EXCLUDED_KEYS: set[str] = {
-    "pedido_adjuntos",
-    "comprobante_cliente",
-    "comprobante_uploader_final",
-    "cp_pago1",
-    "cp_pago2",
-    "cp_pago3",
 }
 
 
@@ -581,34 +569,6 @@ def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None)
             continue
 
         st.session_state[key] = value
-
-    st.session_state.pop(TAB1_WARNING_FORM_BACKUP_KEY, None)
-
-
-def backup_tab1_form_state_for_retry() -> None:
-    """Respalda los valores del formulario de tab1 para restaurarlos tras una validación fallida."""
-
-    st.session_state[TAB1_WARNING_FORM_BACKUP_KEY] = {
-        key: st.session_state.get(key)
-        for key in TAB1_FORM_STATE_KEYS_TO_CLEAR
-        if key in st.session_state and key not in TAB1_RESTORE_EXCLUDED_KEYS
-    }
-
-
-def restore_tab1_form_state_for_retry() -> None:
-    """Restaura valores del formulario respaldados cuando el envío no se pudo completar."""
-
-    backup_values = st.session_state.pop(TAB1_WARNING_FORM_BACKUP_KEY, None)
-    if not backup_values:
-        return
-
-    for key, value in backup_values.items():
-        if key in TAB1_RESTORE_EXCLUDED_KEYS:
-            continue
-        try:
-            st.session_state[key] = value
-        except StreamlitAPIException:
-            continue
 
 
 def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0) -> None:
@@ -1661,8 +1621,6 @@ if 'last_selected_vendedor' not in st.session_state:
 
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
-    restore_tab1_form_state_for_retry()
-
     tab1_is_active = default_tab == 0
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
@@ -2193,7 +2151,6 @@ with tab1:
 
     should_process_submission = submit_button
     if submit_button:
-        backup_tab1_form_state_for_retry()
         st.session_state["pedido_submit_disabled"] = True
         st.session_state["pedido_submit_disabled_at"] = time.time()
 
@@ -2233,10 +2190,6 @@ with tab1:
                     st.write(detail)
                 if status_data.get("missing_attachments_warning"):
                     st.warning("⚠️ Pedido registrado sin archivos adjuntos.")
-            elif status == "warning":
-                st.warning(status_data.get("message", "⚠️ Revisa los campos obligatorios."))
-                if detail:
-                    st.write(detail)
             else:
                 error_message = status_data.get("message", "❌ Falla al subir el pedido.")
                 if detail:
@@ -2285,13 +2238,8 @@ with tab1:
         st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
-                set_pedido_submission_status(
-                    "warning",
-                    "⚠️ El pedido no se subió. Completa los campos obligatorios e inténtalo de nuevo.",
-                )
-                st.session_state["pedido_submit_disabled"] = False
-                st.session_state.pop("pedido_submit_disabled_at", None)
-                st.rerun()
+                st.warning("⚠️ Completa los campos obligatorios.")
+                st.stop()
 
             pedido_sin_adjuntos = not (
                 uploaded_files or comprobante_pago_files or comprobante_cliente
@@ -2339,13 +2287,8 @@ with tab1:
                 and estado_pago == "✅ Pagado"
                 and not comprobante_pago_files
             ):
-                set_pedido_submission_status(
-                    "warning",
-                    "⚠️ El pedido no se subió. Adjunta un comprobante si el pedido está marcado como pagado.",
-                )
-                st.session_state["pedido_submit_disabled"] = False
-                st.session_state.pop("pedido_submit_disabled_at", None)
-                st.rerun()
+                st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
+                st.stop()
 
             # Acceso a la hoja
             headers = []
