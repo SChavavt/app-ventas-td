@@ -1697,6 +1697,18 @@ with tab1:
     direccion_guia_retorno = ""
     direccion_envio_destino = ""
 
+    # Variables Estado de Pago
+    comprobante_pago_files = []
+    fecha_pago = None
+    forma_pago = ""
+    terminal = ""
+    banco_destino = ""
+    monto_pago = 0.0
+    referencia_pago = ""
+    pago_doble = False
+    pago_triple = False
+    estado_pago = "🔴 No Pagado"
+
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
@@ -1904,124 +1916,17 @@ with tab1:
             )
             render_uploaded_files_preview("Evidencias seleccionadas", comprobante_cliente)
 
-        # Confirmación antes de registrar
-        confirmation_detail = ""
-        if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"] and fecha_entrega:
-            confirmation_detail += f" | Fecha requerida: {fecha_entrega.strftime('%d/%m/%Y')}"
+        # -------------------------------
+        # SECCIÓN DE ESTADO DE PAGO
+        # -------------------------------
+        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+            st.markdown("---")
+            st.subheader("💰 Estado de Pago")
+            estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
 
-        if tipo_envio == "📍 Pedido Local":
-            turno_local = subtipo_local if subtipo_local else "Sin turno"
-            confirmation_detail += f" | Turno: {turno_local}"
+            if estado_pago == "✅ Pagado":
+                st.info("⚠️ El comprobante es obligatorio solo cuando el estado es 'Pagado'.")
 
-        st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
-
-        # AL FINAL DEL FORMULARIO: botón submit
-        submit_button = st.form_submit_button(
-            "✅ Registrar Pedido",
-            disabled=st.session_state.get("pedido_submit_disabled", False),
-        )
-
-    should_process_submission = submit_button
-    if submit_button:
-        st.session_state["pedido_submit_disabled"] = True
-        st.session_state["pedido_submit_disabled_at"] = time.time()
-
-    if not registrar_nota_venta:
-        nota_venta = ""
-        motivo_nota_venta = ""
-
-    folio_factura = (
-        nota_venta.strip() if registrar_nota_venta and isinstance(nota_venta, str) else ""
-    )
-    if not folio_factura:
-        folio_factura = (
-            folio_factura_input_value.strip()
-            if isinstance(folio_factura_input_value, str)
-            else ""
-        )
-    motivo_nota_venta = (
-        motivo_nota_venta.strip()
-        if registrar_nota_venta and isinstance(motivo_nota_venta, str)
-        else ""
-    )
-
-    message_container = st.container()
-
-    with message_container:
-        status_data = st.session_state.get("pedido_submission_status")
-        if status_data:
-            status = status_data.get("status")
-            detail = status_data.get("detail")
-            attachments = status_data.get("attachments") or []
-
-            if status == "success":
-                st.success(status_data.get("message", "✅ Pedido registrado correctamente."))
-                if attachments:
-                    st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(url) for url in attachments))
-                if detail:
-                    st.write(detail)
-                if status_data.get("missing_attachments_warning"):
-                    st.warning("⚠️ Pedido registrado sin archivos adjuntos.")
-            else:
-                error_message = status_data.get("message", "❌ Falla al subir el pedido.")
-                if detail:
-                    error_message = f"{error_message}\n\n🔍 Detalle: {detail}"
-                st.error(error_message)
-
-            def reset_pedido_submit_state():
-                preserved_keys = {
-                    key: st.session_state[key]
-                    for key in [
-                        "id_vendedor",
-                        "last_selected_vendedor",
-                        "tipo_envio_selector_global",
-                    ]
-                    if key in st.session_state
-                }
-
-                keys_to_remove = [
-                    key for key in list(st.session_state.keys()) if key not in preserved_keys
-                ]
-                for key in keys_to_remove:
-                    del st.session_state[key]
-
-                for key, value in preserved_keys.items():
-                    if key not in st.session_state:
-                        st.session_state[key] = value
-
-                clear_app_caches()
-                st.session_state.pop("pedido_submission_status", None)
-                st.session_state["pedido_submit_disabled"] = False
-                st.session_state.pop("pedido_submit_disabled_at", None)
-                st.rerun()
-
-            disabled_at = st.session_state.get("pedido_submit_disabled_at")
-            if disabled_at and time.time() - disabled_at >= 5:
-                reset_pedido_submit_state()
-
-            if st.button("Aceptar", key="acknowledge_pedido_status"):
-                reset_pedido_submit_state()
-
-    # -------------------------------
-    # SECCIÓN DE ESTADO DE PAGO (FUERA DEL FORM) - sin cambios
-    # -------------------------------
-    comprobante_pago_files = []
-    fecha_pago = None
-    forma_pago = ""
-    terminal = ""
-    banco_destino = ""
-    monto_pago = 0.0
-    referencia_pago = ""
-    pago_doble = False
-    pago_triple = False
-    estado_pago = "🔴 No Pagado"  # Valor por defecto
-
-    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-        st.markdown("---")
-        st.subheader("💰 Estado de Pago")
-        estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
-
-        if estado_pago == "✅ Pagado":
             col_pago_doble, col_pago_triple = st.columns([1, 1])
             with col_pago_doble:
                 pago_doble = st.checkbox("✅ Pago en dos partes distintas", key="chk_doble")
@@ -2036,7 +1941,10 @@ with tab1:
                     accept_multiple_files=True,
                     key="comprobante_uploader_final"
                 )
-                st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
+                if estado_pago == "✅ Pagado":
+                    st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
+                else:
+                    st.caption("ℹ️ Si seleccionas '✅ Pagado', debes adjuntar comprobante(s).")
                 render_uploaded_files_preview("Comprobantes de pago seleccionados", comprobante_pago_files)
 
                 with st.expander("🧾 Detalles del Pago (opcional)"):
@@ -2223,6 +2131,105 @@ with tab1:
                 banco_destino = ", ".join(filter(None, [banco1, banco2, banco3]))
                 monto_pago = monto1 + monto2 + monto3
                 referencia_pago = f"{ref1}, {ref2}, {ref3}"
+
+        # Confirmación antes de registrar
+        confirmation_detail = ""
+        if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"] and fecha_entrega:
+            confirmation_detail += f" | Fecha requerida: {fecha_entrega.strftime('%d/%m/%Y')}"
+
+        if tipo_envio == "📍 Pedido Local":
+            turno_local = subtipo_local if subtipo_local else "Sin turno"
+            confirmation_detail += f" | Turno: {turno_local}"
+
+        st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
+
+        # AL FINAL DEL FORMULARIO: botón submit
+        submit_button = st.form_submit_button(
+            "✅ Registrar Pedido",
+            disabled=st.session_state.get("pedido_submit_disabled", False),
+        )
+
+    should_process_submission = submit_button
+    if submit_button:
+        st.session_state["pedido_submit_disabled"] = True
+        st.session_state["pedido_submit_disabled_at"] = time.time()
+
+    if not registrar_nota_venta:
+        nota_venta = ""
+        motivo_nota_venta = ""
+
+    folio_factura = (
+        nota_venta.strip() if registrar_nota_venta and isinstance(nota_venta, str) else ""
+    )
+    if not folio_factura:
+        folio_factura = (
+            folio_factura_input_value.strip()
+            if isinstance(folio_factura_input_value, str)
+            else ""
+        )
+    motivo_nota_venta = (
+        motivo_nota_venta.strip()
+        if registrar_nota_venta and isinstance(motivo_nota_venta, str)
+        else ""
+    )
+
+    message_container = st.container()
+
+    with message_container:
+        status_data = st.session_state.get("pedido_submission_status")
+        if status_data:
+            status = status_data.get("status")
+            detail = status_data.get("detail")
+            attachments = status_data.get("attachments") or []
+
+            if status == "success":
+                st.success(status_data.get("message", "✅ Pedido registrado correctamente."))
+                if attachments:
+                    st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(url) for url in attachments))
+                if detail:
+                    st.write(detail)
+                if status_data.get("missing_attachments_warning"):
+                    st.warning("⚠️ Pedido registrado sin archivos adjuntos.")
+            else:
+                error_message = status_data.get("message", "❌ Falla al subir el pedido.")
+                if detail:
+                    error_message = f"{error_message}\n\n🔍 Detalle: {detail}"
+                st.error(error_message)
+
+            def reset_pedido_submit_state():
+                preserved_keys = {
+                    key: st.session_state[key]
+                    for key in [
+                        "id_vendedor",
+                        "last_selected_vendedor",
+                        "tipo_envio_selector_global",
+                    ]
+                    if key in st.session_state
+                }
+
+                keys_to_remove = [
+                    key for key in list(st.session_state.keys()) if key not in preserved_keys
+                ]
+                for key in keys_to_remove:
+                    del st.session_state[key]
+
+                for key, value in preserved_keys.items():
+                    if key not in st.session_state:
+                        st.session_state[key] = value
+
+                clear_app_caches()
+                st.session_state.pop("pedido_submission_status", None)
+                st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
+                st.rerun()
+
+            disabled_at = st.session_state.get("pedido_submit_disabled_at")
+            if disabled_at and time.time() - disabled_at >= 5:
+                reset_pedido_submit_state()
+
+            if st.button("Aceptar", key="acknowledge_pedido_status"):
+                reset_pedido_submit_state()
+
 
     # -------------------------------
     # Registro del Pedido
