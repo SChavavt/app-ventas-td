@@ -2190,10 +2190,6 @@ with tab1:
                     st.write(detail)
                 if status_data.get("missing_attachments_warning"):
                     st.warning("⚠️ Pedido registrado sin archivos adjuntos.")
-            elif status == "warning":
-                st.warning(status_data.get("message", "⚠️ Revisa los campos obligatorios."))
-                if detail:
-                    st.write(detail)
             else:
                 error_message = status_data.get("message", "❌ Falla al subir el pedido.")
                 if detail:
@@ -2242,13 +2238,8 @@ with tab1:
         st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
-                set_pedido_submission_status(
-                    "warning",
-                    "⚠️ Completa los campos obligatorios.",
-                )
-                st.session_state["pedido_submit_disabled"] = False
-                st.session_state.pop("pedido_submit_disabled_at", None)
-                st.rerun()
+                st.warning("⚠️ Completa los campos obligatorios.")
+                st.stop()
 
             pedido_sin_adjuntos = not (
                 uploaded_files or comprobante_pago_files or comprobante_cliente
@@ -2296,13 +2287,8 @@ with tab1:
                 and estado_pago == "✅ Pagado"
                 and not comprobante_pago_files
             ):
-                set_pedido_submission_status(
-                    "warning",
-                    "⚠️ Suba un comprobante si el pedido está marcado como pagado.",
-                )
-                st.session_state["pedido_submit_disabled"] = False
-                st.session_state.pop("pedido_submit_disabled_at", None)
-                st.rerun()
+                st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
+                st.stop()
 
             # Acceso a la hoja
             headers = []
