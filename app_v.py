@@ -3864,26 +3864,44 @@ def fijar_tab5_activa():
 
 @st.cache_data(ttl=60)
 def cargar_datos_guias_unificadas(refresh_token: float | None = None):
-    # ---------- A) datos_pedidos ----------
+    # ---------- A) hojas de pedidos (histórico + operativa) ----------
     _ = refresh_token
-    ws_ped = get_worksheet(refresh_token)
-    df_ped = pd.DataFrame(ws_ped.get_all_records())
+    def _normalizar_guias_pedidos(df_ped: pd.DataFrame, fuente: str) -> pd.DataFrame:
+        if df_ped.empty:
+            return pd.DataFrame()
 
-    if df_ped.empty:
-        df_ped = pd.DataFrame()
+        for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
+                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia","id_vendedor","Completados_Limpiado"]:
+            if col not in df_ped.columns:
+                df_ped[col] = ""
 
-    for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
-                "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia","id_vendedor","Completados_Limpiado"]:
-        if col not in df_ped.columns:
-            df_ped[col] = ""
+        df_res = df_ped[df_ped["Adjuntos_Guia"].astype(str).str.strip() != ""].copy()
+        if df_res.empty:
+            return df_res
 
-    df_a = df_ped[df_ped["Adjuntos_Guia"].astype(str).str.strip() != ""].copy()
-    if not df_a.empty:
-        df_a["Fuente"] = "datos_pedidos"
-        df_a["URLs_Guia"] = df_a["Adjuntos_Guia"].astype(str)
-        df_a["Ultima_Guia"] = df_a["URLs_Guia"].apply(
+        df_res["Fuente"] = fuente
+        df_res["URLs_Guia"] = df_res["Adjuntos_Guia"].astype(str)
+        df_res["Ultima_Guia"] = df_res["URLs_Guia"].apply(
             lambda s: s.split(",")[-1].strip() if isinstance(s, str) and s.strip() else ""
         )
+        return df_res
+
+    # datos_pedidos (histórico)
+    try:
+        ws_ped_hist = get_worksheet_historico(refresh_token)
+        df_ped_hist = pd.DataFrame(ws_ped_hist.get_all_records())
+    except Exception:
+        df_ped_hist = pd.DataFrame()
+
+    # data_pedidos (operativa)
+    try:
+        ws_ped_op = get_worksheet_operativa(refresh_token)
+        df_ped_op = pd.DataFrame(ws_ped_op.get_all_records())
+    except Exception:
+        df_ped_op = pd.DataFrame()
+
+    df_a_hist = _normalizar_guias_pedidos(df_ped_hist, SHEET_PEDIDOS_HISTORICOS)
+    df_a_op = _normalizar_guias_pedidos(df_ped_op, SHEET_PEDIDOS_OPERATIVOS)
 
     # ---------- B) casos_especiales ----------
     try:
@@ -3938,10 +3956,11 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
     columnas_finales = ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
                         "Fecha_Entrega","Hora_Registro","Folio_Factura",
                         "Adjuntos_Guia","URLs_Guia","Ultima_Guia","Fuente","id_vendedor","Completados_Limpiado"]
-    df_a = df_a[columnas_finales] if not df_a.empty else pd.DataFrame(columns=columnas_finales)
+    df_a_hist = df_a_hist[columnas_finales] if not df_a_hist.empty else pd.DataFrame(columns=columnas_finales)
+    df_a_op = df_a_op[columnas_finales] if not df_a_op.empty else pd.DataFrame(columns=columnas_finales)
     df_b = df_b[columnas_finales] if not df_b.empty else pd.DataFrame(columns=columnas_finales)
 
-    df = pd.concat([df_a, df_b], ignore_index=True)
+    df = pd.concat([df_a_hist, df_a_op, df_b], ignore_index=True)
 
     if not df.empty:
         for col_fecha in ["Fecha_Entrega","Hora_Registro"]:
