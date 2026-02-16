@@ -1923,9 +1923,9 @@ with tab1:
             st.markdown("---")
             st.subheader("💰 Estado de Pago")
             estado_pago = st.selectbox("Estado de Pago", ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"], index=0, key="estado_pago")
+            permitir_carga_comprobante = estado_pago == "✅ Pagado"
 
-            if estado_pago == "✅ Pagado":
-                st.info("⚠️ El comprobante es obligatorio solo cuando el estado es 'Pagado'.")
+            st.caption("ℹ️ La carga de comprobantes se habilita automáticamente al seleccionar '✅ Pagado'.")
 
             col_pago_doble, col_pago_triple = st.columns([1, 1])
             with col_pago_doble:
@@ -1933,18 +1933,60 @@ with tab1:
             with col_pago_triple:
                 pago_triple = st.checkbox("✅ Pago en tres partes distintas", key="chk_triple")
 
+
+            components.html(
+                """
+                <script>
+                const doc = window.parent.document;
+
+                function estadoPagoEsPagado() {
+                    const selects = [...doc.querySelectorAll('[data-testid="stSelectbox"]')];
+                    for (const select of selects) {
+                        const label = select.querySelector('label');
+                        const combo = select.querySelector('[role="combobox"]');
+                        if (!label || !combo) continue;
+                        if (!label.innerText.includes('Estado de Pago')) continue;
+                        return combo.innerText.includes('✅ Pagado');
+                    }
+                    return false;
+                }
+
+                function toggleComprobanteUploaders() {
+                    const habilitar = estadoPagoEsPagado();
+                    const uploaders = [...doc.querySelectorAll('[data-testid="stFileUploader"]')];
+
+                    uploaders.forEach((uploader) => {
+                        const label = uploader.querySelector('label')?.innerText || '';
+                        const esComprobantePago = /Comprobante\(s\) de Pago|Comprobante [123]/.test(label);
+                        if (!esComprobantePago) return;
+
+                        const input = uploader.querySelector('input[type="file"]');
+                        const button = uploader.querySelector('button');
+                        if (input) input.disabled = !habilitar;
+                        if (button) {
+                            button.disabled = !habilitar;
+                            button.style.opacity = habilitar ? '1' : '0.55';
+                            button.style.cursor = habilitar ? 'pointer' : 'not-allowed';
+                        }
+                    });
+                }
+
+                toggleComprobanteUploaders();
+                setInterval(toggleComprobanteUploaders, 400);
+                </script>
+                """,
+                height=0,
+            )
+
             # --- Un solo comprobante ---
             if not pago_doble and not pago_triple:
                 comprobante_pago_files = st.file_uploader(
                     "💲 Comprobante(s) de Pago",
                     type=["pdf", "jpg", "jpeg", "png"],
                     accept_multiple_files=True,
-                    key="comprobante_uploader_final"
+                    key="comprobante_uploader_final",
                 )
-                if estado_pago == "✅ Pagado":
-                    st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
-                else:
-                    st.caption("ℹ️ Si seleccionas '✅ Pagado', debes adjuntar comprobante(s).")
+                st.caption("ℹ️ Si el estado es '✅ Pagado', debes adjuntar comprobante(s) para registrar el pedido.")
                 render_uploaded_files_preview("Comprobantes de pago seleccionados", comprobante_pago_files)
 
                 with st.expander("🧾 Detalles del Pago (opcional)"):
@@ -1985,7 +2027,12 @@ with tab1:
             # --- Dos comprobantes ---
             elif pago_doble:
                 st.markdown("### 1️⃣ Primer Pago")
-                comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                comp1 = st.file_uploader(
+                    "💳 Comprobante 1",
+                    type=["pdf", "jpg", "jpeg", "png"],
+                    accept_multiple_files=True,
+                    key="cp_pago1",
+                )
                 render_uploaded_files_preview("Comprobantes del primer pago", comp1)
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
@@ -2011,7 +2058,12 @@ with tab1:
                 ref1 = st.text_input("🔢 Referencia 1", key="ref1")
 
                 st.markdown("### 2️⃣ Segundo Pago")
-                comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                comp2 = st.file_uploader(
+                    "💳 Comprobante 2",
+                    type=["pdf", "jpg", "jpeg", "png"],
+                    accept_multiple_files=True,
+                    key="cp_pago2",
+                )
                 render_uploaded_files_preview("Comprobantes del segundo pago", comp2)
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
@@ -2047,7 +2099,12 @@ with tab1:
             # --- Tres comprobantes ---
             elif pago_triple:
                 st.markdown("### 1️⃣ Primer Pago")
-                comp1 = st.file_uploader("💳 Comprobante 1", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago1")
+                comp1 = st.file_uploader(
+                    "💳 Comprobante 1",
+                    type=["pdf", "jpg", "jpeg", "png"],
+                    accept_multiple_files=True,
+                    key="cp_pago1",
+                )
                 render_uploaded_files_preview("Comprobantes del primer pago", comp1)
                 fecha1 = st.date_input("📅 Fecha 1", value=datetime.today().date(), key="fecha_pago1")
                 forma1 = st.selectbox("💳 Forma 1", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago1")
@@ -2073,7 +2130,12 @@ with tab1:
                 ref1 = st.text_input("🔢 Referencia 1", key="ref1")
 
                 st.markdown("### 2️⃣ Segundo Pago")
-                comp2 = st.file_uploader("💳 Comprobante 2", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago2")
+                comp2 = st.file_uploader(
+                    "💳 Comprobante 2",
+                    type=["pdf", "jpg", "jpeg", "png"],
+                    accept_multiple_files=True,
+                    key="cp_pago2",
+                )
                 render_uploaded_files_preview("Comprobantes del segundo pago", comp2)
                 fecha2 = st.date_input("📅 Fecha 2", value=datetime.today().date(), key="fecha_pago2")
                 forma2 = st.selectbox("💳 Forma 2", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago2")
@@ -2099,7 +2161,12 @@ with tab1:
                 ref2 = st.text_input("🔢 Referencia 2", key="ref2")
 
                 st.markdown("### 3️⃣ Tercer Pago")
-                comp3 = st.file_uploader("💳 Comprobante 3", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True, key="cp_pago3")
+                comp3 = st.file_uploader(
+                    "💳 Comprobante 3",
+                    type=["pdf", "jpg", "jpeg", "png"],
+                    accept_multiple_files=True,
+                    key="cp_pago3",
+                )
                 render_uploaded_files_preview("Comprobantes del tercer pago", comp3)
                 fecha3 = st.date_input("📅 Fecha 3", value=datetime.today().date(), key="fecha_pago3")
                 forma3 = st.selectbox("💳 Forma 3", ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"], key="forma_pago3")
@@ -2131,6 +2198,9 @@ with tab1:
                 banco_destino = ", ".join(filter(None, [banco1, banco2, banco3]))
                 monto_pago = monto1 + monto2 + monto3
                 referencia_pago = f"{ref1}, {ref2}, {ref3}"
+
+            if not permitir_carga_comprobante:
+                comprobante_pago_files = []
 
         # Confirmación antes de registrar
         confirmation_detail = ""
