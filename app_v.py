@@ -2773,6 +2773,7 @@ with tab2:
     if tab2_is_active:
         st.session_state["current_tab_index"] = 1
     st.header("✏️ Modificar Pedido Existente")
+    st.caption("ℹ️ En esta sección solo saldrán los pedidos que no han viajado.")
     if st.button("🔄 Actualizar pedidos"):
         cargar_pedidos_combinados.clear()
 
