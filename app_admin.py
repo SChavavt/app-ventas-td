@@ -234,6 +234,89 @@ def _filter_cancelled_pedidos(df: pd.DataFrame) -> pd.DataFrame:
     return trabajo
 
 
+def _load_pedidos_admin_fuentes(_nonce: int = 0) -> pd.DataFrame:
+    """Carga y combina pedidos desde datos_pedidos y data_pedidos."""
+    fuentes = ["datos_pedidos", "data_pedidos"]
+    frames: list[pd.DataFrame] = []
+
+    for hoja in fuentes:
+        df_hoja, _ = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, hoja, _nonce)
+        if df_hoja is None or df_hoja.empty:
+            continue
+        frames.append(df_hoja.assign(__source_sheet=hoja))
+
+    if not frames:
+        return pd.DataFrame()
+
+    combinados = pd.concat(frames, ignore_index=True)
+
+    if "Tipo_Envio" in combinados.columns:
+        combinados = combinados[
+            ~combinados["Tipo_Envio"].isin(["🎓 Cursos y Eventos", "📋 Solicitudes de Guía"])
+        ].copy()
+
+    if "ID_Pedido" in combinados.columns:
+        combinados["ID_Pedido"] = combinados["ID_Pedido"].apply(normalize_id_pedido)
+
+    if "Folio_Factura" in combinados.columns:
+        combinados["Folio_Factura"] = combinados["Folio_Factura"].apply(normalize_folio_factura)
+
+    if "ID_Pedido" in combinados.columns:
+        combinados = combinados.drop_duplicates(subset=["ID_Pedido"], keep="first")
+    elif "Folio_Factura" in combinados.columns:
+        combinados = combinados.drop_duplicates(subset=["Folio_Factura"], keep="first")
+
+    return combinados
+
+
+def _load_pedidos_pendientes_admin(_nonce: int = 0) -> pd.DataFrame:
+    """Carga pedidos para Pendientes de Confirmar desde datos_pedidos y data_pedidos."""
+    return _load_pedidos_admin_fuentes(_nonce)
+
+
+
+
+def resolve_pedido_source_context(selected_pedido_data: pd.Series) -> tuple[pd.DataFrame, any, list[str], str]:
+    """Resuelve DataFrame base, worksheet y headers según hoja de origen del pedido."""
+    source_sheet = str(selected_pedido_data.get("__source_sheet", "datos_pedidos") or "datos_pedidos").strip()
+    if source_sheet == "data_pedidos":
+        df_source, _ = cargar_pedidos_desde_google_sheet(
+            GOOGLE_SHEET_ID,
+            "data_pedidos",
+            st.session_state.get("pedidos_reload_nonce", 0),
+        )
+        worksheet = _get_ws_data()
+    else:
+        source_sheet = "datos_pedidos"
+        df_source = st.session_state.get("df_pedidos", pd.DataFrame())
+        worksheet = _get_ws_datos()
+
+    headers = [str(h).strip() for h in worksheet.row_values(1)]
+    return df_source, worksheet, headers, source_sheet
+
+
+def resolve_gsheet_row_index(df_source: pd.DataFrame, selected_pedido_data: pd.Series) -> int:
+    """Resuelve el índice real de fila en Google Sheets para un pedido."""
+    pedido_id = normalize_id_pedido(selected_pedido_data.get("ID_Pedido", ""))
+    folio = normalize_folio_factura(selected_pedido_data.get("Folio_Factura", ""))
+
+    row_candidates = pd.DataFrame()
+    if pedido_id and "ID_Pedido" in df_source.columns:
+        row_candidates = df_source[
+            df_source["ID_Pedido"].apply(normalize_id_pedido) == pedido_id
+        ]
+
+    if row_candidates.empty and folio and "Folio_Factura" in df_source.columns:
+        row_candidates = df_source[
+            df_source["Folio_Factura"].apply(normalize_folio_factura) == folio
+        ]
+
+    if row_candidates.empty:
+        raise ValueError("No se encontró el pedido en la hoja origen.")
+
+    return int(row_candidates.index[0]) + 2
+
+
 def refresh_pedidos_pagados_no_confirmados(
     df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
@@ -274,11 +357,14 @@ def refresh_pedidos_pagados_no_confirmados(
 def force_reload_pedidos_and_refresh_pendientes() -> tuple[pd.DataFrame, list[str]]:
     """Fuerza recarga real de pedidos, refrescando pendientes y sesión."""
     _get_ws_datos.clear()
+    _get_ws_data.clear()
     cargar_pedidos_desde_google_sheet.clear()
     st.session_state.setdefault("pedidos_reload_nonce", 0)
     st.session_state["pedidos_reload_nonce"] += 1
+
+    nonce = st.session_state["pedidos_reload_nonce"]
     df_pedidos, headers = cargar_pedidos_desde_google_sheet(
-        GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
+        GOOGLE_SHEET_ID, "datos_pedidos", nonce
     )
     if "Tipo_Envio" in df_pedidos.columns:
         df_pedidos = df_pedidos[
@@ -286,6 +372,9 @@ def force_reload_pedidos_and_refresh_pendientes() -> tuple[pd.DataFrame, list[st
                 ["🎓 Cursos y Eventos", "📋 Solicitudes de Guía"]
             )
         ].copy()
+
+    pedidos_pendientes = _load_pedidos_pendientes_admin(nonce)
+
     if MOTIVO_RECHAZO_CANCELACION_COL not in df_pedidos.columns:
         df_pedidos[MOTIVO_RECHAZO_CANCELACION_COL] = ""
     if ESTADO_ENTREGA_COL not in df_pedidos.columns:
@@ -295,7 +384,7 @@ def force_reload_pedidos_and_refresh_pendientes() -> tuple[pd.DataFrame, list[st
 
     st.session_state.df_pedidos = df_pedidos
     st.session_state.headers = headers
-    refresh_pedidos_pagados_no_confirmados(df_pedidos)
+    refresh_pedidos_pagados_no_confirmados(pedidos_pendientes)
     return df_pedidos, headers
 
 
@@ -529,6 +618,12 @@ def clear_comprobante_form_state():
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
     return safe_open_worksheet(GOOGLE_SHEET_ID, "datos_pedidos")
+
+
+@st.cache_resource(ttl=60)
+def _get_ws_data():
+    """Devuelve la worksheet 'data_pedidos' con reintentos (usa safe_open_worksheet)."""
+    return safe_open_worksheet(GOOGLE_SHEET_ID, "data_pedidos")
 
 
 def safe_batch_update(
@@ -1034,10 +1129,9 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
     df_pedidos, headers = cargar_pedidos_desde_google_sheet(
         GOOGLE_SHEET_ID, "datos_pedidos", st.session_state["pedidos_reload_nonce"]
     )
-    # Excluir pedidos de cursos y eventos para que no aparezcan en ningún flujo
-    if 'Tipo_Envio' in df_pedidos.columns:
+    if "Tipo_Envio" in df_pedidos.columns:
         df_pedidos = df_pedidos[
-            ~df_pedidos['Tipo_Envio'].isin(['🎓 Cursos y Eventos', '📋 Solicitudes de Guía'])
+            ~df_pedidos["Tipo_Envio"].isin(["🎓 Cursos y Eventos", "📋 Solicitudes de Guía"])
         ].copy()
     if MOTIVO_RECHAZO_CANCELACION_COL not in df_pedidos.columns:
         df_pedidos[MOTIVO_RECHAZO_CANCELACION_COL] = ""
@@ -1060,7 +1154,8 @@ if "df_pedidos" not in st.session_state or "headers" not in st.session_state:
         df_pedidos[FECHA_CONFIRMADO_COL] = ""
     st.session_state.df_pedidos = df_pedidos
     st.session_state.headers = headers
-    refresh_pedidos_pagados_no_confirmados(df_pedidos)
+    pedidos_pendientes_admin = _load_pedidos_pendientes_admin(st.session_state["pedidos_reload_nonce"])
+    refresh_pedidos_pagados_no_confirmados(pedidos_pendientes_admin)
 
 df_pedidos = st.session_state.df_pedidos
 headers = st.session_state.headers
@@ -2105,11 +2200,10 @@ with tab1:
                                 st.stop()
                             st.session_state["confirmando_pedido"] = True
                             try:
-                                # Índice real (fila en Google Sheets)
-                                gsheet_row_index = df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]].index[0] + 2
+                                df_source, worksheet, headers, _ = resolve_pedido_source_context(selected_pedido_data)
+                                gsheet_row_index = resolve_gsheet_row_index(df_source, selected_pedido_data)
 
                                 # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
-                                worksheet = _get_ws_datos()
                                 headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
                                 if is_pedido_local:
                                     headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
@@ -2174,7 +2268,10 @@ with tab1:
 
                                 if updates:
                                     safe_batch_update(worksheet, updates)
-                                    _get_ws_datos.clear()
+                                    if str(selected_pedido_data.get("__source_sheet", "datos_pedidos")) == "data_pedidos":
+                                        _get_ws_data.clear()
+                                    else:
+                                        _get_ws_datos.clear()
                                     force_reload_pedidos_and_refresh_pendientes()
 
                                 st.success("✅ Confirmación de crédito guardada exitosamente.")
@@ -2438,11 +2535,8 @@ with tab1:
                             st.stop()
                         st.session_state["confirmando_pedido"] = True
                         try:
-                            # Índice real en la hoja
-                            gsheet_row_index = (
-                                df_pedidos[df_pedidos['ID_Pedido'] == selected_pedido_data["ID_Pedido"]]
-                                .index[0] + 2
-                            )
+                            df_source, worksheet, headers, _ = resolve_pedido_source_context(selected_pedido_data)
+                            gsheet_row_index = resolve_gsheet_row_index(df_source, selected_pedido_data)
     
                             # Subir archivos a S3
                             adjuntos_urls = []
@@ -2495,7 +2589,6 @@ with tab1:
                                 updates[ESTADO_ENTREGA_COL] = estado_entrega_value
     
                             # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
-                            worksheet = _get_ws_datos()
                             headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
                             if is_pedido_local:
                                 headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
@@ -2530,7 +2623,10 @@ with tab1:
     
                             if cell_updates:
                                 safe_batch_update(worksheet, cell_updates)
-                                _get_ws_datos.clear()
+                                if str(selected_pedido_data.get("__source_sheet", "datos_pedidos")) == "data_pedidos":
+                                    _get_ws_data.clear()
+                                else:
+                                    _get_ws_datos.clear()
 
                             force_reload_pedidos_and_refresh_pendientes()
 
@@ -2780,12 +2876,8 @@ with tab1:
                                 st.stop()
                             st.session_state["confirmando_pedido"] = True
                             try:
-                                gsheet_row_index = (
-                                    df_pedidos[
-                                        df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
-                                    ].index[0]
-                                    + 2
-                                )
+                                df_source, worksheet, headers, _ = resolve_pedido_source_context(selected_pedido_data)
+                                gsheet_row_index = resolve_gsheet_row_index(df_source, selected_pedido_data)
 
                                 if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
                                     df_pedidos[FECHA_CONFIRMADO_COL] = ""
@@ -2805,7 +2897,6 @@ with tab1:
                                     updates[ESTADO_ENTREGA_COL] = estado_entrega_value
 
                                 # 🔹 OBTENER HOJA FRESCA (con reintentos) ANTES DE ESCRIBIR
-                                worksheet = _get_ws_datos()
                                 headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
                                 if is_pedido_local:
                                     headers = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
@@ -2823,7 +2914,10 @@ with tab1:
 
                                 if cell_updates:
                                     safe_batch_update(worksheet, cell_updates)
-                                    _get_ws_datos.clear()
+                                    if str(selected_pedido_data.get("__source_sheet", "datos_pedidos")) == "data_pedidos":
+                                        _get_ws_data.clear()
+                                    else:
+                                        _get_ws_datos.clear()
 
                                 force_reload_pedidos_and_refresh_pendientes()
                                 clear_comprobante_form_state()
@@ -2867,12 +2961,8 @@ with tab1:
                                     else:
                                         prefijo = f"Rechazo[{motivo}]"
                                         try:
-                                            gsheet_row_index = (
-                                                df_pedidos[
-                                                    df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
-                                                ].index[0]
-                                                + 2
-                                            )
+                                            df_source, worksheet, headers, _ = resolve_pedido_source_context(selected_pedido_data)
+                                            gsheet_row_index = resolve_gsheet_row_index(df_source, selected_pedido_data)
 
                                             if FECHA_CONFIRMADO_COL not in df_pedidos.columns:
                                                 df_pedidos[FECHA_CONFIRMADO_COL] = ""
@@ -2884,7 +2974,6 @@ with tab1:
                                                 FECHA_CONFIRMADO_COL: '',
                                             }
 
-                                            worksheet = _get_ws_datos()
                                             headers = ensure_sheet_column(worksheet, headers, FECHA_CONFIRMADO_COL)
                                             st.session_state.headers = headers
 
@@ -2900,7 +2989,10 @@ with tab1:
 
                                             if cell_updates:
                                                 safe_batch_update(worksheet, cell_updates)
-                                                _get_ws_datos.clear()
+                                                if str(selected_pedido_data.get("__source_sheet", "datos_pedidos")) == "data_pedidos":
+                                                    _get_ws_data.clear()
+                                                else:
+                                                    _get_ws_datos.clear()
                                                 force_reload_pedidos_and_refresh_pendientes()
                                                 st.success("🚫 Comprobante rechazado correctamente.")
                                                 st.session_state.pop(reject_toggle_key, None)
@@ -2938,18 +3030,12 @@ with tab1:
                                 else:
                                     prefijo = f"Cancelado[{motivo}]"
                                     try:
-                                        gsheet_row_index = (
-                                            df_pedidos[
-                                                df_pedidos['ID_Pedido'] == selected_pedido_id_for_s3_search
-                                            ].index[0]
-                                            + 2
-                                        )
+                                        df_source, worksheet, headers, _ = resolve_pedido_source_context(selected_pedido_data)
+                                        gsheet_row_index = resolve_gsheet_row_index(df_source, selected_pedido_data)
 
                                         updates = {
                                             MOTIVO_RECHAZO_CANCELACION_COL: prefijo,
                                         }
-
-                                        worksheet = _get_ws_datos()
 
                                         cell_updates = []
                                         for col, val in updates.items():
@@ -2963,7 +3049,10 @@ with tab1:
 
                                         if cell_updates:
                                             safe_batch_update(worksheet, cell_updates)
-                                            _get_ws_datos.clear()
+                                            if str(selected_pedido_data.get("__source_sheet", "datos_pedidos")) == "data_pedidos":
+                                                _get_ws_data.clear()
+                                            else:
+                                                _get_ws_datos.clear()
                                             force_reload_pedidos_and_refresh_pendientes()
                                             st.success("🛑 Pedido cancelado y ocultado de la vista.")
                                             st.session_state.pop(cancel_toggle_key, None)
@@ -3311,6 +3400,12 @@ with tab2:
                         )
 
                 # Detectar nuevos confirmados no guardados aún en la hoja
+                df_pedidos_confirmados_fuentes = _load_pedidos_admin_fuentes(
+                    st.session_state.get("pedidos_reload_nonce", 0)
+                )
+                if df_pedidos_confirmados_fuentes is None or df_pedidos_confirmados_fuentes.empty:
+                    df_pedidos_confirmados_fuentes = df_pedidos.copy()
+
                 if not df_confirmados_guardados.empty:
                     ids_existentes_norm = df_confirmados_guardados["ID_Pedido"].apply(normalize_id_pedido)
                     folios_existentes_norm = df_confirmados_guardados["Folio_Factura"].apply(normalize_folio_factura)
@@ -3322,22 +3417,22 @@ with tab2:
                 else:
                     pares_existentes = set()
 
-                if 'ID_Pedido' in df_pedidos.columns:
-                    serie_ids_normalizados = df_pedidos['ID_Pedido'].apply(normalize_id_pedido)
+                if 'ID_Pedido' in df_pedidos_confirmados_fuentes.columns:
+                    serie_ids_normalizados = df_pedidos_confirmados_fuentes['ID_Pedido'].apply(normalize_id_pedido)
                 else:
-                    serie_ids_normalizados = pd.Series(["" for _ in range(len(df_pedidos))], index=df_pedidos.index)
+                    serie_ids_normalizados = pd.Series(["" for _ in range(len(df_pedidos_confirmados_fuentes))], index=df_pedidos_confirmados_fuentes.index)
 
-                if 'Folio_Factura' in df_pedidos.columns:
-                    serie_folios_normalizados = df_pedidos['Folio_Factura'].apply(normalize_folio_factura)
+                if 'Folio_Factura' in df_pedidos_confirmados_fuentes.columns:
+                    serie_folios_normalizados = df_pedidos_confirmados_fuentes['Folio_Factura'].apply(normalize_folio_factura)
                 else:
-                    serie_folios_normalizados = pd.Series(["" for _ in range(len(df_pedidos))], index=df_pedidos.index)
+                    serie_folios_normalizados = pd.Series(["" for _ in range(len(df_pedidos_confirmados_fuentes))], index=df_pedidos_confirmados_fuentes.index)
 
                 pares_normalizados = pd.Series(
-                    list(zip(serie_ids_normalizados, serie_folios_normalizados)), index=df_pedidos.index
+                    list(zip(serie_ids_normalizados, serie_folios_normalizados)), index=df_pedidos_confirmados_fuentes.index
                 )
 
-                df_nuevos = df_pedidos[
-                    (df_pedidos.get('Comprobante_Confirmado') == 'Sí') &
+                df_nuevos = df_pedidos_confirmados_fuentes[
+                    (df_pedidos_confirmados_fuentes.get('Comprobante_Confirmado') == 'Sí') &
                     (~pares_normalizados.isin(pares_existentes))
                 ].copy()
 
@@ -3366,7 +3461,7 @@ with tab2:
                         adjuntos_map,
                         adjuntos_surtido_map,
                         adjuntos_guia_map,
-                    ) = build_adjuntos_map_from_pedidos(df_pedidos)
+                    ) = build_adjuntos_map_from_pedidos(df_pedidos_confirmados_fuentes)
 
                     fallback_columns = [
                         'Link_Adjuntos',
@@ -3374,7 +3469,7 @@ with tab2:
                         'Link_Adjuntos_Guia',
                         'Link_Refacturacion',
                     ]
-                    links_fallback_map = build_link_fallback_map(df_pedidos, fallback_columns)
+                    links_fallback_map = build_link_fallback_map(df_pedidos_confirmados_fuentes, fallback_columns)
 
                     def _fallback_link(norm_id: str, column: str) -> str:
                         if not norm_id:
@@ -3416,7 +3511,7 @@ with tab2:
                             sort=False,
                         )
                         df_combined = dedupe_confirmados(df_combined)
-                        df_combined = sync_estado_surtido_confirmados(df_combined, df_pedidos)
+                        df_combined = sync_estado_surtido_confirmados(df_combined, df_pedidos_confirmados_fuentes)
                         df_combined = df_combined.reindex(columns=columnas_objetivo_confirmados, fill_value="")
 
                         valores_actualizados = [columnas_objetivo_confirmados]
@@ -3519,7 +3614,7 @@ with tab2:
                     )
                     df_combined = dedupe_confirmados(df_combined)
                     df_combined = sync_estado_surtido_confirmados(
-                        df_combined, df_pedidos
+                        df_combined, df_pedidos_confirmados_fuentes
                     )
                     nuevos_agregados = max(len(df_combined) - len(df_existente_merge), 0)
 
