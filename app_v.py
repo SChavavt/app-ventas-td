@@ -2244,6 +2244,26 @@ with tab1:
             pedido_sin_adjuntos = not (
                 uploaded_files or comprobante_pago_files or comprobante_cliente
             )
+            aviso_estado_pago_auto = ""
+
+            pedidos_con_estado_pago = [
+                "🚚 Pedido Foráneo",
+                "🏙️ Pedido CDMX",
+                "📍 Pedido Local",
+                "🎓 Cursos y Eventos",
+            ]
+
+            if (
+                tipo_envio in pedidos_con_estado_pago
+                and comprobante_pago_files
+                and estado_pago != "✅ Pagado"
+            ):
+                estado_pago = "✅ Pagado"
+                aviso_estado_pago_auto = (
+                    "ℹ️ Se detectó al menos un comprobante de pago y el pedido fue marcado "
+                    "automáticamente como '✅ Pagado'."
+                )
+                st.info(aviso_estado_pago_auto)
 
             # Normalización de campos para Casos Especiales
             if tipo_envio == "🔁 Devolución":
@@ -2262,12 +2282,11 @@ with tab1:
                 direccion_envio_destino = normalize_case_text(direccion_envio_destino)
 
             # Validar comprobante de pago para tipos normales
-            if tipo_envio in [
-                "🚚 Pedido Foráneo",
-                "🏙️ Pedido CDMX",
-                "📍 Pedido Local",
-                "🎓 Cursos y Eventos",
-            ] and estado_pago == "✅ Pagado" and not comprobante_pago_files:
+            if (
+                tipo_envio in pedidos_con_estado_pago
+                and estado_pago == "✅ Pagado"
+                and not comprobante_pago_files
+            ):
                 st.warning("⚠️ Suba un comprobante si el pedido está marcado como pagado.")
                 st.stop()
 
@@ -2578,6 +2597,7 @@ with tab1:
             set_pedido_submission_status(
                 "success",
                 f"✅ El pedido {pedido_id}{id_vendedor_segment} fue subido correctamente.",
+                detail=aviso_estado_pago_auto,
                 attachments=adjuntos_urls,
                 missing_attachments_warning=pedido_sin_adjuntos,
             )
