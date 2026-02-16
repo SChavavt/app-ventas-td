@@ -3415,23 +3415,51 @@ with tab3:
     st.header("🧾 Pedidos Pendientes de Comprobante")
 
     df_pedidos_comprobante = pd.DataFrame()
+    worksheets_by_source: dict[str, object] = {}
+    headers_by_source: dict[str, list[str]] = {}
     try:
-        worksheet = get_worksheet()
-        headers = worksheet.row_values(1)
-        if headers:
-            df_pedidos_comprobante = pd.DataFrame(worksheet.get_all_records())
-            if "Adjuntos_Guia" not in df_pedidos_comprobante.columns:
-                df_pedidos_comprobante["Adjuntos_Guia"] = ""
+        dataframes_comprobante: list[pd.DataFrame] = []
+        source_getters = [
+            (SHEET_PEDIDOS_HISTORICOS, get_worksheet_historico),
+            (SHEET_PEDIDOS_OPERATIVOS, get_worksheet_operativa),
+        ]
 
-            if 'Folio_Factura' in df_pedidos_comprobante.columns:
-                df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '')
-            if 'Vendedor_Registro' in df_pedidos_comprobante.columns:
-                df_pedidos_comprobante['Vendedor_Registro'] = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
-                df_pedidos_comprobante.loc[~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST), 'Vendedor_Registro'] = 'Otro/Desconocido'
-                df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'].isin(['', 'nan', 'None']), 'Vendedor_Registro'] = 'N/A'
+        for source_name, getter in source_getters:
+            worksheet_source = getter()
+            if worksheet_source is None:
+                continue
+            ws_headers = worksheet_source.row_values(1)
+            if not ws_headers:
+                continue
 
+            ws_df, _ = load_sheet_records_with_row_numbers(worksheet_source)
+            if ws_df.empty:
+                continue
+
+            ws_df["Fuente"] = source_name
+            dataframes_comprobante.append(ws_df)
+            worksheets_by_source[source_name] = worksheet_source
+            headers_by_source[source_name] = ws_headers
+
+        if dataframes_comprobante:
+            df_pedidos_comprobante = pd.concat(dataframes_comprobante, ignore_index=True)
+
+            for col_name in ["Adjuntos_Guia", "Adjuntos", "Estado_Pago", "Vendedor_Registro", "ID_Pedido", "Cliente", "Folio_Factura"]:
+                if col_name not in df_pedidos_comprobante.columns:
+                    df_pedidos_comprobante[col_name] = ""
+
+            df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '').str.strip()
+
+            vendedores_limpios = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
+            vendedores_limpios = vendedores_limpios.replace({'nan': '', 'None': ''})
+            df_pedidos_comprobante['Vendedor_Registro'] = vendedores_limpios
+            df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'] == '', 'Vendedor_Registro'] = 'N/A'
+            df_pedidos_comprobante.loc[
+                ~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST + ['N/A']),
+                'Vendedor_Registro',
+            ] = 'Otro/Desconocido'
         else:
-            st.warning("No se pudieron cargar los encabezados del Google Sheet. Asegúrate de que la primera fila no esté vacía.")
+            st.warning("No se encontraron datos disponibles en las hojas de pedidos para comprobantes.")
     except Exception as e:
         st.error(f"❌ Error al cargar pedidos para comprobante: {e}")
 
@@ -3443,7 +3471,9 @@ with tab3:
         col3_tab3, col4_tab3 = st.columns(2)
         with col3_tab3:
             if 'Vendedor_Registro' in filtered_pedidos_comprobante.columns:
-                unique_vendedores_comp = ["Todos"] + sorted(filtered_pedidos_comprobante['Vendedor_Registro'].unique().tolist())
+                vendedores_detectados = sorted(filtered_pedidos_comprobante['Vendedor_Registro'].dropna().astype(str).unique().tolist())
+                vendedores_extra = [v for v in vendedores_detectados if v not in VENDEDORES_LIST]
+                unique_vendedores_comp = ["Todos"] + VENDEDORES_LIST + vendedores_extra
                 selected_vendedor_comp = st.selectbox(
                     "Filtrar por Vendedor:",
                     options=unique_vendedores_comp,
@@ -3522,7 +3552,7 @@ with tab3:
 
 
             pedidos_sin_comprobante['display_label'] = pedidos_sin_comprobante.apply(lambda row:
-                f"📄 {row.get('Folio_Factura', 'N/A') or row.get('ID_Pedido', 'N/A')} - {row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')}", axis=1)
+                f"📄 {row.get('Folio_Factura', 'N/A') or row.get('ID_Pedido', 'N/A')} - {row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')} [{row.get('Fuente', 'N/A')}]", axis=1)
             # ❌ NO volver a ordenar aquí
 
 
@@ -3533,10 +3563,19 @@ with tab3:
             )
 
             if selected_pending_order_display:
-                selected_pending_order_id = pedidos_sin_comprobante[pedidos_sin_comprobante['display_label'] == selected_pending_order_display]['ID_Pedido'].iloc[0]
-                selected_pending_row_data = pedidos_sin_comprobante[pedidos_sin_comprobante['ID_Pedido'] == selected_pending_order_id].iloc[0]
+                selected_pending_row_data = pedidos_sin_comprobante[
+                    pedidos_sin_comprobante['display_label'] == selected_pending_order_display
+                ].iloc[0]
+                selected_pending_order_id = selected_pending_row_data.get('ID_Pedido', '')
+                selected_source_name = str(selected_pending_row_data.get('Fuente', SHEET_PEDIDOS_HISTORICOS)).strip()
+                worksheet_obj = worksheets_by_source.get(selected_source_name)
+                headers_source = headers_by_source.get(selected_source_name, [])
+                sheet_row_number = parse_sheet_row_number(selected_pending_row_data.get('Sheet_Row_Number'))
 
-                st.info(f"Subiendo comprobante para: Folio {selected_pending_row_data.get('Folio_Factura')} (ID {selected_pending_order_id})")
+                st.info(
+                    f"Subiendo comprobante para: Folio {selected_pending_row_data.get('Folio_Factura')} "
+                    f"(ID {selected_pending_order_id}) en {selected_source_name}"
+                )
 
                 with st.form(key=f"upload_comprobante_form_{selected_pending_order_id}"):
                     comprobante_files = st.file_uploader(
@@ -3551,16 +3590,16 @@ with tab3:
                     if submit_comprobante:
                         if comprobante_files:
                             try:
-                                headers = worksheet.row_values(1)
-                                all_data_actual = worksheet.get_all_records()
-                                df_actual = pd.DataFrame(all_data_actual)
-
-                                if selected_pending_order_id not in df_actual['ID_Pedido'].values:
-                                    st.error("❌ No se encontró el ID del pedido en la hoja. Verifica que no se haya borrado.")
+                                if worksheet_obj is None:
+                                    st.error("❌ No se encontró la hoja de origen del pedido seleccionado.")
+                                    st.stop()
+                                if not headers_source:
+                                    headers_source = worksheet_obj.row_values(1)
+                                if not sheet_row_number:
+                                    st.error("❌ No se pudo identificar la fila del pedido en Google Sheets.")
                                     st.stop()
 
-                                df_index = df_actual[df_actual['ID_Pedido'] == selected_pending_order_id].index[0]
-                                sheet_row = df_index + 2
+                                sheet_row = sheet_row_number
 
                                 new_urls = []
                                 for archivo in comprobante_files:
@@ -3573,33 +3612,40 @@ with tab3:
                                         st.warning(f"⚠️ Falló la subida de {archivo.name}: {error_msg or 'Error desconocido'}")
 
                                 if new_urls:
-                                    current_adjuntos = df_pedidos_comprobante.loc[df_index, 'Adjuntos'] if 'Adjuntos' in df_pedidos_comprobante.columns else ""
+                                    current_adjuntos = str(selected_pending_row_data.get('Adjuntos', ''))
                                     adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
                                     adjuntos_list.extend(new_urls)
+
+                                    required_cols = ['Adjuntos', 'Estado_Pago', 'Fecha_Pago_Comprobante']
+                                    missing_cols = [col for col in required_cols if col not in headers_source]
+                                    if missing_cols:
+                                        st.error(f"❌ Faltan columnas requeridas en la hoja: {', '.join(missing_cols)}")
+                                        st.stop()
+
                                     updates = [
                                         {
                                             "range": rowcol_to_a1(
                                                 sheet_row,
-                                                headers.index('Adjuntos') + 1,
+                                                headers_source.index('Adjuntos') + 1,
                                             ),
                                             "values": [[", ".join(adjuntos_list)]],
                                         },
                                         {
                                             "range": rowcol_to_a1(
                                                 sheet_row,
-                                                headers.index('Estado_Pago') + 1,
+                                                headers_source.index('Estado_Pago') + 1,
                                             ),
                                             "values": [["✅ Pagado"]],
                                         },
                                         {
                                             "range": rowcol_to_a1(
                                                 sheet_row,
-                                                headers.index('Fecha_Pago_Comprobante') + 1,
+                                                headers_source.index('Fecha_Pago_Comprobante') + 1,
                                             ),
                                             "values": [[datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d')]],
                                         },
                                     ]
-                                    safe_batch_update(worksheet, updates)
+                                    safe_batch_update(worksheet_obj, updates)
 
                                     st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
                                     st.rerun()
@@ -3612,30 +3658,40 @@ with tab3:
 
                 if st.button("✅ Marcar como Pagado sin Comprobante", key=f"btn_sin_cp_{selected_pending_order_id}"):
                     try:
-                        headers = worksheet.row_values(1)
-                        df_index = df_pedidos_comprobante[df_pedidos_comprobante['ID_Pedido'] == selected_pending_order_id].index[0]
-                        sheet_row = df_index + 2
+                        if worksheet_obj is None:
+                            st.error("❌ No se encontró la hoja de origen del pedido seleccionado.")
+                            st.stop()
+                        if not headers_source:
+                            headers_source = worksheet_obj.row_values(1)
+                        if not sheet_row_number:
+                            st.error("❌ No se pudo identificar la fila del pedido en Google Sheets.")
+                            st.stop()
+                        if 'Estado_Pago' not in headers_source:
+                            st.error("❌ La hoja no contiene la columna 'Estado_Pago'.")
+                            st.stop()
+
+                        sheet_row = sheet_row_number
 
                         updates = [
                             {
                                 "range": rowcol_to_a1(
                                     sheet_row,
-                                    headers.index('Estado_Pago') + 1,
+                                    headers_source.index('Estado_Pago') + 1,
                                 ),
                                 "values": [["✅ Pagado"]],
                             }
                         ]
 
-                        if 'Fecha_Pago_Comprobante' in headers:
+                        if 'Fecha_Pago_Comprobante' in headers_source:
                             updates.append({
                                 "range": rowcol_to_a1(
                                     sheet_row,
-                                    headers.index('Fecha_Pago_Comprobante') + 1,
+                                    headers_source.index('Fecha_Pago_Comprobante') + 1,
                                 ),
                                 "values": [[datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d')]],
                             })
 
-                        safe_batch_update(worksheet, updates)
+                        safe_batch_update(worksheet_obj, updates)
 
                         st.success("✅ Pedido marcado como pagado sin comprobante.")
                         st.rerun()
