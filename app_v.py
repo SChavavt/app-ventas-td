@@ -201,7 +201,7 @@ def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float |
         return {"total": 0, "clientes": [], "keys": []}
 
     try:
-        ws_ped = get_worksheet_operativa(refresh_token)
+        ws_ped = get_worksheet(refresh_token)
         df_ped = pd.DataFrame(ws_ped.get_all_records())
     except Exception:
         df_ped = pd.DataFrame()
@@ -242,7 +242,7 @@ def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float |
         pedido_ref = str(row.get("ID_Pedido", "")).strip() or str(row.get("Folio_Factura", "")).strip()
         guia_ref = str(row.get("Adjuntos_Guia", "")).strip()
         if pedido_ref and guia_ref:
-            keys.append(f"{SHEET_PEDIDOS_OPERATIVOS}::{pedido_ref}::{guia_ref}")
+            keys.append(f"datos_pedidos::{pedido_ref}::{guia_ref}")
 
     for _, row in df_casos.iterrows():
         cliente = str(row.get("Cliente", "")).strip()
@@ -579,8 +579,6 @@ def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
-SHEET_PEDIDOS_OPERATIVOS = "data_pedidos"
-SHEET_PEDIDOS_HISTORICOS = "datos_pedidos"
 
 def build_gspread_client():
     credentials_json_str = st.secrets["google_credentials"]
@@ -630,26 +628,12 @@ def get_google_sheets_client(refresh_token: float | None = None):
     return None
 
 @st.cache_resource
-def get_worksheet_operativa(refresh_token: float | None = None):
-    client = get_google_sheets_client(refresh_token)
-    if client is None:
-        return None
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-    return spreadsheet.worksheet(SHEET_PEDIDOS_OPERATIVOS)
-
-
-@st.cache_resource
-def get_worksheet_historico(refresh_token: float | None = None):
-    client = get_google_sheets_client(refresh_token)
-    if client is None:
-        return None
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-    return spreadsheet.worksheet(SHEET_PEDIDOS_HISTORICOS)
-
-
 def get_worksheet(refresh_token: float | None = None):
-    """Compatibilidad para tabs legadas que aún leen histórico."""
-    return get_worksheet_historico(refresh_token)
+    client = get_google_sheets_client(refresh_token)
+    if client is None:
+        return None
+    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    return spreadsheet.worksheet("datos_pedidos")
 
 def get_worksheet_casos_especiales():
     client = build_gspread_client()
@@ -661,10 +645,8 @@ def get_sheet_headers(sheet_name: str):
     """Obtiene y cachea los encabezados de la hoja especificada."""
     if sheet_name == "casos_especiales":
         ws = get_worksheet_casos_especiales()
-    elif sheet_name == SHEET_PEDIDOS_HISTORICOS:
-        ws = get_worksheet_historico()
     else:
-        ws = get_worksheet_operativa()
+        ws = get_worksheet()
     return ws.row_values(1) if ws else []
 
 
@@ -1002,7 +984,7 @@ def set_pedido_submission_status(
 
 @st.cache_data(ttl=300)
 def cargar_pedidos():
-    sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet(SHEET_PEDIDOS_OPERATIVOS)
+    sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet("datos_pedidos")
     data = sheet.get_all_records()
     return pd.DataFrame(data)
 
@@ -1505,23 +1487,11 @@ tabs_labels = [
     "🔍 Buscar Pedido"
 ]
 
-# Leer índice de pestaña desde los parámetros de la URL.
-# Si falta o viene inválido, usar la pestaña actual de sesión para evitar rebotes en reruns.
-raw_tab_param = st.query_params.get("tab")
-default_tab: int | None = None
-
-if raw_tab_param is not None:
-    try:
-        default_tab = int(raw_tab_param[0]) if isinstance(raw_tab_param, list) else int(raw_tab_param)
-    except (TypeError, ValueError):
-        default_tab = None
-
-if default_tab is None:
-    session_tab = st.session_state.get("current_tab_index")
-    if isinstance(session_tab, int):
-        default_tab = session_tab
-    else:
-        default_tab = 0
+# Leer índice de pestaña desde los parámetros de la URL
+try:
+    default_tab = int(st.query_params.get("tab", ["0"])[0])
+except (TypeError, ValueError):
+    default_tab = 0
 
 if tabs_labels:
     default_tab = max(0, min(len(tabs_labels) - 1, default_tab))
@@ -2286,7 +2256,7 @@ with tab1:
                             )
                             st.rerun()
                 else:
-                    worksheet = get_worksheet_operativa()
+                    worksheet = get_worksheet()
                     if worksheet is None:
                         set_pedido_submission_status(
                             "error",
@@ -2583,7 +2553,7 @@ with tab1:
 @st.cache_data(ttl=300)
 def cargar_pedidos_combinados():
     """
-    Carga y unifica pedidos de 'data_pedidos' y 'casos_especiales'.
+    Carga y unifica pedidos de 'datos_pedidos' y 'casos_especiales'.
     Devuelve un DataFrame con columna 'Fuente' indicando el origen.
     Garantiza columnas usadas por la UI (modificación de surtido, refacturación, folio error, documentos, etc.)
     y mapea Hoja_Ruta_Mensajero -> Adjuntos_Guia para homogeneizar.
@@ -2592,10 +2562,10 @@ def cargar_pedidos_combinados():
     sh = client.open_by_key(GOOGLE_SHEET_ID)
 
     # ---------------------------
-    # data_pedidos
+    # datos_pedidos
     # ---------------------------
     try:
-        ws_datos = sh.worksheet(SHEET_PEDIDOS_OPERATIVOS)
+        ws_datos = sh.worksheet("datos_pedidos")
         df_datos, headers_datos = load_sheet_records_with_row_numbers(ws_datos)
     except Exception:
         headers_datos = []
@@ -2608,7 +2578,7 @@ def cargar_pedidos_combinados():
         if 'ID_Pedido' in df_datos.columns:
             df_datos = df_datos[df_datos['ID_Pedido'].astype(str).str.strip().ne("")]
 
-        # columnas que la UI puede usar desde data_pedidos
+        # columnas que la UI puede usar desde datos_pedidos
         needed_datos: list[str] = []
         needed_datos += [
             'ID_Pedido','Cliente','Folio_Factura','Vendedor_Registro','Estado','Hora_Registro','Turno','Fecha_Entrega',
@@ -2639,7 +2609,7 @@ def cargar_pedidos_combinados():
             if c in df_datos.columns:
                 df_datos[c] = df_datos[c].astype(str)
 
-        df_datos["Fuente"] = SHEET_PEDIDOS_OPERATIVOS
+        df_datos["Fuente"] = "datos_pedidos"
 
     # ---------------------------
     # casos_especiales
@@ -2763,7 +2733,7 @@ with tab2:
 
     message_placeholder_tab2 = st.empty()
 
-    # 🔄 Cargar pedidos combinados (data_pedidos + casos_especiales)
+    # 🔄 Cargar pedidos combinados (datos_pedidos + casos_especiales)
     try:
         df_pedidos = cargar_pedidos_combinados()
     except Exception as e:
@@ -2773,7 +2743,7 @@ with tab2:
     # ----------------- Estado local -----------------
     selected_order_id = None
     selected_row_data = None
-    selected_source = SHEET_PEDIDOS_OPERATIVOS  # por defecto
+    selected_source = "datos_pedidos"  # por defecto
     current_modificacion_surtido_value = ""
     current_estado_pago_value = "🔴 No Pagado"
     current_adjuntos_list = []
@@ -2892,7 +2862,7 @@ with tab2:
 
             base_option_values = filtered_orders.apply(
                 lambda row: (
-                    f"{row.get('Fuente', SHEET_PEDIDOS_OPERATIVOS)}|"
+                    f"{row.get('Fuente', 'datos_pedidos')}|"
                     f"{_s(row.get('ID_Pedido', '')) or 'sin_id'}"
                 ),
                 axis=1
@@ -2932,7 +2902,7 @@ with tab2:
                     filtered_orders['option_value'] == selected_option_key
                 ].iloc[0]
                 selected_order_id = matched['ID_Pedido']
-                selected_source = matched.get('Fuente', SHEET_PEDIDOS_OPERATIVOS)  # 'data_pedidos' o 'casos_especiales'
+                selected_source = matched.get('Fuente', 'datos_pedidos')  # 'datos_pedidos' o 'casos_especiales'
 
                 selected_row_data = matched.copy()
                 if 'Seguimiento' not in selected_row_data.index:
@@ -2950,14 +2920,14 @@ with tab2:
                 if selected_source == "casos_especiales" and tipo_det in ("🔁 Devolución", "🛠 Garantía"):
                     render_caso_especial(selected_row_data)
                 else:
-                    # ----------------- Detalles básicos (para data_pedidos u otros) -----------------
+                    # ----------------- Detalles básicos (para datos_pedidos u otros) -----------------
                     st.subheader(
                         f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')}"
                     )
 
                     fuente_display = (
-                        "📄 data_pedidos"
-                        if selected_source == SHEET_PEDIDOS_OPERATIVOS
+                        "📄 datos_pedidos"
+                        if selected_source == "datos_pedidos"
                         else "🔁 casos_especiales"
                     )
                     vendedor_preferido = selected_row_data.get("Vendedor", "")
@@ -3128,7 +3098,7 @@ with tab2:
                                 # 1) Enrutar a la hoja correcta según la fuente
                                 client = build_gspread_client()
                                 sh = client.open_by_key(GOOGLE_SHEET_ID)
-                                hoja_objetivo = SHEET_PEDIDOS_OPERATIVOS if selected_source == SHEET_PEDIDOS_OPERATIVOS else "casos_especiales"
+                                hoja_objetivo = "datos_pedidos" if selected_source == "datos_pedidos" else "casos_especiales"
                                 worksheet = sh.worksheet(hoja_objetivo)
 
                                 headers = worksheet.row_values(1)
@@ -3293,7 +3263,7 @@ with tab2:
                                         )
 
                                 if (
-                                    selected_source == SHEET_PEDIDOS_OPERATIVOS
+                                    selected_source == "datos_pedidos"
                                     and col_exists("Fecha_Completado")
                                 ):
                                     cell_updates.append({
@@ -3844,8 +3814,8 @@ with tab4:
 
 # --- TAB 5: GUIAS CARGADAS ---
 def fijar_tab5_activa():
-    """Mantiene referencia de pestaña activa sin tocar query params en render."""
-    st.session_state["current_tab_index"] = 4
+    if st.session_state.get("current_tab_index") == 4:
+        st.query_params.update({"tab": "4"})
 
 @st.cache_data(ttl=60)
 def cargar_datos_guias_unificadas(refresh_token: float | None = None):
