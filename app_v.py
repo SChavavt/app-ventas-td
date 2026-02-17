@@ -1049,6 +1049,12 @@ def set_pedido_submission_status(
         "missing_attachments_warning": missing_attachments_warning,
     }
 
+
+def rerun_with_pedido_loading(message: str = "⏳ Actualizando el estado del pedido...") -> None:
+    """Marca un mensaje de carga para el siguiente render y relanza la app."""
+    st.session_state["pedido_submission_loading_message"] = message
+    st.rerun()
+
 @st.cache_data(ttl=300)
 def cargar_pedidos():
     sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet(SHEET_PEDIDOS_OPERATIVOS)
@@ -2220,6 +2226,10 @@ with tab1:
     message_container = st.container()
 
     with message_container:
+        loading_message = st.session_state.pop("pedido_submission_loading_message", None)
+        if loading_message:
+            st.info(loading_message)
+
         status_data = st.session_state.get("pedido_submission_status")
         if status_data:
             event_id = status_data.get("event_id")
@@ -2298,7 +2308,6 @@ with tab1:
     # -------------------------------
     if should_process_submission:
         st.info("⏳ Registrando pedido, espera la confirmación final...")
-        st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
                 set_pedido_submission_status(
@@ -2307,7 +2316,7 @@ with tab1:
                 )
                 st.session_state["pedido_submit_disabled"] = False
                 st.session_state.pop("pedido_submit_disabled_at", None)
-                st.rerun()
+                rerun_with_pedido_loading("⏳ Recargando formulario...")
 
             pedido_sin_adjuntos = not (
                 uploaded_files or comprobante_pago_files or comprobante_cliente
@@ -2361,7 +2370,7 @@ with tab1:
                 )
                 st.session_state["pedido_submit_disabled"] = False
                 st.session_state.pop("pedido_submit_disabled_at", None)
-                st.rerun()
+                rerun_with_pedido_loading()
 
             # Acceso a la hoja
             headers = []
@@ -2374,7 +2383,7 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             "No fue posible acceder a la hoja de casos especiales.",
                         )
-                        st.rerun()
+                        rerun_with_pedido_loading()
 
                     headers = worksheet.row_values(1)
                     required_headers = ["Direccion_Guia_Retorno", "Direccion_Envio", "Estatus_OrigenF"]
@@ -2391,7 +2400,7 @@ with tab1:
                                 "❌ Falla al subir el pedido.",
                                 f"No se pudieron preparar las columnas de direcciones: {header_error}",
                             )
-                            st.rerun()
+                            rerun_with_pedido_loading()
                 else:
                     worksheet = get_worksheet_operativa()
                     if worksheet is None:
@@ -2400,7 +2409,7 @@ with tab1:
                             "❌ Falla al subir el pedido.",
                             "No fue posible acceder a la hoja de pedidos.",
                         )
-                        st.rerun()
+                        rerun_with_pedido_loading()
                     headers = worksheet.row_values(1)
                     required_headers = []
                     if tipo_envio == "🚚 Pedido Foráneo":
@@ -2419,7 +2428,7 @@ with tab1:
                                     "❌ Falla al subir el pedido.",
                                     f"No se pudieron preparar las columnas de direcciones: {header_error}",
                                 )
-                                st.rerun()
+                                rerun_with_pedido_loading()
 
                 if not headers:
                     set_pedido_submission_status(
@@ -2427,7 +2436,7 @@ with tab1:
                         "❌ Falla al subir el pedido.",
                         "La hoja de cálculo está vacía.",
                     )
-                    st.rerun()
+                    rerun_with_pedido_loading()
 
                 # Hora local de CDMX para ID y Hora_Registro
                 zona_mexico = timezone("America/Mexico_City")
@@ -2438,17 +2447,20 @@ with tab1:
 
             except gspread.exceptions.APIError as e:
                 if "RESOURCE_EXHAUSTED" in str(e):
-                    st.warning("⚠️ Cuota de Google Sheets alcanzada. Reintentando...")
+                    set_pedido_submission_status(
+                        "warning",
+                        "⚠️ Cuota de Google Sheets alcanzada. Reintentando...",
+                    )
                     st.cache_resource.clear()
                     time.sleep(6)
-                    st.rerun()
+                    rerun_with_pedido_loading()
                 else:
                     set_pedido_submission_status(
                         "error",
                         "❌ Falla al subir el pedido.",
                         f"Error al acceder a Google Sheets: {e}",
                     )
-                    st.rerun()
+                    rerun_with_pedido_loading()
 
             adjuntos_urls = []
             try:
@@ -2482,7 +2494,7 @@ with tab1:
                     message="❌ No se pudieron subir los archivos del pedido.",
                     detail=str(e),
                 )
-                st.stop()
+                rerun_with_pedido_loading()
 
             adjuntos_str = ", ".join(adjuntos_urls)
 
@@ -2645,7 +2657,7 @@ with tab1:
                     "❌ Falla al subir el pedido.",
                     "No se encontró la columna ID_Pedido en la hoja.",
                 )
-                st.stop()
+                rerun_with_pedido_loading()
 
             try:
                 with st.spinner("Registrando pedido en Google Sheets..."):
@@ -2661,7 +2673,7 @@ with tab1:
                     "❌ Falla al subir el pedido.",
                     f"Error al registrar el pedido: {e}",
                 )
-                st.rerun()
+                rerun_with_pedido_loading()
 
             reset_tab1_form_state()
             id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
@@ -2677,7 +2689,7 @@ with tab1:
             )
             if tab1_is_active and st.session_state.get("current_tab_index") == 0:
                 st.query_params.update({"tab": "0"})
-            st.rerun()
+            rerun_with_pedido_loading("⏳ Pedido registrado. Actualizando vista...")
 
         except Exception as e:
             set_pedido_submission_status(
@@ -2685,7 +2697,7 @@ with tab1:
                 "❌ Falla al subir el pedido.",
                 f"Error inesperado al registrar el pedido: {e}",
             )
-            st.rerun()
+            rerun_with_pedido_loading()
 
 
 
