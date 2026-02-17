@@ -1546,11 +1546,11 @@ tabs_labels = [
     "🛒 Registrar Nuevo Pedido",
     "✏️ Modificar Pedido Existente",
     "🧾 Pedidos Pendientes de Comprobante",
-    "📦 Guías Cargadas",
     "📁 Casos Especiales",
-    "🔍 Buscar Pedido",
+    "📦 Guías Cargadas",
     "⏳ Pedidos No Entregados",
     "⬇️ Descargar Datos",
+    "🔍 Buscar Pedido"
 ]
 
 # Leer índice de pestaña desde los parámetros de la URL.
@@ -3873,11 +3873,11 @@ def cargar_casos_especiales():
 
 
 
-# --- TAB 5: CASOS ESPECIALES ---
-with tab5:
-    tab4_is_active = default_tab == 4
+# --- TAB 4: CASOS ESPECIALES ---
+with tab4:
+    tab4_is_active = default_tab == 3
     if tab4_is_active:
-        st.session_state["current_tab_index"] = 4
+        st.session_state["current_tab_index"] = 3
     st.header("📁 Casos Especiales")
 
     try:
@@ -3994,7 +3994,7 @@ with tab5:
 # --- TAB 5: GUIAS CARGADAS ---
 def fijar_tab5_activa():
     """Mantiene referencia de pestaña activa sin tocar query params en render."""
-    st.session_state["current_tab_index"] = 3
+    st.session_state["current_tab_index"] = 4
 
 @st.cache_data(ttl=60)
 def cargar_datos_guias_unificadas(refresh_token: float | None = None):
@@ -4110,10 +4110,10 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
 
     return df
 
-with tab4:
-    tab5_is_active = default_tab == 3
+with tab5:
+    tab5_is_active = default_tab == 4
     if tab5_is_active:
-        st.session_state["current_tab_index"] = 3
+        st.session_state["current_tab_index"] = 4
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
     id_vendedor_sesion = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
@@ -4313,11 +4313,11 @@ with tab4:
             else:
                 st.warning("⚠️ No se encontró una URL válida para la guía.")
 
-# --- TAB 7: PEDIDOS NO ENTREGADOS ---
-with tab7:
-    tab6_is_active = default_tab == 6
+# --- TAB 6: PEDIDOS NO ENTREGADOS ---
+with tab6:
+    tab6_is_active = default_tab == 5
     if tab6_is_active:
-        st.session_state["current_tab_index"] = 6
+        st.session_state["current_tab_index"] = 5
     st.header("⏳ Pedidos No Entregados")
 
     if st.button("🔄 Actualizar listado", key="refresh_no_entregados"):
@@ -4565,11 +4565,11 @@ with tab7:
                                             except Exception as e:
                                                 st.error(f"❌ Error al actualizar el pedido: {e}")
 
-# --- TAB 8: DOWNLOAD DATA ---
-with tab8:
-    tab7_is_active = default_tab == 7
+# --- TAB 7: DOWNLOAD DATA ---
+with tab7:
+    tab7_is_active = default_tab == 6
     if tab7_is_active:
-        st.session_state["current_tab_index"] = 7
+        st.session_state["current_tab_index"] = 6
     st.header("⬇️ Descargar Datos de Pedidos")
 
     @st.cache_data(ttl=60)
@@ -5091,11 +5091,11 @@ def cargar_casos_especiales_busqueda():
     return df
 
 
-# --- TAB 6: SEARCH ORDER ---
-with tab6:
-    tab8_is_active = default_tab == 5
+# --- TAB 8: SEARCH ORDER ---
+with tab8:
+    tab8_is_active = default_tab == 7
     if tab8_is_active:
-        st.session_state["current_tab_index"] = 5
+        st.session_state["current_tab_index"] = 7
     st.subheader("🔍 Buscador de Pedidos por Guía o Cliente")
 
     modo_busqueda = st.radio(
