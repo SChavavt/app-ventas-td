@@ -1041,6 +1041,7 @@ def set_pedido_submission_status(
 ) -> None:
     """Guarda el resultado del registro de un pedido para mostrarlo en la UI."""
     st.session_state["pedido_submission_status"] = {
+        "event_id": uuid.uuid4().hex,
         "status": status,
         "message": message,
         "detail": detail or "",
@@ -2221,12 +2222,20 @@ with tab1:
     with message_container:
         status_data = st.session_state.get("pedido_submission_status")
         if status_data:
+            event_id = status_data.get("event_id")
             status = status_data.get("status")
             detail = status_data.get("detail")
             attachments = status_data.get("attachments") or []
+            should_toast = (
+                bool(event_id)
+                and st.session_state.get("pedido_status_toast_event_id") != event_id
+            )
 
             if status == "success":
                 st.success(status_data.get("message", "✅ Pedido registrado correctamente."))
+                if should_toast:
+                    st.toast("✅ Pedido registrado correctamente")
+                    st.session_state["pedido_status_toast_event_id"] = event_id
                 if attachments:
                     st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(url) for url in attachments))
                 if detail:
@@ -2235,6 +2244,9 @@ with tab1:
                     st.warning("⚠️ Pedido registrado sin archivos adjuntos.")
             elif status == "warning":
                 st.warning(status_data.get("message", "⚠️ Revisa los campos obligatorios."))
+                if should_toast:
+                    st.toast("⚠️ Revisa los datos antes de reenviar")
+                    st.session_state["pedido_status_toast_event_id"] = event_id
                 if detail:
                     st.write(detail)
             else:
@@ -2242,6 +2254,9 @@ with tab1:
                 if detail:
                     error_message = f"{error_message}\n\n🔍 Detalle: {detail}"
                 st.error(error_message)
+                if should_toast:
+                    st.toast("❌ Error al registrar el pedido")
+                    st.session_state["pedido_status_toast_event_id"] = event_id
 
             def reset_pedido_submit_state():
                 preserved_keys = {
@@ -2282,6 +2297,7 @@ with tab1:
     # Registro del Pedido
     # -------------------------------
     if should_process_submission:
+        st.info("⏳ Registrando pedido, espera la confirmación final...")
         st.session_state.pop("pedido_submission_status", None)
         try:
             if not vendedor or not registro_cliente:
@@ -2632,12 +2648,13 @@ with tab1:
                 st.stop()
 
             try:
-                append_row_with_confirmation(
-                    worksheet=worksheet,
-                    values=values,
-                    pedido_id=pedido_id,
-                    id_col_index=id_col_index,
-                )
+                with st.spinner("Registrando pedido en Google Sheets..."):
+                    append_row_with_confirmation(
+                        worksheet=worksheet,
+                        values=values,
+                        pedido_id=pedido_id,
+                        id_col_index=id_col_index,
+                    )
             except Exception as e:
                 set_pedido_submission_status(
                     "error",
