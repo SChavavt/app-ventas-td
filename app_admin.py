@@ -354,6 +354,23 @@ def refresh_pedidos_pagados_no_confirmados(
     return pendientes
 
 
+def has_text_value(value: object) -> bool:
+    """True cuando el valor tiene contenido útil (no vacío / NaN)."""
+    text = str(value or "").strip()
+    return bool(text and text.lower() not in {"nan", "none"})
+
+
+def is_nota_venta_pedido(row: pd.Series) -> bool:
+    """Identifica pedidos de nota de venta por Motivo_NotaVenta con contenido."""
+    return has_text_value(row.get("Motivo_NotaVenta", ""))
+
+
+def is_estado_pago_no_aplica(value: object) -> bool:
+    """Detecta estados de pago del tipo 'No Aplica'."""
+    estado = str(value or "").strip().lower()
+    return estado.startswith("🎟️ no aplica") or estado == "no aplica"
+
+
 def force_reload_pedidos_and_refresh_pendientes() -> tuple[pd.DataFrame, list[str]]:
     """Fuerza recarga real de pedidos, refrescando pendientes y sesión."""
     _get_ws_datos.clear()
@@ -1997,6 +2014,11 @@ with tab1:
                         f"👤 {row.get('Cliente', 'N/A')} - "
                         f"{row.get('Estado', 'N/A')} - "
                         f"{row.get('Tipo_Envio', 'N/A')}"
+                        + (
+                            " - 🧾 Nota de venta"
+                            if is_nota_venta_pedido(row)
+                            else ""
+                        )
                     ),
                     axis=1,
                 )
@@ -2043,6 +2065,11 @@ with tab1:
                                 f"👤 {row.get('Cliente', 'N/A')} - "
                                 f"{row.get('Estado', 'N/A')} - "
                                 f"{row.get('Tipo_Envio', 'N/A')}"
+                                + (
+                                    " - 🧾 Nota de venta"
+                                    if is_nota_venta_pedido(row)
+                                    else ""
+                                )
                             ),
                             axis=1,
                         )
@@ -2138,6 +2165,11 @@ with tab1:
                         st.write(f"**📅 Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
                         st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
+                        motivo_nota_venta = str(
+                            selected_pedido_data.get('Motivo_NotaVenta', '') or ''
+                        ).strip()
+                        if has_text_value(motivo_nota_venta):
+                            st.write(f"**🧾 Motivo Nota de Venta:** {motivo_nota_venta}")
                         if is_pedido_local:
                             estado_entrega_value = st.selectbox(
                                 "🚚 Estado de entrega",
@@ -2166,8 +2198,10 @@ with tab1:
                                         url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
                                         st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
-                                else:
+                                elif not is_estado_pago_no_aplica(selected_pedido_data.get("Estado_Pago", "")):
                                     st.warning("⚠️ No se encontraron comprobantes.")
+                                else:
+                                    st.info("🎟️ Este pedido está marcado como No Aplica en pago, no requiere comprobante.")
 
                                 if facturas:
                                     st.write("**📑 Facturas de Venta:**")
@@ -2684,6 +2718,11 @@ with tab1:
                         st.write(f"**Fecha de Entrega:** {selected_pedido_data.get('Fecha_Entrega', 'N/A')}")
                         st.write(f"**Estado:** {selected_pedido_data.get('Estado', 'N/A')}")
                         st.write(f"**Estado de Pago:** {selected_pedido_data.get('Estado_Pago', 'N/A')}")
+                        motivo_nota_venta = str(
+                            selected_pedido_data.get('Motivo_NotaVenta', '') or ''
+                        ).strip()
+                        if has_text_value(motivo_nota_venta):
+                            st.write(f"**🧾 Motivo Nota de Venta:** {motivo_nota_venta}")
     
                     with col2:
                         st.subheader("📎 Archivos y Comprobantes")
@@ -2707,9 +2746,11 @@ with tab1:
                                         url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
                                         st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
-                                else:
+                                elif not is_estado_pago_no_aplica(selected_pedido_data.get("Estado_Pago", "")):
                                     st.warning("⚠️ No se encontraron comprobantes.")
-    
+                                else:
+                                    st.info("🎟️ Este pedido está marcado como No Aplica en pago, no requiere comprobante.")
+
                                 if facturas:
                                     st.write("**📑 Facturas de Venta:**")
                                     for f in facturas:
@@ -2730,14 +2771,22 @@ with tab1:
                     # Detectar cuántos comprobantes hay
                     num_comprobantes = len(comprobantes) if 'comprobantes' in locals() else 0
                     estado_pago_raw = str(selected_pedido_data.get("Estado_Pago", "")).strip()
-                    pedido_pagado_sin_confirmar = estado_pago_raw.startswith("✅")
+                    pedido_pago_no_aplica = is_estado_pago_no_aplica(estado_pago_raw)
+                    pedido_pagado_sin_confirmar = (
+                        estado_pago_raw.startswith("✅") or pedido_pago_no_aplica
+                    )
 
-                    # Para pedidos marcados como pagados, permite capturar datos aunque no haya archivos en S3
+                    # Para pedidos marcados como pagados o No Aplica, permite capturar datos aunque no haya archivos en S3
                     if pedido_pagado_sin_confirmar and num_comprobantes == 0:
                         num_comprobantes = 1
-                        st.info(
-                            "ℹ️ El pedido ya está marcado como pagado. Puedes llenar el formulario y confirmar el comprobante aunque no existan archivos adjuntos."
-                        )
+                        if pedido_pago_no_aplica:
+                            st.info(
+                                "🎟️ El pedido está marcado como No Aplica en pago. Puedes confirmar sin comprobante."
+                            )
+                        else:
+                            st.info(
+                                "ℹ️ El pedido ya está marcado como pagado. Puedes llenar el formulario y confirmar el comprobante aunque no existan archivos adjuntos."
+                            )
 
                     st.subheader("✅ Confirmar Comprobante")
 
@@ -2749,7 +2798,8 @@ with tab1:
                     ref_list: list[str] = []
 
                     if num_comprobantes == 0:
-                        st.warning("⚠️ No hay comprobantes para confirmar.")
+                        if not pedido_pago_no_aplica:
+                            st.warning("⚠️ No hay comprobantes para confirmar.")
                     else:
                         # --- Prellenar valores si ya están registrados en la hoja ---
                         fecha_list = str(selected_pedido_data.get('Fecha_Pago_Comprobante', '')).split(" y ")
