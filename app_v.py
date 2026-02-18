@@ -2236,6 +2236,13 @@ with tab1:
             status = status_data.get("status")
             detail = status_data.get("detail")
             attachments = status_data.get("attachments") or []
+
+            # Permite registrar otro pedido sin depender del botón "Aceptar".
+            # El estado de bloqueo se usa solo mientras el envío está en curso.
+            if st.session_state.get("pedido_submit_disabled") and status in {"success", "warning", "error"}:
+                st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
+
             should_toast = (
                 bool(event_id)
                 and st.session_state.get("pedido_status_toast_event_id") != event_id
