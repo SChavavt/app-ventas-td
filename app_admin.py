@@ -129,6 +129,49 @@ def normalize_user_field(value: str | None) -> str:
     return raw
 
 
+def dataframe_to_excel_bytes(
+    df: pd.DataFrame,
+    sheet_name: str,
+    date_columns: list[str] | None = None,
+    datetime_columns: list[str] | None = None,
+) -> bytes:
+    """Genera un Excel homogéneo, evitando mezcla de fechas con/sin hora."""
+    export_df = df.copy()
+    date_columns = [c for c in (date_columns or []) if c in export_df.columns]
+    datetime_columns = [c for c in (datetime_columns or []) if c in export_df.columns]
+
+    for col in date_columns:
+        parsed = pd.to_datetime(export_df[col], errors="coerce", dayfirst=True)
+        export_df[col] = parsed.dt.date
+
+    for col in datetime_columns:
+        parsed = pd.to_datetime(export_df[col], errors="coerce", dayfirst=True)
+        export_df[col] = parsed.dt.to_pydatetime()
+
+    output = BytesIO()
+    with pd.ExcelWriter(
+        output,
+        engine="xlsxwriter",
+        date_format="dd/mm/yyyy",
+        datetime_format="dd/mm/yyyy hh:mm",
+    ) as writer:
+        export_df.to_excel(writer, index=False, sheet_name=sheet_name)
+        workbook = writer.book
+        worksheet = writer.sheets[sheet_name]
+        date_fmt = workbook.add_format({"num_format": "dd/mm/yyyy"})
+        datetime_fmt = workbook.add_format({"num_format": "dd/mm/yyyy hh:mm"})
+
+        for col in date_columns:
+            idx = export_df.columns.get_loc(col)
+            worksheet.set_column(idx, idx, 14, date_fmt)
+
+        for col in datetime_columns:
+            idx = export_df.columns.get_loc(col)
+            worksheet.set_column(idx, idx, 18, datetime_fmt)
+
+    return output.getvalue()
+
+
 def parse_adjuntos_urls(value) -> list[str]:
     """Convierte un valor de adjuntos en una lista de URLs limpias."""
     if value is None:
@@ -3906,10 +3949,12 @@ with tab2:
         df_excel = df_excel.reindex(columns=columnas_excel_orden, fill_value="")
         df_excel = df_excel.fillna("")
 
-        output_confirmados = BytesIO()
-        with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-            df_excel.to_excel(writer, index=False, sheet_name='Confirmados')
-        data_xlsx = output_confirmados.getvalue()
+        data_xlsx = dataframe_to_excel_bytes(
+            df_excel,
+            sheet_name='Confirmados',
+            date_columns=['Fecha_Entrega', 'Fecha_Pago_Comprobante'],
+            datetime_columns=[FECHA_CONFIRMADO_COL, 'Hora_Registro'],
+        )
 
         st.download_button(
             label="📥 Descargar Excel Confirmados (últimos primero)",
@@ -5416,11 +5461,12 @@ with tab4:
     )
 
     # ------- Descargar Excel -------
-    output_casos = BytesIO()
-    with pd.ExcelWriter(output_casos, engine="xlsxwriter") as writer:
-        df_view[columnas_existentes].to_excel(writer, index=False, sheet_name="casos_especiales")
-        # (opcional) se podría formatear celdas/hipervínculos aquí
-    data_xlsx = output_casos.getvalue()
+    data_xlsx = dataframe_to_excel_bytes(
+        df_view[columnas_existentes],
+        sheet_name="casos_especiales",
+        date_columns=["Fecha_Compra", "Fecha_Entrega"],
+        datetime_columns=["Hora_Registro"],
+    )
 
     st.download_button(
         label="📥 Descargar Excel Casos Especiales (últimos primero)",
