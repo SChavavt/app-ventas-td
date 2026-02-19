@@ -1424,29 +1424,6 @@ def get_s3_file_download_url(s3_client_instance, object_key_or_url, expires_in=3
     )
 
 
-def resolve_storage_url(s3_client_instance, object_key_or_url: str) -> str:
-    """Resuelve una URL utilizable desde un key o URL de S3."""
-    raw_value = str(object_key_or_url or "").strip()
-    if not raw_value:
-        return "#"
-
-    if is_s3_url(raw_value) or "://" not in raw_value:
-        return get_s3_file_download_url(s3_client_instance, raw_value)
-
-    return raw_value
-
-
-def render_storage_link(label: str, object_key_or_url: str, s3_client_instance):
-    """Pinta un enlace HTML para abrir archivo en una pestaña nueva."""
-    url = resolve_storage_url(s3_client_instance, object_key_or_url)
-    safe_url = html.escape(url, quote=True)
-    safe_label = html.escape(label)
-    st.markdown(
-        f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{safe_label}</a>',
-        unsafe_allow_html=True,
-    )
-
-
 def clasificar_archivos_adjuntos(files: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     """Clasifica archivos en comprobantes, facturas y otros.
 
@@ -2231,9 +2208,9 @@ with tab1:
                                 if comprobantes:
                                     st.write("**🧾 Comprobantes de Pago:**")
                                     for f in comprobantes:
+                                        url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes)")
-                                        render_storage_link("🔗 Ver archivo", f["key"], s3_client)
+                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                                 elif not is_estado_pago_no_aplica(selected_pedido_data.get("Estado_Pago", "")):
                                     st.warning("⚠️ No se encontraron comprobantes.")
                                 else:
@@ -2242,15 +2219,15 @@ with tab1:
                                 if facturas:
                                     st.write("**📑 Facturas de Venta:**")
                                     for f in facturas:
+                                        url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes)")
-                                        render_storage_link("🔗 Ver archivo", f["key"], s3_client)
+                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
 
                                 if otros:
                                     with st.expander("📂 Otros archivos del pedido"):
                                         for f in otros:
-                                            st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes)")
-                                            render_storage_link("🔗 Ver archivo", f["key"], s3_client)
+                                            url = get_s3_file_download_url(s3_client, f['key'])
+                                            st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                             else:
                                 st.info("📁 No se encontraron archivos en la carpeta del pedido.")
                         else:
@@ -2779,9 +2756,9 @@ with tab1:
                                 if comprobantes:
                                     st.write("**🧾 Comprobantes de Pago:**")
                                     for f in comprobantes:
+                                        url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes)")
-                                        render_storage_link("🔗 Ver archivo", f["key"], s3_client)
+                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                                 elif not is_estado_pago_no_aplica(selected_pedido_data.get("Estado_Pago", "")):
                                     st.warning("⚠️ No se encontraron comprobantes.")
                                 else:
@@ -2790,15 +2767,15 @@ with tab1:
                                 if facturas:
                                     st.write("**📑 Facturas de Venta:**")
                                     for f in facturas:
+                                        url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes)")
-                                        render_storage_link("🔗 Ver archivo", f["key"], s3_client)
+                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
     
                                 if otros:
                                     with st.expander("📂 Otros archivos del pedido"):
                                         for f in otros:
-                                            st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes)")
-                                            render_storage_link("🔗 Ver archivo", f["key"], s3_client)
+                                            url = get_s3_file_download_url(s3_client, f['key'])
+                                            st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                             else:
                                 st.info("📁 No se encontraron archivos en la carpeta del pedido.")
                         else:
