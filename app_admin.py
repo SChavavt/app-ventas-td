@@ -2930,10 +2930,12 @@ with tab1:
                     monto_list: list[float] = []
                     ref_list: list[str] = []
 
+                    mostrar_detalle_comprobante = not pedido_pago_no_aplica
+
                     if num_comprobantes == 0:
                         if not pedido_pago_no_aplica:
                             st.warning("⚠️ No hay comprobantes para confirmar.")
-                    else:
+                    elif mostrar_detalle_comprobante:
                         # --- Prellenar valores si ya están registrados en la hoja ---
                         fecha_list = str(selected_pedido_data.get('Fecha_Pago_Comprobante', '')).split(" y ")
                         forma_list = str(selected_pedido_data.get('Forma_Pago_Comprobante', '')).split(", ")
@@ -3042,11 +3044,15 @@ with tab1:
                     cancel_toggle_key = f"show_cancel__{current_selection_key}"
                     cancel_reason_key = f"motivo_cancelacion__{current_selection_key}"
 
-                    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-                    with col1:
-                        st.info("👆 Revisa los comprobantes antes de confirmar.")
-
                     confirm_disabled = num_comprobantes == 0 and not pedido_pagado_sin_confirmar
+
+                    if mostrar_detalle_comprobante:
+                        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                        with col1:
+                            st.info("👆 Revisa los comprobantes antes de confirmar.")
+                    else:
+                        col2, col3, col4 = st.columns(3)
+
                     with col2:
                         if st.button(
                             "✅ Confirmar Comprobante",
@@ -3069,13 +3075,16 @@ with tab1:
                                 updates = {
                                     'Comprobante_Confirmado': 'Sí',
                                     FECHA_CONFIRMADO_COL: fecha_confirmado,
-                                    'Fecha_Pago_Comprobante': " y ".join(fecha_list),
-                                    'Forma_Pago_Comprobante': ", ".join(forma_list),
-                                    'Monto_Comprobante': sum(monto_list),
-                                    'Referencia_Comprobante': ", ".join(ref_list),
-                                    'Terminal': ", ".join([t for t in terminal_list if t]),
-                                    'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
                                 }
+                                if mostrar_detalle_comprobante:
+                                    updates.update({
+                                        'Fecha_Pago_Comprobante': " y ".join(fecha_list),
+                                        'Forma_Pago_Comprobante': ", ".join(forma_list),
+                                        'Monto_Comprobante': sum(monto_list),
+                                        'Referencia_Comprobante': ", ".join(ref_list),
+                                        'Terminal': ", ".join([t for t in terminal_list if t]),
+                                        'Banco_Destino_Pago': ", ".join([b for b in banco_list if b]),
+                                    })
                                 if is_pedido_local:
                                     updates[ESTADO_ENTREGA_COL] = estado_entrega_value
 
