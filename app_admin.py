@@ -314,6 +314,15 @@ def resolve_gsheet_row_index(df_source: pd.DataFrame, selected_pedido_data: pd.S
     if row_candidates.empty:
         raise ValueError("No se encontró el pedido en la hoja origen.")
 
+    if "__sheet_row" in row_candidates.columns:
+        sheet_row = row_candidates["__sheet_row"].iloc[0]
+        try:
+            sheet_row_int = int(sheet_row)
+            if sheet_row_int >= 2:
+                return sheet_row_int
+        except (TypeError, ValueError):
+            pass
+
     return int(row_candidates.index[0]) + 2
 
 
@@ -1012,7 +1021,8 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0)
                 df = pd.DataFrame()
             else:
                 rows = []
-                for raw_row in raw_values[1:]:
+                sheet_rows = []
+                for sheet_row_number, raw_row in enumerate(raw_values[1:], start=2):
                     row = list(raw_row[:num_cols])
                     if len(row) < num_cols:
                         row.extend([""] * (num_cols - len(row)))
@@ -1020,8 +1030,11 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0)
                     if all(str(cell).strip() == "" for cell in row):
                         continue
                     rows.append(row)
+                    sheet_rows.append(sheet_row_number)
 
                 df = pd.DataFrame(rows, columns=headers) if rows else pd.DataFrame(columns=headers)
+                if not df.empty:
+                    df["__sheet_row"] = sheet_rows
 
         # 🔧 Normalización idéntica o equivalente a la tuya actual
         def _clean(s):
