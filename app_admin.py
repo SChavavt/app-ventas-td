@@ -243,17 +243,6 @@ def _load_pedidos_admin_fuentes(_nonce: int = 0) -> pd.DataFrame:
         df_hoja, _ = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, hoja, _nonce)
         if df_hoja is None or df_hoja.empty:
             continue
-
-        if not df_hoja.columns.is_unique:
-            columnas_duplicadas = (
-                df_hoja.columns[df_hoja.columns.duplicated()].astype(str).unique().tolist()
-            )
-            st.warning(
-                f"⚠️ Se detectaron columnas duplicadas en '{hoja}': {', '.join(columnas_duplicadas)}. "
-                "Se conservará la primera aparición para evitar errores al combinar datos."
-            )
-            df_hoja = df_hoja.loc[:, ~df_hoja.columns.duplicated()].copy()
-
         frames.append(df_hoja.assign(__source_sheet=hoja))
 
     if not frames:
