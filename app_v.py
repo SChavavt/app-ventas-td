@@ -3285,12 +3285,18 @@ with tab2:
                                 worksheet = sh.worksheet(hoja_objetivo)
 
                                 headers = worksheet.row_values(1)
-                                df_actual = df_pedidos[df_pedidos["Fuente"] == selected_source].reset_index(drop=True)
-
-                                if df_actual.empty or 'ID_Pedido' not in df_actual.columns:
+                                if "ID_Pedido" not in headers:
                                     feedback_slot.empty()
-                                    feedback_slot.error(f"❌ No se encontró 'ID_Pedido' en la hoja {hoja_objetivo}.")
+                                    feedback_slot.error(f"❌ No se encontró la columna 'ID_Pedido' en la hoja {hoja_objetivo}.")
                                     st.stop()
+
+                                id_col_index = headers.index("ID_Pedido")
+                                selected_order_id_normalized = str(selected_order_id).strip()
+                                selected_folio_normalized = str(selected_row_data.get("Folio_Factura", "")).strip().upper()
+                                selected_cliente_normalized = str(selected_row_data.get("Cliente", "")).strip().upper()
+                                folio_col_index = headers.index("Folio_Factura") if "Folio_Factura" in headers else None
+                                cliente_col_index = headers.index("Cliente") if "Cliente" in headers else None
+                                all_values = worksheet.get_all_values()
 
                                 sheet_row_number = parse_sheet_row_number(
                                     st.session_state.get("tab2_row_to_edit")
@@ -3300,31 +3306,82 @@ with tab2:
                                         selected_row_data.get("Sheet_Row_Number")
                                     )
 
-                                if sheet_row_number is None:
+                                def _row_value(row_values, idx):
+                                    if idx is None or len(row_values) <= idx:
+                                        return ""
+                                    return str(row_values[idx]).strip().upper()
+
+                                gsheet_row_index = None
+                                if (
+                                    sheet_row_number is not None
+                                    and sheet_row_number <= len(all_values)
+                                ):
+                                    candidate_row = all_values[sheet_row_number - 1]
+                                    candidate_id = (
+                                        str(candidate_row[id_col_index]).strip()
+                                        if len(candidate_row) > id_col_index
+                                        else ""
+                                    )
+                                    candidate_folio = _row_value(candidate_row, folio_col_index)
+                                    candidate_cliente = _row_value(candidate_row, cliente_col_index)
+                                    folio_matches = bool(selected_folio_normalized) and candidate_folio == selected_folio_normalized
+                                    cliente_matches = bool(selected_cliente_normalized) and candidate_cliente == selected_cliente_normalized
+                                    if candidate_id == selected_order_id_normalized and (folio_matches or cliente_matches):
+                                        gsheet_row_index = int(sheet_row_number)
+
+                                if gsheet_row_index is None:
+                                    matching_rows = []
+                                    for row_number, row_values in enumerate(all_values[1:], start=2):
+                                        row_id = (
+                                            str(row_values[id_col_index]).strip()
+                                            if len(row_values) > id_col_index
+                                            else ""
+                                        )
+                                        if row_id != selected_order_id_normalized:
+                                            continue
+                                        score = 0
+                                        if selected_folio_normalized and _row_value(row_values, folio_col_index) == selected_folio_normalized:
+                                            score += 2
+                                        if selected_cliente_normalized and _row_value(row_values, cliente_col_index) == selected_cliente_normalized:
+                                            score += 1
+                                        matching_rows.append((score, row_number))
+
+                                    if matching_rows:
+                                        matching_rows.sort(reverse=True)
+                                        gsheet_row_index = matching_rows[0][1]
+
+                                if gsheet_row_index is None:
                                     feedback_slot.empty()
                                     feedback_slot.error(
-                                        "❌ No se pudo determinar la fila real en Google Sheets para el pedido seleccionado."
+                                        "❌ No se encontró la fila real del pedido en Google Sheets. Intenta refrescar y volver a seleccionar."
                                     )
                                     st.stop()
 
-                                gsheet_row_index = int(sheet_row_number)
-                                row_candidates = df_actual[
-                                    pd.to_numeric(
-                                        df_actual["Sheet_Row_Number"], errors="coerce"
-                                    )
-                                    == gsheet_row_index
-                                ]
-                                if row_candidates.empty:
+                                actual_values = (
+                                    all_values[gsheet_row_index - 1]
+                                    if gsheet_row_index <= len(all_values)
+                                    else worksheet.row_values(gsheet_row_index)
+                                )
+                                actual_row_id = (
+                                    str(actual_values[id_col_index]).strip()
+                                    if len(actual_values) > id_col_index
+                                    else ""
+                                )
+                                if actual_row_id != selected_order_id_normalized:
                                     feedback_slot.empty()
                                     feedback_slot.error(
-                                        "❌ No se encontró la fila correspondiente en Google Sheets para el pedido seleccionado."
+                                        "❌ Validación de seguridad: la fila encontrada no corresponde al pedido seleccionado. No se aplicaron cambios."
                                     )
                                     st.stop()
+                                if len(actual_values) < len(headers):
+                                    actual_values = actual_values + [""] * (len(headers) - len(actual_values))
+                                else:
+                                    actual_values = actual_values[:len(headers)]
 
                                 changes_made = False
 
                                 cell_updates = []
-                                actual_row = row_candidates.iloc[0]
+                                actual_row = dict(zip(headers, actual_values))
 
                                 def col_exists(col):
                                     return col in headers
