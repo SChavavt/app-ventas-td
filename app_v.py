@@ -1000,7 +1000,13 @@ def append_row_with_confirmation(
             existing_rows = len(existing_values) + 1
             ensure_worksheet_capacity(existing_rows)
 
-            worksheet.append_row(values, value_input_option="USER_ENTERED")
+            start_cell = rowcol_to_a1(existing_rows, 1)
+            end_cell = rowcol_to_a1(existing_rows, len(values))
+            worksheet.update(
+                f"{start_cell}:{end_cell}",
+                [values],
+                value_input_option="USER_ENTERED",
+            )
             time.sleep(1 + attempt * 0.5)
 
             appended_row = worksheet.row_values(existing_rows)
