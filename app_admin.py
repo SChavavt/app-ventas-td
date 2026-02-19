@@ -182,34 +182,6 @@ def format_markdown_link(url: str, label: str | None = None) -> str:
     return safe_display
 
 
-def format_html_link_new_tab(
-    url: str,
-    label: str | None = None,
-    *,
-    s3_client_instance=None,
-) -> str:
-    """Genera enlace HTML en nueva pestaña y normaliza URLs S3 para inline cuando aplica."""
-    raw_url = str(url or "").strip()
-    if not raw_url:
-        return ""
-
-    resolved_url = raw_url
-    if s3_client_instance and is_s3_url(raw_url):
-        with suppress(Exception):
-            resolved_url = get_s3_file_download_url(s3_client_instance, raw_url)
-
-    display = label or raw_url
-    safe_display = html.escape(display)
-    safe_url = html.escape(
-        resolved_url.replace(" ", "%20").replace("(", "%28").replace(")", "%29"),
-        quote=True,
-    )
-    return (
-        f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">'
-        f"{safe_display}</a>"
-    )
-
-
 def ensure_sheet_column(worksheet, headers: list[str], column_name: str) -> list[str]:
     """Garantiza que exista una columna en la hoja de Google Sheets."""
     headers_list = list(headers) if headers else []
@@ -2224,12 +2196,7 @@ with tab1:
                         if adjuntos_surtido_urls:
                             st.markdown("**Archivos de modificación:**")
                             for url in adjuntos_surtido_urls:
-                                enlace = format_html_link_new_tab(
-                                    url,
-                                    s3_client_instance=s3_client,
-                                )
-                                if enlace:
-                                    st.markdown(f"- {enlace}", unsafe_allow_html=True)
+                                st.markdown(f"- {format_markdown_link(url)}")
                             st.markdown("---")
                         if s3_client:
                             pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
@@ -2243,11 +2210,7 @@ with tab1:
                                     for f in comprobantes:
                                         url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                        enlace = format_html_link_new_tab(url, "🔗 Ver/Descargar")
-                                        st.markdown(
-                                            f"- 📄 **{nombre}** ({f['size']} bytes) {enlace}",
-                                            unsafe_allow_html=True,
-                                        )
+                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                                 elif not is_estado_pago_no_aplica(selected_pedido_data.get("Estado_Pago", "")):
                                     st.warning("⚠️ No se encontraron comprobantes.")
                                 else:
@@ -2258,21 +2221,13 @@ with tab1:
                                     for f in facturas:
                                         url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                        enlace = format_html_link_new_tab(url, "🔗 Ver/Descargar")
-                                        st.markdown(
-                                            f"- 📄 **{nombre}** ({f['size']} bytes) {enlace}",
-                                            unsafe_allow_html=True,
-                                        )
+                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
 
                                 if otros:
                                     with st.expander("📂 Otros archivos del pedido"):
                                         for f in otros:
                                             url = get_s3_file_download_url(s3_client, f['key'])
-                                            enlace = format_html_link_new_tab(url, "🔗 Ver/Descargar")
-                                            st.markdown(
-                                                f"- 📄 **{f['title']}** ({f['size']} bytes) {enlace}",
-                                                unsafe_allow_html=True,
-                                            )
+                                            st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                             else:
                                 st.info("📁 No se encontraron archivos en la carpeta del pedido.")
                         else:
@@ -2788,12 +2743,7 @@ with tab1:
                         if adjuntos_surtido_urls:
                             st.markdown("**Archivos de modificación:**")
                             for url in adjuntos_surtido_urls:
-                                enlace = format_html_link_new_tab(
-                                    url,
-                                    s3_client_instance=s3_client,
-                                )
-                                if enlace:
-                                    st.markdown(f"- {enlace}", unsafe_allow_html=True)
+                                st.markdown(f"- {format_markdown_link(url)}")
                             st.markdown("---")
 
                         if s3_client:
@@ -2808,11 +2758,7 @@ with tab1:
                                     for f in comprobantes:
                                         url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                        enlace = format_html_link_new_tab(url, "🔗 Ver/Descargar")
-                                        st.markdown(
-                                            f"- 📄 **{nombre}** ({f['size']} bytes) {enlace}",
-                                            unsafe_allow_html=True,
-                                        )
+                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                                 elif not is_estado_pago_no_aplica(selected_pedido_data.get("Estado_Pago", "")):
                                     st.warning("⚠️ No se encontraron comprobantes.")
                                 else:
@@ -2823,21 +2769,13 @@ with tab1:
                                     for f in facturas:
                                         url = get_s3_file_download_url(s3_client, f['key'])
                                         nombre = f['title'].replace(selected_pedido_id_for_s3_search, "").strip("_-")
-                                        enlace = format_html_link_new_tab(url, "🔗 Ver/Descargar")
-                                        st.markdown(
-                                            f"- 📄 **{nombre}** ({f['size']} bytes) {enlace}",
-                                            unsafe_allow_html=True,
-                                        )
+                                        st.markdown(f"- 📄 **{nombre}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
     
                                 if otros:
                                     with st.expander("📂 Otros archivos del pedido"):
                                         for f in otros:
                                             url = get_s3_file_download_url(s3_client, f['key'])
-                                            enlace = format_html_link_new_tab(url, "🔗 Ver/Descargar")
-                                            st.markdown(
-                                                f"- 📄 **{f['title']}** ({f['size']} bytes) {enlace}",
-                                                unsafe_allow_html=True,
-                                            )
+                                            st.markdown(f"- 📄 **{f['title']}** ({f['size']} bytes) [🔗 Ver/Descargar]({url})")
                             else:
                                 st.info("📁 No se encontraron archivos en la carpeta del pedido.")
                         else:
