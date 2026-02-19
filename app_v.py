@@ -3748,20 +3748,38 @@ with tab3:
 
             pedidos_sin_comprobante['display_label'] = pedidos_sin_comprobante.apply(lambda row:
                 f"📄 {row.get('Folio_Factura', 'N/A') or row.get('ID_Pedido', 'N/A')} - {row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')} [{row.get('Fuente', 'N/A')}]", axis=1)
-            # ❌ NO volver a ordenar aquí
+            base_option_values = pedidos_sin_comprobante.apply(
+                lambda row: (
+                    f"{str(row.get('Fuente', SHEET_PEDIDOS_HISTORICOS)).strip()}|"
+                    f"{str(row.get('ID_Pedido', '')).strip() or 'sin_id'}|"
+                    f"{parse_sheet_row_number(row.get('Sheet_Row_Number')) or 'sin_fila'}"
+                ),
+                axis=1,
+            )
+            pedidos_sin_comprobante['option_value'] = base_option_values
+            duplicate_mask = pedidos_sin_comprobante['option_value'].duplicated(keep=False)
+            if duplicate_mask.any():
+                pedidos_sin_comprobante.loc[duplicate_mask, 'option_value'] = pedidos_sin_comprobante.loc[duplicate_mask].apply(
+                    lambda row: f"{base_option_values[row.name]}|{row.name}",
+                    axis=1,
+                )
 
+            option_label_map = dict(zip(pedidos_sin_comprobante['option_value'], pedidos_sin_comprobante['display_label']))
 
-            selected_pending_order_display = st.selectbox(
+            selected_pending_option_key = st.selectbox(
                 "📝 Seleccionar Pedido para Subir Comprobante",
-                pedidos_sin_comprobante['display_label'].tolist(),
+                list(option_label_map.keys()),
+                format_func=lambda option_key: option_label_map.get(option_key, option_key),
                 key="select_pending_order_comprobante"
             )
 
-            if selected_pending_order_display:
+            if selected_pending_option_key:
                 selected_pending_row_data = pedidos_sin_comprobante[
-                    pedidos_sin_comprobante['display_label'] == selected_pending_order_display
+                    pedidos_sin_comprobante['option_value'] == selected_pending_option_key
                 ].iloc[0]
-                selected_pending_order_id = selected_pending_row_data.get('ID_Pedido', '')
+                selected_pending_order_id = str(selected_pending_row_data.get('ID_Pedido', '')).strip()
+                selected_pending_folio = str(selected_pending_row_data.get('Folio_Factura', '')).strip().upper()
+                selected_pending_cliente = str(selected_pending_row_data.get('Cliente', '')).strip().upper()
                 selected_source_name = str(selected_pending_row_data.get('Fuente', SHEET_PEDIDOS_HISTORICOS)).strip()
                 worksheet_obj = worksheets_by_source.get(selected_source_name)
                 headers_source = headers_by_source.get(selected_source_name, [])
@@ -3790,11 +3808,55 @@ with tab3:
                                     st.stop()
                                 if not headers_source:
                                     headers_source = worksheet_obj.row_values(1)
-                                if not sheet_row_number:
-                                    st.error("❌ No se pudo identificar la fila del pedido en Google Sheets.")
+                                if "ID_Pedido" not in headers_source:
+                                    st.error("❌ La hoja no contiene la columna 'ID_Pedido'.")
                                     st.stop()
 
-                                sheet_row = sheet_row_number
+                                id_col_idx = headers_source.index("ID_Pedido")
+                                folio_col_idx = headers_source.index("Folio_Factura") if "Folio_Factura" in headers_source else None
+                                cliente_col_idx = headers_source.index("Cliente") if "Cliente" in headers_source else None
+                                all_values_source = worksheet_obj.get_all_values()
+
+                                def _row_value(row_values, idx):
+                                    if idx is None or len(row_values) <= idx:
+                                        return ""
+                                    return str(row_values[idx]).strip().upper()
+
+                                def _resolve_target_row():
+                                    if sheet_row_number and sheet_row_number <= len(all_values_source):
+                                        candidate = all_values_source[sheet_row_number - 1]
+                                        candidate_id = str(candidate[id_col_idx]).strip() if len(candidate) > id_col_idx else ""
+                                        folio_ok = bool(selected_pending_folio) and _row_value(candidate, folio_col_idx) == selected_pending_folio
+                                        cliente_ok = bool(selected_pending_cliente) and _row_value(candidate, cliente_col_idx) == selected_pending_cliente
+                                        if candidate_id == selected_pending_order_id and (folio_ok or cliente_ok):
+                                            return int(sheet_row_number)
+
+                                    matches = []
+                                    for row_number, row_values in enumerate(all_values_source[1:], start=2):
+                                        row_id = str(row_values[id_col_idx]).strip() if len(row_values) > id_col_idx else ""
+                                        if row_id != selected_pending_order_id:
+                                            continue
+                                        score = 0
+                                        if selected_pending_folio and _row_value(row_values, folio_col_idx) == selected_pending_folio:
+                                            score += 2
+                                        if selected_pending_cliente and _row_value(row_values, cliente_col_idx) == selected_pending_cliente:
+                                            score += 1
+                                        matches.append((score, row_number))
+                                    if not matches:
+                                        return None
+                                    matches.sort(reverse=True)
+                                    return matches[0][1]
+
+                                sheet_row = _resolve_target_row()
+                                if not sheet_row:
+                                    st.error("❌ No se pudo resolver la fila real del pedido seleccionado en Google Sheets.")
+                                    st.stop()
+
+                                current_row_values = all_values_source[sheet_row - 1] if sheet_row <= len(all_values_source) else worksheet_obj.row_values(sheet_row)
+                                current_row_id = str(current_row_values[id_col_idx]).strip() if len(current_row_values) > id_col_idx else ""
+                                if current_row_id != selected_pending_order_id:
+                                    st.error("❌ Validación de seguridad: la fila encontrada no coincide con el pedido seleccionado.")
+                                    st.stop()
 
                                 new_urls = []
                                 for archivo in comprobante_files:
@@ -3807,7 +3869,8 @@ with tab3:
                                         st.warning(f"⚠️ Falló la subida de {archivo.name}: {error_msg or 'Error desconocido'}")
 
                                 if new_urls:
-                                    current_adjuntos = str(selected_pending_row_data.get('Adjuntos', ''))
+                                    adj_col_idx = headers_source.index('Adjuntos')
+                                    current_adjuntos = str(current_row_values[adj_col_idx]).strip() if len(current_row_values) > adj_col_idx else ''
                                     adjuntos_list = [x.strip() for x in current_adjuntos.split(',') if x.strip()]
                                     adjuntos_list.extend(new_urls)
 
@@ -3858,14 +3921,57 @@ with tab3:
                             st.stop()
                         if not headers_source:
                             headers_source = worksheet_obj.row_values(1)
-                        if not sheet_row_number:
-                            st.error("❌ No se pudo identificar la fila del pedido en Google Sheets.")
+                        if 'ID_Pedido' not in headers_source:
+                            st.error("❌ La hoja no contiene la columna 'ID_Pedido'.")
                             st.stop()
                         if 'Estado_Pago' not in headers_source:
                             st.error("❌ La hoja no contiene la columna 'Estado_Pago'.")
                             st.stop()
 
-                        sheet_row = sheet_row_number
+                        id_col_idx = headers_source.index('ID_Pedido')
+                        folio_col_idx = headers_source.index('Folio_Factura') if 'Folio_Factura' in headers_source else None
+                        cliente_col_idx = headers_source.index('Cliente') if 'Cliente' in headers_source else None
+                        all_values_source = worksheet_obj.get_all_values()
+
+                        def _row_value(row_values, idx):
+                            if idx is None or len(row_values) <= idx:
+                                return ""
+                            return str(row_values[idx]).strip().upper()
+
+                        sheet_row = None
+                        if sheet_row_number and sheet_row_number <= len(all_values_source):
+                            candidate = all_values_source[sheet_row_number - 1]
+                            candidate_id = str(candidate[id_col_idx]).strip() if len(candidate) > id_col_idx else ''
+                            folio_ok = bool(selected_pending_folio) and _row_value(candidate, folio_col_idx) == selected_pending_folio
+                            cliente_ok = bool(selected_pending_cliente) and _row_value(candidate, cliente_col_idx) == selected_pending_cliente
+                            if candidate_id == selected_pending_order_id and (folio_ok or cliente_ok):
+                                sheet_row = int(sheet_row_number)
+
+                        if sheet_row is None:
+                            matches = []
+                            for row_number, row_values in enumerate(all_values_source[1:], start=2):
+                                row_id = str(row_values[id_col_idx]).strip() if len(row_values) > id_col_idx else ''
+                                if row_id != selected_pending_order_id:
+                                    continue
+                                score = 0
+                                if selected_pending_folio and _row_value(row_values, folio_col_idx) == selected_pending_folio:
+                                    score += 2
+                                if selected_pending_cliente and _row_value(row_values, cliente_col_idx) == selected_pending_cliente:
+                                    score += 1
+                                matches.append((score, row_number))
+                            if matches:
+                                matches.sort(reverse=True)
+                                sheet_row = matches[0][1]
+
+                        if sheet_row is None:
+                            st.error("❌ No se pudo resolver la fila real del pedido seleccionado en Google Sheets.")
+                            st.stop()
+
+                        resolved_row_values = all_values_source[sheet_row - 1] if sheet_row <= len(all_values_source) else worksheet_obj.row_values(sheet_row)
+                        resolved_row_id = str(resolved_row_values[id_col_idx]).strip() if len(resolved_row_values) > id_col_idx else ''
+                        if resolved_row_id != selected_pending_order_id:
+                            st.error("❌ Validación de seguridad: la fila encontrada no coincide con el pedido seleccionado.")
+                            st.stop()
 
                         updates = [
                             {
