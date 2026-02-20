@@ -129,6 +129,84 @@ def normalize_user_field(value: str | None) -> str:
     return raw
 
 
+def dataframe_to_excel_bytes(
+    df: pd.DataFrame,
+    sheet_name: str,
+    date_columns: list[str] | None = None,
+    datetime_columns: list[str] | None = None,
+) -> bytes:
+    """Genera un Excel homogéneo y evita perder fechas por parsing mixto."""
+    export_df = df.copy()
+    date_columns = [c for c in (date_columns or []) if c in export_df.columns]
+    datetime_columns = [c for c in (datetime_columns or []) if c in export_df.columns]
+
+    def _parse_excel_datetime(value) -> pd.Timestamp | None:
+        if value is None or pd.isna(value):
+            return None
+        if isinstance(value, pd.Timestamp):
+            return value
+        if isinstance(value, numbers.Number) and not isinstance(value, bool):
+            parsed_num = pd.to_datetime(value, unit="D", origin="1899-12-30", errors="coerce")
+            return parsed_num if pd.notna(parsed_num) else None
+
+        raw = str(value).strip()
+        if not raw or raw.lower() in {"nan", "none", "nat"}:
+            return None
+        with suppress(Exception):
+            as_num = float(raw)
+            parsed_num = pd.to_datetime(as_num, unit="D", origin="1899-12-30", errors="coerce")
+            if pd.notna(parsed_num):
+                return parsed_num
+
+        parsed = pd.to_datetime(raw, errors="coerce", dayfirst=True)
+        return parsed if pd.notna(parsed) else None
+
+    for col in date_columns:
+        def _to_date_or_raw(value):
+            parsed = _parse_excel_datetime(value)
+            if parsed is not None:
+                return parsed.date()
+            if value is None or pd.isna(value):
+                return ""
+            raw = str(value).strip()
+            return "" if raw.lower() in {"nan", "none", "nat"} else raw
+        export_df[col] = export_df[col].apply(_to_date_or_raw)
+
+    for col in datetime_columns:
+        def _to_datetime_or_raw(value):
+            parsed = _parse_excel_datetime(value)
+            if parsed is not None:
+                return parsed.to_pydatetime()
+            if value is None or pd.isna(value):
+                return ""
+            raw = str(value).strip()
+            return "" if raw.lower() in {"nan", "none", "nat"} else raw
+        export_df[col] = export_df[col].apply(_to_datetime_or_raw)
+
+    output = BytesIO()
+    with pd.ExcelWriter(
+        output,
+        engine="xlsxwriter",
+        date_format="dd/mm/yyyy",
+        datetime_format="dd/mm/yyyy hh:mm:ss",
+    ) as writer:
+        export_df.to_excel(writer, index=False, sheet_name=sheet_name)
+        workbook = writer.book
+        worksheet = writer.sheets[sheet_name]
+        date_fmt = workbook.add_format({"num_format": "dd/mm/yyyy"})
+        datetime_fmt = workbook.add_format({"num_format": "dd/mm/yyyy hh:mm:ss"})
+
+        for col in date_columns:
+            idx = export_df.columns.get_loc(col)
+            worksheet.set_column(idx, idx, 14, date_fmt)
+
+        for col in datetime_columns:
+            idx = export_df.columns.get_loc(col)
+            worksheet.set_column(idx, idx, 19, datetime_fmt)
+
+    return output.getvalue()
+
+
 def parse_adjuntos_urls(value) -> list[str]:
     """Convierte un valor de adjuntos en una lista de URLs limpias."""
     if value is None:
@@ -3906,10 +3984,12 @@ with tab2:
         df_excel = df_excel.reindex(columns=columnas_excel_orden, fill_value="")
         df_excel = df_excel.fillna("")
 
-        output_confirmados = BytesIO()
-        with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-            df_excel.to_excel(writer, index=False, sheet_name='Confirmados')
-        data_xlsx = output_confirmados.getvalue()
+        data_xlsx = dataframe_to_excel_bytes(
+            df_excel,
+            sheet_name='Confirmados',
+            date_columns=['Fecha_Entrega', 'Fecha_Pago_Comprobante'],
+            datetime_columns=[FECHA_CONFIRMADO_COL, 'Hora_Registro'],
+        )
 
         st.download_button(
             label="📥 Descargar Excel Confirmados (últimos primero)",
@@ -5211,6 +5291,29 @@ with tab4:
     if "Aplica_Pago" not in df_ce.columns:
         df_ce["Aplica_Pago"] = ""
 
+    def _normalizar_fecha_tab4(value, with_time=False):
+        if value is None or pd.isna(value):
+            return ""
+        if isinstance(value, numbers.Number) and not isinstance(value, bool):
+            parsed = pd.to_datetime(value, unit="D", origin="1899-12-30", errors="coerce")
+        else:
+            raw = str(value).strip()
+            if not raw or raw.lower() in {"nan", "none", "nat"}:
+                return ""
+            parsed = pd.to_datetime(raw, errors="coerce", dayfirst=True)
+            if pd.isna(parsed):
+                with suppress(Exception):
+                    parsed = pd.to_datetime(float(raw), unit="D", origin="1899-12-30", errors="coerce")
+        if pd.isna(parsed):
+            return str(value).strip()
+        return parsed.strftime("%Y-%m-%d %H:%M:%S" if with_time else "%d/%m/%Y")
+
+    if "Hora_Registro" in df_ce.columns:
+        df_ce["Hora_Registro"] = df_ce["Hora_Registro"].apply(lambda v: _normalizar_fecha_tab4(v, with_time=True))
+    for _col_fecha in ("Fecha_Entrega", "Fecha_Compra"):
+        if _col_fecha in df_ce.columns:
+            df_ce[_col_fecha] = df_ce[_col_fecha].apply(_normalizar_fecha_tab4)
+
     # ------- Normalizador de URLs (Adjuntos puede venir como JSON/CSV/texto) -------
     def _normalize_urls(value):
         if value is None:
@@ -5416,11 +5519,12 @@ with tab4:
     )
 
     # ------- Descargar Excel -------
-    output_casos = BytesIO()
-    with pd.ExcelWriter(output_casos, engine="xlsxwriter") as writer:
-        df_view[columnas_existentes].to_excel(writer, index=False, sheet_name="casos_especiales")
-        # (opcional) se podría formatear celdas/hipervínculos aquí
-    data_xlsx = output_casos.getvalue()
+    data_xlsx = dataframe_to_excel_bytes(
+        df_view[columnas_existentes],
+        sheet_name="casos_especiales",
+        date_columns=["Fecha_Compra", "Fecha_Entrega"],
+        datetime_columns=["Hora_Registro"],
+    )
 
     st.download_button(
         label="📥 Descargar Excel Casos Especiales (últimos primero)",
