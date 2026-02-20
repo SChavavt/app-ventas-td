@@ -5467,7 +5467,9 @@ with tab4:
     # ------- Descargar Excel -------
     output_casos = BytesIO()
     with pd.ExcelWriter(output_casos, engine="xlsxwriter") as writer:
-        df_view[columnas_existentes].to_excel(writer, index=False, sheet_name="casos_especiales")
+        # Exporta exactamente lo que se muestra en la previsualización de la tabla
+        # (incluyendo normalización de fechas y links procesados).
+        df_view_table[columnas_existentes].to_excel(writer, index=False, sheet_name="casos_especiales")
         # (opcional) se podría formatear celdas/hipervínculos aquí
     data_xlsx = output_casos.getvalue()
 
