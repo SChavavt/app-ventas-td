@@ -672,6 +672,14 @@ def clear_comprobante_form_state():
     st.session_state["comprobante_form_nonce"] = current_nonce + 1
 
 
+def reset_pending_confirmation_selection_state() -> None:
+    """Resetea selección activa en la pestaña de pendientes de confirmar."""
+    st.session_state.pop("select_pedido_comprobante", None)
+    st.session_state.pop("select_pedido_local_no_pagado", None)
+    st.session_state.pop("pedido_select_source", None)
+    st.session_state.pop("last_selected_pedido_key", None)
+
+
 @st.cache_resource(ttl=60)
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
@@ -2738,7 +2746,7 @@ with tab1:
                             force_reload_pedidos_and_refresh_pendientes()
 
                             clear_comprobante_form_state()
-                            st.session_state.pop("last_selected_pedido_key", None)
+                            reset_pending_confirmation_selection_state()
                             st.success("✅ Comprobante y datos de pago guardados exitosamente.")
                             st.balloons()
                             st.session_state.pop("confirmando_pedido", None)
@@ -3070,7 +3078,7 @@ with tab1:
 
                                 force_reload_pedidos_and_refresh_pendientes()
                                 clear_comprobante_form_state()
-                                st.session_state.pop("last_selected_pedido_key", None)
+                                reset_pending_confirmation_selection_state()
                                 st.success("🎉 Comprobante confirmado exitosamente.")
                                 st.balloons()
                                 st.session_state.pop("confirmando_pedido", None)
