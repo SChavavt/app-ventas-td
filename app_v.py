@@ -2325,6 +2325,8 @@ with tab1:
             turno_local = subtipo_local if subtipo_local else "Sin turno"
             confirmation_detail += f" | Turno: {turno_local}"
 
+        confirmation_detail += f" | Estado de pago: {estado_pago}"
+
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
         # AL FINAL DEL FORMULARIO: botón submit
