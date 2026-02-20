@@ -129,6 +129,89 @@ def normalize_user_field(value: str | None) -> str:
     return raw
 
 
+def parse_mixed_datetime_series(series: pd.Series) -> pd.Series:
+    """Parsea series con datetimes mixtos (texto y seriales Excel) de forma vectorizada."""
+    parsed = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
+
+    numeric_values = pd.to_numeric(series, errors="coerce")
+    parsed_numeric = pd.to_datetime(
+        numeric_values, unit="D", origin="1899-12-30", errors="coerce"
+    )
+    parsed.loc[parsed_numeric.notna()] = parsed_numeric.loc[parsed_numeric.notna()]
+
+    missing_mask = parsed.isna()
+    if missing_mask.any():
+        raw_missing = series.loc[missing_mask].astype(str).str.strip()
+        invalid_mask = raw_missing.str.lower().isin({"", "nan", "none", "nat"})
+
+        parsed_text = pd.to_datetime(
+            raw_missing.mask(invalid_mask, pd.NA),
+            errors="coerce",
+            dayfirst=True,
+        )
+
+        still_na = parsed_text.isna() & ~invalid_mask
+        if still_na.any():
+            fallback_num = pd.to_numeric(raw_missing.loc[still_na], errors="coerce")
+            parsed_text.loc[still_na] = pd.to_datetime(
+                fallback_num, unit="D", origin="1899-12-30", errors="coerce"
+            )
+
+        parsed.loc[missing_mask] = parsed_text
+
+    return parsed
+
+
+def dataframe_to_excel_bytes(
+    df: pd.DataFrame,
+    sheet_name: str,
+    date_columns: list[str] | None = None,
+    datetime_columns: list[str] | None = None,
+) -> bytes:
+    """Genera un Excel homogéneo y evita perder fechas por parsing mixto."""
+    export_df = df.copy()
+    date_columns = [c for c in (date_columns or []) if c in export_df.columns]
+    datetime_columns = [c for c in (datetime_columns or []) if c in export_df.columns]
+
+    def _clean_raw_fallback(series: pd.Series) -> pd.Series:
+        raw = series.astype(str).str.strip()
+        return raw.mask(raw.str.lower().isin({"", "nan", "none", "nat"}), "")
+
+    for col in date_columns:
+        parsed = parse_mixed_datetime_series(export_df[col])
+        fallback = _clean_raw_fallback(export_df[col])
+        export_df[col] = parsed.dt.date.astype("object").where(parsed.notna(), fallback)
+
+    for col in datetime_columns:
+        parsed = parse_mixed_datetime_series(export_df[col])
+        fallback = _clean_raw_fallback(export_df[col])
+        dt_values = pd.Series(parsed.dt.to_pydatetime(), index=parsed.index, dtype="object")
+        export_df[col] = dt_values.where(parsed.notna(), fallback)
+
+    output = BytesIO()
+    with pd.ExcelWriter(
+        output,
+        engine="xlsxwriter",
+        date_format="dd/mm/yyyy",
+        datetime_format="dd/mm/yyyy hh:mm:ss",
+    ) as writer:
+        export_df.to_excel(writer, index=False, sheet_name=sheet_name)
+        workbook = writer.book
+        worksheet = writer.sheets[sheet_name]
+        date_fmt = workbook.add_format({"num_format": "dd/mm/yyyy"})
+        datetime_fmt = workbook.add_format({"num_format": "dd/mm/yyyy hh:mm:ss"})
+
+        for col in date_columns:
+            idx = export_df.columns.get_loc(col)
+            worksheet.set_column(idx, idx, 14, date_fmt)
+
+        for col in datetime_columns:
+            idx = export_df.columns.get_loc(col)
+            worksheet.set_column(idx, idx, 19, datetime_fmt)
+
+    return output.getvalue()
+
+
 def parse_adjuntos_urls(value) -> list[str]:
     """Convierte un valor de adjuntos en una lista de URLs limpias."""
     if value is None:
@@ -3906,10 +3989,12 @@ with tab2:
         df_excel = df_excel.reindex(columns=columnas_excel_orden, fill_value="")
         df_excel = df_excel.fillna("")
 
-        output_confirmados = BytesIO()
-        with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-            df_excel.to_excel(writer, index=False, sheet_name='Confirmados')
-        data_xlsx = output_confirmados.getvalue()
+        data_xlsx = dataframe_to_excel_bytes(
+            df_excel,
+            sheet_name='Confirmados',
+            date_columns=['Fecha_Entrega', 'Fecha_Pago_Comprobante'],
+            datetime_columns=[FECHA_CONFIRMADO_COL, 'Hora_Registro'],
+        )
 
         st.download_button(
             label="📥 Descargar Excel Confirmados (últimos primero)",
@@ -5211,6 +5296,20 @@ with tab4:
     if "Aplica_Pago" not in df_ce.columns:
         df_ce["Aplica_Pago"] = ""
 
+    def _normalizar_columna_fecha_tab4(series: pd.Series, with_time: bool = False) -> pd.Series:
+        parsed = parse_mixed_datetime_series(series)
+        fmt = "%Y-%m-%d %H:%M:%S" if with_time else "%d/%m/%Y"
+        parsed_text = parsed.dt.strftime(fmt)
+        fallback = series.astype(str).str.strip()
+        fallback = fallback.mask(fallback.str.lower().isin({"", "nan", "none", "nat"}), "")
+        return parsed_text.where(parsed.notna(), fallback)
+
+    if "Hora_Registro" in df_ce.columns:
+        df_ce["Hora_Registro"] = _normalizar_columna_fecha_tab4(df_ce["Hora_Registro"], with_time=True)
+    for _col_fecha in ("Fecha_Entrega", "Fecha_Compra"):
+        if _col_fecha in df_ce.columns:
+            df_ce[_col_fecha] = _normalizar_columna_fecha_tab4(df_ce[_col_fecha])
+
     # ------- Normalizador de URLs (Adjuntos puede venir como JSON/CSV/texto) -------
     def _normalize_urls(value):
         if value is None:
@@ -5416,11 +5515,12 @@ with tab4:
     )
 
     # ------- Descargar Excel -------
-    output_casos = BytesIO()
-    with pd.ExcelWriter(output_casos, engine="xlsxwriter") as writer:
-        df_view[columnas_existentes].to_excel(writer, index=False, sheet_name="casos_especiales")
-        # (opcional) se podría formatear celdas/hipervínculos aquí
-    data_xlsx = output_casos.getvalue()
+    data_xlsx = dataframe_to_excel_bytes(
+        df_view[columnas_existentes],
+        sheet_name="casos_especiales",
+        date_columns=["Fecha_Compra", "Fecha_Entrega"],
+        datetime_columns=["Hora_Registro"],
+    )
 
     st.download_button(
         label="📥 Descargar Excel Casos Especiales (últimos primero)",
