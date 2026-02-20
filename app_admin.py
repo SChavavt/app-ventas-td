@@ -67,6 +67,7 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
     "Folio_Factura_Refacturada",
     "Cliente",
     "Vendedor_Registro",
+    "id_vendedor",
     "Tipo_Envio",
     "Fecha_Entrega",
     "Estado_Surtido_Almacen",
@@ -127,6 +128,70 @@ def normalize_user_field(value: str | None) -> str:
         return ""
 
     return raw
+
+
+def ensure_id_vendedor_column(
+    df_target: pd.DataFrame,
+    df_source: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Asegura la columna id_vendedor junto a Vendedor_Registro y rellena faltantes por ID/Folio."""
+    if not isinstance(df_target, pd.DataFrame):
+        return df_target
+
+    work = df_target.copy()
+    if "id_vendedor" not in work.columns:
+        if "Vendedor_Registro" in work.columns:
+            insert_at = work.columns.get_loc("Vendedor_Registro") + 1
+            work.insert(insert_at, "id_vendedor", "")
+        else:
+            work["id_vendedor"] = ""
+
+    if "id_vendedor" in work.columns:
+        work["id_vendedor"] = work["id_vendedor"].fillna("").astype(str)
+
+    if not isinstance(df_source, pd.DataFrame) or df_source.empty:
+        return work
+    if "id_vendedor" not in df_source.columns:
+        return work
+
+    source = df_source.copy()
+    source["id_vendedor"] = source["id_vendedor"].fillna("").astype(str).str.strip()
+    source = source[source["id_vendedor"] != ""]
+    if source.empty:
+        return work
+
+    if "ID_Pedido" in source.columns:
+        source["__id_norm"] = source["ID_Pedido"].apply(normalize_id_pedido)
+    else:
+        source["__id_norm"] = ""
+    if "Folio_Factura" in source.columns:
+        source["__folio_norm"] = source["Folio_Factura"].apply(normalize_folio_factura)
+    else:
+        source["__folio_norm"] = ""
+
+    source = source[(source["__id_norm"] != "") | (source["__folio_norm"] != "")]
+    if source.empty:
+        return work
+
+    source = source.drop_duplicates(subset=["__id_norm", "__folio_norm"], keep="last")
+    id_map = source.set_index("__id_norm")["id_vendedor"].to_dict()
+    folio_map = source.set_index("__folio_norm")["id_vendedor"].to_dict()
+
+    if "ID_Pedido" in work.columns:
+        work["__id_norm"] = work["ID_Pedido"].apply(normalize_id_pedido)
+    else:
+        work["__id_norm"] = ""
+    if "Folio_Factura" in work.columns:
+        work["__folio_norm"] = work["Folio_Factura"].apply(normalize_folio_factura)
+    else:
+        work["__folio_norm"] = ""
+
+    id_values = work["__id_norm"].map(id_map).fillna("")
+    folio_values = work["__folio_norm"].map(folio_map).fillna("")
+    empty_mask = work["id_vendedor"].astype(str).str.strip() == ""
+    work.loc[empty_mask, "id_vendedor"] = id_values.where(id_values != "", folio_values)[empty_mask]
+
+    return work.drop(columns=["__id_norm", "__folio_norm"], errors="ignore")
 
 
 def parse_adjuntos_urls(value) -> list[str]:
@@ -1997,7 +2062,7 @@ with tab1:
 
             # Mostrar tabla
             columns_to_show = [
-                'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'Tipo_Envio',
+                'Folio_Factura', 'Cliente', 'Vendedor_Registro', 'id_vendedor', 'Tipo_Envio',
                 'Fecha_Entrega', 'Estado', 'Estado_Pago'
             ]
             turno_display_col = "Turno (Local)"
@@ -3464,6 +3529,7 @@ with tab2:
     df_confirmados_guardados = sync_estado_surtido_confirmados(
         df_confirmados_guardados, df_pedidos
     )
+    df_confirmados_guardados = ensure_id_vendedor_column(df_confirmados_guardados, df_pedidos)
 
     if isinstance(df_confirmados_guardados, pd.DataFrame):
         st.session_state["_lastgood_confirmados"] = (
@@ -3600,10 +3666,38 @@ with tab2:
 
                 columnas_objetivo_confirmados = COLUMNAS_OBJETIVO_CONFIRMADOS[:]
 
+                df_confirmados_guardados = ensure_id_vendedor_column(df_confirmados_guardados, df_pedidos_confirmados_fuentes)
+
                 nuevos_agregados = 0
 
                 if df_nuevos.empty:
-                    tab2_alert.info("✅ No hay pedidos confirmados nuevos por registrar. Se recargará la tabla igualmente…")
+                    spreadsheet = get_spreadsheet(GOOGLE_SHEET_ID)
+                    try:
+                        hoja_confirmados = spreadsheet.worksheet("pedidos_confirmados")
+                    except gspread.exceptions.WorksheetNotFound:
+                        hoja_confirmados = spreadsheet.add_worksheet(title="pedidos_confirmados", rows=1000, cols=30)
+
+                    df_existente_merge = df_confirmados_guardados.drop(columns=["__sheet_row"], errors="ignore")
+                    df_existente_merge = dedupe_confirmados(df_existente_merge)
+                    df_existente_merge = sync_estado_surtido_confirmados(
+                        df_existente_merge, df_pedidos_confirmados_fuentes
+                    )
+                    df_existente_merge = ensure_id_vendedor_column(
+                        df_existente_merge, df_pedidos_confirmados_fuentes
+                    )
+                    df_existente_merge = df_existente_merge.reindex(
+                        columns=columnas_objetivo_confirmados, fill_value=""
+                    )
+                    df_existente_merge = df_existente_merge.fillna("").astype(str)
+
+                    valores_actualizados = [columnas_objetivo_confirmados]
+                    if not df_existente_merge.empty:
+                        valores_actualizados += df_existente_merge.values.tolist()
+
+                    hoja_confirmados.clear()
+                    hoja_confirmados.update("A1", valores_actualizados, value_input_option="USER_ENTERED")
+
+                    tab2_alert.info("✅ No hay pedidos confirmados nuevos por registrar. Se normalizó la hoja y se recargará la tabla igualmente…")
                 else:
                     df_nuevos = df_nuevos.sort_values(by='Fecha_Pago_Comprobante', ascending=False, na_position='last')
                     df_nuevos = df_nuevos.drop_duplicates(
@@ -3613,6 +3707,8 @@ with tab2:
                     for col in columnas_objetivo_confirmados:
                         if col not in df_nuevos.columns:
                             df_nuevos[col] = ""
+
+                    df_nuevos = ensure_id_vendedor_column(df_nuevos, df_pedidos_confirmados_fuentes)
 
                     (
                         adjuntos_map,
@@ -3773,6 +3869,7 @@ with tab2:
                     df_combined = sync_estado_surtido_confirmados(
                         df_combined, df_pedidos_confirmados_fuentes
                     )
+                    df_combined = ensure_id_vendedor_column(df_combined, df_pedidos_confirmados_fuentes)
                     nuevos_agregados = max(len(df_combined) - len(df_existente_merge), 0)
 
                     for col in columnas_objetivo_confirmados:
@@ -3865,6 +3962,7 @@ with tab2:
             "Folio_Factura_Refacturada",
             "Cliente",
             "Vendedor_Registro",
+            "id_vendedor",
             "Tipo_Envio",
             "Estado_Surtido_Almacen",
             ESTADO_ENTREGA_COL,
@@ -4550,6 +4648,8 @@ with tab3, suppress(StopException):
         if c not in df_casos.columns:
             df_casos[c] = ""
 
+    df_casos = ensure_id_vendedor_column(df_casos, df_pedidos)
+
     # Utils
     def _is_blank(v: str) -> bool:
         s = str(v).strip().lower()
@@ -4793,7 +4893,7 @@ with tab3, suppress(StopException):
         st.warning(f"📋 Hay {len(df_pendientes)} casos pendientes por confirmar.")
 
         columns_to_show = [
-            "Tipo_Envio","Aplica_Pago","Folio_Factura","Cliente","Vendedor_Registro",
+            "Tipo_Envio","Aplica_Pago","Folio_Factura","Cliente","Vendedor_Registro","id_vendedor",
             "Hora_Registro","Resultado_Esperado","Numero_Cliente_RFC",
             "Area_Responsable","Nombre_Responsable",
             "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta",
@@ -5227,6 +5327,8 @@ with tab4:
 
     if "Aplica_Pago" not in df_ce.columns:
         df_ce["Aplica_Pago"] = ""
+
+    df_ce = ensure_id_vendedor_column(df_ce, df_pedidos)
 
     # ------- Normalizador de URLs (Adjuntos puede venir como JSON/CSV/texto) -------
     def _normalize_urls(value):
