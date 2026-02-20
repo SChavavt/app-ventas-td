@@ -3,6 +3,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from streamlit.errors import StreamlitAPIException
 import os
+from pathlib import Path
 from datetime import datetime, timedelta, date
 import json
 import base64
@@ -34,6 +35,9 @@ import boto3
 st.set_page_config(page_title="App Vendedores TD", layout="wide")
 
 REFRESH_COOLDOWN = 60
+PENDING_SUBMISSION_RETRY_SECONDS = 8
+PENDING_SUBMISSION_MAX_RETRY_SECONDS = 60
+PENDING_SUBMISSIONS_DIR = Path(".pedido_retry_cache")
 
 
 TAB1_PRESERVED_STATE_KEYS: set[str] = {
@@ -203,6 +207,109 @@ def parse_sheet_row_number(value) -> Optional[int]:
 def normalize_vendedor_id(value: object) -> str:
     """Normalize vendor IDs to compare them safely across sheets/sessions."""
     return str(value or "").strip().upper()
+
+
+class CachedUploadedFile(BytesIO):
+    """Archivo en memoria con atributo ``name`` para reutilizar carga a S3."""
+
+    def __init__(self, filename: str, content: bytes):
+        super().__init__(content)
+        self.name = filename
+
+
+def get_pending_submission_key() -> str:
+    """Genera una llave por vendedor para cachear un pedido pendiente."""
+    return (
+        normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
+        or normalize_vendedor_id(st.session_state.get("last_selected_vendedor", ""))
+        or "GLOBAL"
+    )
+
+
+def _pending_submission_paths(cache_key: str) -> tuple[Path, Path]:
+    cache_dir = PENDING_SUBMISSIONS_DIR / cache_key
+    return cache_dir, cache_dir / "payload.json"
+
+
+def _serialize_uploaded_files(files) -> list[dict]:
+    serialized: list[dict] = []
+    for file_obj in files or []:
+        file_obj.seek(0)
+        content = file_obj.read()
+        file_obj.seek(0)
+        serialized.append(
+            {
+                "name": file_obj.name,
+                "content_b64": base64.b64encode(content).decode("utf-8"),
+            }
+        )
+    return serialized
+
+
+def _deserialize_uploaded_files(files_data: list[dict] | None):
+    restored = []
+    for item in files_data or []:
+        try:
+            content = base64.b64decode(item.get("content_b64", ""))
+        except Exception:
+            continue
+        restored.append(CachedUploadedFile(item.get("name", "archivo.bin"), content))
+    return restored
+
+
+def save_pending_submission(cache_key: str, payload: dict, attempts: int = 0, next_retry_at: float = 0.0) -> None:
+    """Guarda el payload de envío para reintentos automáticos."""
+    cache_dir, payload_path = _pending_submission_paths(cache_key)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "cache_key": cache_key,
+        "saved_at": time.time(),
+        "attempts": attempts,
+        "next_retry_at": next_retry_at,
+        "payload": payload,
+    }
+    payload_path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+
+
+def load_pending_submission(cache_key: str) -> Optional[dict]:
+    """Carga un pedido pendiente desde disco."""
+    _, payload_path = _pending_submission_paths(cache_key)
+    if not payload_path.exists():
+        return None
+    try:
+        return json.loads(payload_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def clear_pending_submission(cache_key: str) -> None:
+    """Elimina pedido pendiente guardado para el vendedor actual."""
+    cache_dir, payload_path = _pending_submission_paths(cache_key)
+    if payload_path.exists():
+        payload_path.unlink(missing_ok=True)
+    if cache_dir.exists():
+        try:
+            cache_dir.rmdir()
+        except OSError:
+            pass
+
+
+def schedule_pending_submission_retry(cache_key: str, delay_seconds: int = PENDING_SUBMISSION_RETRY_SECONDS) -> None:
+    """Agenda reintento automático con backoff para evitar saturar APIs externas."""
+    pending = load_pending_submission(cache_key)
+    if not pending:
+        return
+    attempts = int(pending.get("attempts", 0) or 0) + 1
+    retry_seconds = min(
+        PENDING_SUBMISSION_MAX_RETRY_SECONDS,
+        max(1, delay_seconds) * (2 ** max(0, attempts - 1)),
+    )
+    save_pending_submission(
+        cache_key,
+        pending.get("payload", {}),
+        attempts=attempts,
+        next_retry_at=time.time() + retry_seconds,
+    )
 
 
 @st.cache_data(ttl=60)
@@ -1675,6 +1782,10 @@ if 'last_selected_vendedor' not in st.session_state:
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
     restore_tab1_form_state_for_retry()
+    pending_cache_key = get_pending_submission_key()
+    pending_submission_record = load_pending_submission(pending_cache_key)
+    has_pending_submission = bool(pending_submission_record and pending_submission_record.get("payload"))
+    submission_payload_override = None
 
     tab1_is_active = default_tab == 0
     if tab1_is_active:
@@ -2219,7 +2330,7 @@ with tab1:
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button(
             "✅ Registrar Pedido",
-            disabled=st.session_state.get("pedido_submit_disabled", False),
+            disabled=st.session_state.get("pedido_submit_disabled", False) or has_pending_submission,
             on_click=backup_tab1_form_state_for_retry,
         )
 
@@ -2227,6 +2338,47 @@ with tab1:
     if submit_button:
         st.session_state["pedido_submit_disabled"] = True
         st.session_state["pedido_submit_disabled_at"] = time.time()
+
+    if not should_process_submission and pending_submission_record:
+        retry_at = float(pending_submission_record.get("next_retry_at", 0) or 0)
+        attempts_done = int(pending_submission_record.get("attempts", 0) or 0)
+        remaining_seconds = max(0, int(retry_at - time.time()))
+
+        st.warning(
+            "⚠️ Hay un pedido pendiente de reintento. Para evitar duplicados se bloqueó temporalmente el botón de registrar."
+        )
+        action_col1, action_col2 = st.columns(2)
+        with action_col1:
+            retry_now = st.button("🔄 Reintentar ahora", key="retry_pending_now")
+        with action_col2:
+            cancel_pending = st.button("🗑️ Cancelar pedido pendiente", key="cancel_pending_retry")
+
+        if cancel_pending:
+            clear_pending_submission(pending_cache_key)
+            set_pedido_submission_status(
+                "warning",
+                "⚠️ Se canceló el pedido pendiente. Ya puedes capturar y enviar uno nuevo.",
+            )
+            rerun_with_pedido_loading("⏳ Cancelando pedido pendiente...")
+
+        if retry_now:
+            submission_payload_override = pending_submission_record.get("payload", {}) or {}
+            should_process_submission = True
+            st.info(
+                f"🔄 Reintentando ahora el pedido pendiente (intento #{attempts_done + 1})."
+            )
+        elif remaining_seconds <= 0:
+            submission_payload_override = pending_submission_record.get("payload", {}) or {}
+            should_process_submission = True
+            st.info(
+                f"🔄 Reintentando automáticamente el último pedido fallido (intento #{attempts_done + 1})."
+            )
+        else:
+            st.info(
+                f"⏱️ Reintento automático en {remaining_seconds}s (intentos previos: {attempts_done})."
+            )
+            time.sleep(min(1, remaining_seconds))
+            st.rerun()
 
     if not registrar_nota_venta:
         nota_venta = ""
@@ -2340,6 +2492,57 @@ with tab1:
     if should_process_submission:
         st.info("⏳ Registrando pedido, espera la confirmación final...")
         try:
+            if submission_payload_override:
+                vendedor = submission_payload_override.get("vendedor", vendedor)
+                registro_cliente = submission_payload_override.get("registro_cliente", registro_cliente)
+                numero_cliente_rfc = submission_payload_override.get("numero_cliente_rfc", numero_cliente_rfc)
+                folio_factura = submission_payload_override.get("folio_factura", folio_factura)
+                folio_factura_error = submission_payload_override.get("folio_factura_error", folio_factura_error)
+                motivo_nota_venta = submission_payload_override.get("motivo_nota_venta", motivo_nota_venta)
+                tipo_envio = submission_payload_override.get("tipo_envio", tipo_envio)
+                tipo_envio_original = submission_payload_override.get("tipo_envio_original", tipo_envio_original)
+                estatus_origen_factura = submission_payload_override.get("estatus_origen_factura", estatus_origen_factura)
+                aplica_pago = submission_payload_override.get("aplica_pago", aplica_pago)
+                resultado_esperado = submission_payload_override.get("resultado_esperado", resultado_esperado)
+                material_devuelto = submission_payload_override.get("material_devuelto", material_devuelto)
+                motivo_detallado = submission_payload_override.get("motivo_detallado", motivo_detallado)
+                area_responsable = submission_payload_override.get("area_responsable", area_responsable)
+                nombre_responsable = submission_payload_override.get("nombre_responsable", nombre_responsable)
+                monto_devuelto = float(submission_payload_override.get("monto_devuelto", monto_devuelto) or 0)
+                g_resultado_esperado = submission_payload_override.get("g_resultado_esperado", g_resultado_esperado)
+                g_descripcion_falla = submission_payload_override.get("g_descripcion_falla", g_descripcion_falla)
+                g_piezas_afectadas = submission_payload_override.get("g_piezas_afectadas", g_piezas_afectadas)
+                g_monto_estimado = float(submission_payload_override.get("g_monto_estimado", g_monto_estimado) or 0)
+                g_area_responsable = submission_payload_override.get("g_area_responsable", g_area_responsable)
+                g_nombre_responsable = submission_payload_override.get("g_nombre_responsable", g_nombre_responsable)
+                g_numero_serie = submission_payload_override.get("g_numero_serie", g_numero_serie)
+                g_fecha_compra_str = submission_payload_override.get("g_fecha_compra")
+                if g_fecha_compra_str:
+                    try:
+                        g_fecha_compra = datetime.strptime(g_fecha_compra_str, "%Y-%m-%d").date()
+                    except ValueError:
+                        g_fecha_compra = None
+                direccion_guia_retorno = submission_payload_override.get("direccion_guia_retorno", direccion_guia_retorno)
+                direccion_envio_destino = submission_payload_override.get("direccion_envio_destino", direccion_envio_destino)
+                estado_pago = submission_payload_override.get("estado_pago", estado_pago)
+                fecha_pago = submission_payload_override.get("fecha_pago", fecha_pago)
+                forma_pago = submission_payload_override.get("forma_pago", forma_pago)
+                terminal = submission_payload_override.get("terminal", terminal)
+                banco_destino = submission_payload_override.get("banco_destino", banco_destino)
+                monto_pago = float(submission_payload_override.get("monto_pago", monto_pago) or 0)
+                referencia_pago = submission_payload_override.get("referencia_pago", referencia_pago)
+                comentario = submission_payload_override.get("comentario", comentario)
+                subtipo_local = submission_payload_override.get("subtipo_local", subtipo_local)
+                fecha_entrega_str = submission_payload_override.get("fecha_entrega")
+                if fecha_entrega_str:
+                    try:
+                        fecha_entrega = datetime.strptime(fecha_entrega_str, "%Y-%m-%d").date()
+                    except ValueError:
+                        fecha_entrega = datetime.now().date()
+                uploaded_files = _deserialize_uploaded_files(submission_payload_override.get("uploaded_files"))
+                comprobante_pago_files = _deserialize_uploaded_files(submission_payload_override.get("comprobante_pago_files"))
+                comprobante_cliente = _deserialize_uploaded_files(submission_payload_override.get("comprobante_cliente"))
+
             if not vendedor or not registro_cliente:
                 set_pedido_submission_status(
                     "warning",
@@ -2348,6 +2551,50 @@ with tab1:
                 st.session_state["pedido_submit_disabled"] = False
                 st.session_state.pop("pedido_submit_disabled_at", None)
                 rerun_with_pedido_loading("⏳ Recargando formulario...")
+
+            if not submission_payload_override:
+                payload_to_retry = {
+                    "tipo_envio": tipo_envio,
+                    "vendedor": vendedor,
+                    "registro_cliente": registro_cliente,
+                    "numero_cliente_rfc": numero_cliente_rfc,
+                    "folio_factura": folio_factura,
+                    "folio_factura_error": folio_factura_error,
+                    "motivo_nota_venta": motivo_nota_venta,
+                    "tipo_envio_original": tipo_envio_original,
+                    "estatus_origen_factura": estatus_origen_factura,
+                    "aplica_pago": aplica_pago,
+                    "resultado_esperado": resultado_esperado,
+                    "material_devuelto": material_devuelto,
+                    "motivo_detallado": motivo_detallado,
+                    "area_responsable": area_responsable,
+                    "nombre_responsable": nombre_responsable,
+                    "monto_devuelto": monto_devuelto,
+                    "g_resultado_esperado": g_resultado_esperado,
+                    "g_descripcion_falla": g_descripcion_falla,
+                    "g_piezas_afectadas": g_piezas_afectadas,
+                    "g_monto_estimado": g_monto_estimado,
+                    "g_area_responsable": g_area_responsable,
+                    "g_nombre_responsable": g_nombre_responsable,
+                    "g_numero_serie": g_numero_serie,
+                    "g_fecha_compra": g_fecha_compra.strftime('%Y-%m-%d') if g_fecha_compra else "",
+                    "direccion_guia_retorno": direccion_guia_retorno,
+                    "direccion_envio_destino": direccion_envio_destino,
+                    "estado_pago": estado_pago,
+                    "fecha_pago": fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""),
+                    "forma_pago": forma_pago,
+                    "terminal": terminal,
+                    "banco_destino": banco_destino,
+                    "monto_pago": monto_pago,
+                    "referencia_pago": referencia_pago,
+                    "comentario": comentario,
+                    "subtipo_local": subtipo_local,
+                    "fecha_entrega": fecha_entrega.strftime('%Y-%m-%d') if fecha_entrega else "",
+                    "uploaded_files": _serialize_uploaded_files(uploaded_files),
+                    "comprobante_pago_files": _serialize_uploaded_files(comprobante_pago_files),
+                    "comprobante_cliente": _serialize_uploaded_files(comprobante_cliente),
+                }
+                save_pending_submission(pending_cache_key, payload_to_retry)
 
             pedido_sin_adjuntos = not (
                 uploaded_files or comprobante_pago_files or comprobante_cliente
@@ -2520,6 +2767,7 @@ with tab1:
                     )
                 )
             except Exception as e:
+                schedule_pending_submission_retry(pending_cache_key)
                 set_pedido_submission_status(
                     status="error",
                     message="❌ No se pudieron subir los archivos del pedido.",
@@ -2699,6 +2947,7 @@ with tab1:
                         id_col_index=id_col_index,
                     )
             except Exception as e:
+                schedule_pending_submission_retry(pending_cache_key)
                 set_pedido_submission_status(
                     "error",
                     "❌ Falla al subir el pedido.",
@@ -2718,11 +2967,13 @@ with tab1:
                 attachments=adjuntos_urls,
                 missing_attachments_warning=pedido_sin_adjuntos,
             )
+            clear_pending_submission(pending_cache_key)
             if tab1_is_active and st.session_state.get("current_tab_index") == 0:
                 st.query_params.update({"tab": "0"})
             rerun_with_pedido_loading("⏳ Pedido registrado. Actualizando vista...")
 
         except Exception as e:
+            schedule_pending_submission_retry(pending_cache_key)
             set_pedido_submission_status(
                 "error",
                 "❌ Falla al subir el pedido.",
