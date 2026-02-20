@@ -5368,6 +5368,31 @@ with tab4:
     def _to_dt(s):
         return pd.to_datetime(s, errors='coerce', dayfirst=True, infer_datetime_format=True)
 
+    def _format_fecha_uniforme(value, with_time=True):
+        """Normaliza fechas mixtas (texto / serial de Sheets) a un formato uniforme."""
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return ""
+
+        value_str = str(value).strip()
+        if not value_str or value_str.lower() in {"nan", "none"}:
+            return ""
+
+        parsed = pd.NaT
+        numeric_value = pd.to_numeric(value_str, errors="coerce")
+        if pd.notna(numeric_value):
+            # Serial de fecha en Google Sheets / Excel (base 1899-12-30).
+            parsed = pd.to_datetime(numeric_value, unit="D", origin="1899-12-30", errors="coerce")
+
+        if pd.isna(parsed):
+            parsed = pd.to_datetime(value_str, errors="coerce", dayfirst=True, infer_datetime_format=True)
+
+        if pd.isna(parsed):
+            return value_str
+
+        if with_time:
+            return parsed.strftime("%Y-%m-%d %H:%M:%S")
+        return parsed.strftime("%Y-%m-%d")
+
     if "Hora_Registro" in df_view.columns:
         dth = _to_dt(df_view["Hora_Registro"])
         if dth.notna().any():
@@ -5405,6 +5430,21 @@ with tab4:
     st.success(f"✅ {len(df_view)} casos listados (últimos primero).")
 
     df_view_table = df_view.copy()
+    columnas_fecha_hora = ["Hora_Registro"]
+    columnas_fecha = ["Fecha_Compra", "Fecha_Entrega"]
+
+    for col in columnas_fecha_hora:
+        if col in df_view_table.columns:
+            df_view_table[col] = df_view_table[col].apply(
+                lambda v: _format_fecha_uniforme(v, with_time=True)
+            )
+
+    for col in columnas_fecha:
+        if col in df_view_table.columns:
+            df_view_table[col] = df_view_table[col].apply(
+                lambda v: _format_fecha_uniforme(v, with_time=False)
+            )
+
     if "Link_Doc_Adicional" in df_view_table.columns:
         df_view_table["Link_Doc_Adicional"] = df_view_table["Link_Doc_Adicional"].apply(
             _build_document_links
