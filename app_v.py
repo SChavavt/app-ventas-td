@@ -2453,39 +2453,15 @@ with tab1:
                     st.toast("❌ Error al registrar el pedido")
                     st.session_state["pedido_status_toast_event_id"] = event_id
 
-            def reset_pedido_submit_state():
-                preserved_keys = {
-                    key: st.session_state[key]
-                    for key in [
-                        "id_vendedor",
-                        "last_selected_vendedor",
-                        "tipo_envio_selector_global",
-                    ]
-                    if key in st.session_state
-                }
-
-                keys_to_remove = [
-                    key for key in list(st.session_state.keys()) if key not in preserved_keys
-                ]
-                for key in keys_to_remove:
-                    del st.session_state[key]
-
-                for key, value in preserved_keys.items():
-                    if key not in st.session_state:
-                        st.session_state[key] = value
-
-                clear_app_caches()
+            def clear_pedido_status_message() -> None:
+                """Limpia el aviso de envío sin reiniciar la sesión completa."""
                 st.session_state.pop("pedido_submission_status", None)
                 st.session_state["pedido_submit_disabled"] = False
                 st.session_state.pop("pedido_submit_disabled_at", None)
                 st.rerun()
 
-            disabled_at = st.session_state.get("pedido_submit_disabled_at")
-            if disabled_at and time.time() - disabled_at >= 5:
-                reset_pedido_submit_state()
-
-            if st.button("Aceptar", key="acknowledge_pedido_status"):
-                reset_pedido_submit_state()
+            if st.button("Registrar otro pedido", key="acknowledge_pedido_status"):
+                clear_pedido_status_message()
 
 
     # -------------------------------
