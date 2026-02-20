@@ -5421,7 +5421,7 @@ with tab4:
 
     # ------- Columnas a mostrar/descargar -------
     columnas_base = [
-        "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
+        "ID_Pedido","Hora_Registro","Vendedor_Registro","id_vendedor","Cliente","Folio_Factura",
         "Numero_Serie","Fecha_Compra",
         "Tipo_Envio","Estado","Estado_Caso","Aplica_Pago","Estado_Recepcion","Seguimiento",
         "Tipo_Envio_Original","Estatus_OrigenF","Turno","Fecha_Entrega",
