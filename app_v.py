@@ -2096,10 +2096,13 @@ with tab1:
             if st.session_state.get("estado_pago") not in opciones_estado_pago:
                 st.session_state["estado_pago"] = opciones_estado_pago[0]
 
+            estado_pago_actual = st.session_state.get("estado_pago", opciones_estado_pago[0])
+            estado_pago_index = opciones_estado_pago.index(estado_pago_actual)
+
             estado_pago = st.selectbox(
                 "Estado de Pago",
                 opciones_estado_pago,
-                index=0,
+                index=estado_pago_index,
                 key="estado_pago",
             )
 
@@ -2324,6 +2327,9 @@ with tab1:
         if tipo_envio == "📍 Pedido Local":
             turno_local = subtipo_local if subtipo_local else "Sin turno"
             confirmation_detail += f" | Turno: {turno_local}"
+
+        estado_pago_confirmacion = st.session_state.get("estado_pago", estado_pago)
+        confirmation_detail += f" | Estado de pago: {estado_pago_confirmacion}"
 
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
