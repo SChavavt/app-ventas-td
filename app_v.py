@@ -210,6 +210,27 @@ def normalize_vendedor_id(value: object) -> str:
     return str(value or "").strip().upper()
 
 
+def is_empty_folio(value: object) -> bool:
+    """True cuando el folio está vacío o no tiene valor utilizable."""
+    cleaned = str(value or "").strip()
+    return cleaned == "" or cleaned.lower() in {"nan", "none"}
+
+
+def clean_folio_for_ui(value: object) -> str:
+    """Muestra el folio limpio en UI quitando prefijo de captura tardía (*)."""
+    folio = str(value or "").strip()
+    return folio[1:].strip() if folio.startswith("*") else folio
+
+
+def is_devolucion_case_row(row: pd.Series) -> bool:
+    """Detecta devoluciones usando el campo real disponible en la hoja."""
+    for key in ("Tipo_Caso", "Tipo_Envio"):
+        raw = str(row.get(key, "") or "").strip().lower()
+        if "devoluci" in raw:
+            return True
+    return False
+
+
 class CachedUploadedFile(BytesIO):
     """Archivo en memoria con atributo ``name`` para reutilizar carga a S3."""
 
@@ -1532,7 +1553,7 @@ def render_caso_especial(row):
     hora = row.get("Hora_Registro", "")
 
     if is_dev:
-        folio_nuevo = row.get("Folio_Factura", "")
+        folio_nuevo = clean_folio_for_ui(row.get("Folio_Factura", ""))
         folio_error = row.get("Folio_Factura_Error", "")
         st.markdown(
             f"📄 **Folio Nuevo:** `{folio_nuevo or 'N/A'}`  |  "
@@ -1543,7 +1564,7 @@ def render_caso_especial(row):
         )
     else:
         st.markdown(
-            f"📄 **Folio:** `{row.get('Folio_Factura','') or 'N/A'}`  |  "
+            f"📄 **Folio:** `{clean_folio_for_ui(row.get('Folio_Factura','')) or 'N/A'}`  |  "
             f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
             f"{id_vendedor_segment}  |  "
             f"🕒 **Hora:** `{hora or 'N/A'}`"
@@ -4342,6 +4363,115 @@ with tab4:
     if df_casos.empty:
         st.info("No hay casos especiales.")
     else:
+        if "id_vendedor" not in df_casos.columns:
+            df_casos["id_vendedor"] = ""
+
+        id_vendedor_sesion = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
+        seguimiento_autorizacion = "Autorización de devolución"
+
+        df_pending_alert = df_casos.copy()
+        df_pending_alert = df_pending_alert[df_pending_alert.apply(is_devolucion_case_row, axis=1)]
+        if id_vendedor_sesion:
+            df_pending_alert = df_pending_alert[
+                df_pending_alert["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_sesion
+            ]
+        else:
+            df_pending_alert = df_pending_alert.iloc[0:0]
+
+        pending_mask = (
+            df_pending_alert["Seguimiento"].astype(str).str.strip().eq(seguimiento_autorizacion)
+            & df_pending_alert["Folio_Factura"].apply(is_empty_folio)
+        )
+        pendientes_autorizados = int(pending_mask.sum())
+        if pendientes_autorizados > 0:
+            st.warning(
+                f"⚠️ Tienes devoluciones autorizadas sin Folio Nuevo. Captura el Folio Nuevo. ({pendientes_autorizados})"
+            )
+
+        st.markdown("#### Devoluciones sin refacturar")
+        st.caption("Solo se muestran devoluciones del vendedor logeado con Folio Nuevo pendiente. Al guardar se almacena con prefijo * para auditoría post-registro.")
+
+        try:
+            ws_casos_ref = get_worksheet_casos_especiales()
+            df_casos_ref, headers_casos_ref = load_sheet_records_with_row_numbers(ws_casos_ref)
+        except Exception as e:
+            st.error(f"❌ No fue posible cargar devoluciones sin refacturar: {e}")
+            df_casos_ref = pd.DataFrame()
+            headers_casos_ref = []
+            ws_casos_ref = None
+
+        if not df_casos_ref.empty:
+            for col in ["id_vendedor", "Tipo_Envio", "Tipo_Caso", "Seguimiento", "Folio_Factura", "Hora_Registro"]:
+                if col not in df_casos_ref.columns:
+                    df_casos_ref[col] = ""
+
+        if df_casos_ref.empty or ws_casos_ref is None:
+            st.info("No hay devoluciones sin refacturar por mostrar.")
+        else:
+            df_sin_refacturar = df_casos_ref[df_casos_ref.apply(is_devolucion_case_row, axis=1)].copy()
+            df_sin_refacturar = df_sin_refacturar[df_sin_refacturar["Folio_Factura"].apply(is_empty_folio)]
+            if id_vendedor_sesion:
+                df_sin_refacturar = df_sin_refacturar[
+                    df_sin_refacturar["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_sesion
+                ]
+            else:
+                df_sin_refacturar = df_sin_refacturar.iloc[0:0]
+
+            if not df_sin_refacturar.empty:
+                df_sin_refacturar["_seguimiento_rank"] = (
+                    ~df_sin_refacturar["Seguimiento"].astype(str).str.strip().eq(seguimiento_autorizacion)
+                ).astype(int)
+                df_sin_refacturar["_hora_sort"] = pd.to_datetime(
+                    df_sin_refacturar["Hora_Registro"], errors="coerce"
+                )
+                df_sin_refacturar = df_sin_refacturar.sort_values(
+                    by=["_seguimiento_rank", "_hora_sort"],
+                    ascending=[True, True],
+                    na_position="last",
+                )
+
+            if df_sin_refacturar.empty:
+                st.info("No tienes devoluciones pendientes de Folio Nuevo.")
+            else:
+                for _, row in df_sin_refacturar.iterrows():
+                    sheet_row_number = parse_sheet_row_number(row.get("Sheet_Row_Number"))
+                    row_key = f"devol_sin_ref_{sheet_row_number or uuid.uuid4().hex}"
+                    with st.container(border=True):
+                        st.markdown(
+                            f"**ID Pedido:** {row.get('ID_Pedido', 'N/A') or 'N/A'}  |  "
+                            f"**Cliente:** {row.get('Cliente', 'N/A') or 'N/A'}  |  "
+                            f"**Folio Error:** {row.get('Folio_Factura_Error', 'N/A') or 'N/A'}"
+                        )
+                        st.markdown(
+                            f"**Seguimiento:** {row.get('Seguimiento', 'N/A') or 'N/A'}  |  "
+                            f"**Hora Registro:** {row.get('Hora_Registro', 'N/A') or 'N/A'}"
+                        )
+                        folio_input = st.text_input(
+                            "📄 Folio Nuevo",
+                            key=f"{row_key}_folio_input",
+                            placeholder="Ej. F197176",
+                        )
+                        if st.button("Guardar Folio Nuevo", key=f"{row_key}_save"):
+                            folio_sanitizado = str(folio_input or "").strip()
+                            if not folio_sanitizado:
+                                st.error("❌ El Folio Nuevo no puede estar vacío.")
+                            elif sheet_row_number is None:
+                                st.error("❌ No se pudo identificar la fila real en Google Sheets para actualizar.")
+                            else:
+                                valor_guardar = f"*{folio_sanitizado}"
+                                ok = update_gsheet_cell(
+                                    ws_casos_ref,
+                                    headers_casos_ref,
+                                    int(sheet_row_number),
+                                    "Folio_Factura",
+                                    valor_guardar,
+                                )
+                                if ok:
+                                    st.success(f"✅ Folio Nuevo guardado correctamente: {folio_sanitizado}")
+                                    st.session_state.pop(f"{row_key}_folio_input", None)
+                                    cargar_casos_especiales.clear()
+                                    st.rerun()
+
         df_casos = df_casos[
             df_casos["Tipo_Envio"].isin(["🔁 Devolución", "🛠 Garantía"]) &
             (df_casos["Seguimiento"] != "Cerrado")
