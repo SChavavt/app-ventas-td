@@ -861,23 +861,6 @@ def normalize_folio_factura(value) -> str:
 
 
 
-
-def clean_folio_for_ui(value) -> str:
-    """Muestra folios capturados post-registro sin el prefijo interno *."""
-    folio = normalize_folio_factura(value)
-    return folio[1:].strip() if folio.startswith("*") else folio
-
-
-def is_devolucion_case_row(row: pd.Series) -> bool:
-    """Detecta devoluciones usando Tipo_Caso o Tipo_Envio según lo disponible."""
-    for key in ("Tipo_Caso", "Tipo_Envio"):
-        raw = str(row.get(key, "") or "").strip().lower()
-        if "devoluci" in raw:
-            return True
-    return False
-
-
-
 # --- Helpers de Adjuntos --------------------------------------------------
 
 
@@ -5537,64 +5520,6 @@ with tab4:
     with c4: st.metric("Completados", len(df_ce[df_ce["Estado"].astype(str).str.strip() == "🟢 Completado"]))
 
     st.markdown("---")
-
-    seguimiento_autorizacion = "Autorización de devolución"
-    df_devol_sin_refacturar = df_ce.copy()
-    df_devol_sin_refacturar = df_devol_sin_refacturar[
-        df_devol_sin_refacturar.apply(is_devolucion_case_row, axis=1)
-    ]
-    df_devol_sin_refacturar["Folio_Factura"] = df_devol_sin_refacturar["Folio_Factura"].apply(normalize_folio_factura)
-    df_devol_sin_refacturar = df_devol_sin_refacturar[
-        df_devol_sin_refacturar["Seguimiento"].astype(str).str.strip().eq(seguimiento_autorizacion)
-        & df_devol_sin_refacturar["Folio_Factura"].eq("")
-    ]
-
-    if df_devol_sin_refacturar.empty:
-        st.info("✅ No hay devoluciones sin refacturar pendientes.")
-    else:
-        st.warning(f"⚠️ Hay {len(df_devol_sin_refacturar)} devolución(es) sin refacturar pendientes.")
-
-    st.subheader("🧾 Folios nuevos capturados post-registro")
-    st.caption("Se listan devoluciones con Folio_Factura guardado con prefijo * para identificar captura posterior al registro original.")
-
-    df_folios_post = df_ce.copy()
-    df_folios_post = df_folios_post[df_folios_post.apply(is_devolucion_case_row, axis=1)]
-    df_folios_post["Folio_Factura"] = df_folios_post["Folio_Factura"].apply(normalize_folio_factura)
-    df_folios_post = df_folios_post[
-        df_folios_post["Folio_Factura"].astype(str).str.startswith("*")
-    ]
-
-    if df_folios_post.empty:
-        pendientes_count = len(df_devol_sin_refacturar)
-        if pendientes_count > 0:
-            st.info(
-                f"Aún no hay folios nuevos capturados post-registro; hay {pendientes_count} devolución(es) pendientes por capturar."
-            )
-        else:
-            st.info("No hay folios nuevos capturados post-registro.")
-    else:
-        df_folios_post = df_folios_post.copy()
-        df_folios_post["Folio_Nuevo"] = df_folios_post["Folio_Factura"].apply(clean_folio_for_ui)
-        if "Hora_Registro" in df_folios_post.columns:
-            _dt_post = pd.to_datetime(df_folios_post["Hora_Registro"], errors="coerce", dayfirst=True)
-            df_folios_post = df_folios_post.assign(_dt_sort=_dt_post).sort_values(
-                "_dt_sort", ascending=False, na_position="last"
-            ).drop(columns=["_dt_sort"])
-
-        columnas_post = [
-            "Folio_Nuevo",
-            "Folio_Factura_Error",
-            "id_vendedor",
-            "ID_Pedido",
-            "Seguimiento",
-            "Hora_Registro",
-        ]
-        columnas_post_existentes = [c for c in columnas_post if c in df_folios_post.columns]
-        st.dataframe(
-            df_folios_post[columnas_post_existentes],
-            use_container_width=True,
-            hide_index=True,
-        )
 
     # ------- Columnas a mostrar/descargar -------
     columnas_base = [
