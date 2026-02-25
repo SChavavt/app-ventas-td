@@ -143,6 +143,25 @@ USUARIOS_VALIDOS = [
     "ROBERTO51",
 ]
 
+VENDEDOR_NOMBRE_POR_ID = {
+    "DIANASOFIA47": "DIANA SOFIA",
+    "ALEJANDRO38": "ALEJANDRO RODRIGUEZ",
+    "ALFONSO01": "ALFONSO",
+    "ANA45": "ANA KAREN ORTEGA MAHUAD",
+    "CURSOS92": "CURSOS Y EVENTOS",
+    "CASSANDRA93": "CASSANDRA MIROSLAVA",
+    "DANIELA73": "DANIELA LOPEZ RAMIREZ",
+    "DISTRIBUCION88": "DISTRIBUCION Y UNIVERSIDADES",
+    "GRISELDA82": "GRISELDA CAROLINA SANCHEZ GARCIA",
+    "GLORIA53": "GLORIA MICHELLE GARCIA TORRES",
+    "JUAN24": "JUAN CASTILLEJO",
+    "JOSE31": "JOSE CORTES",
+    "KAREN58": "KAREN JAQUELINE",
+    "PAULINA57": "PAULINA TREJO",
+    "RUBEN67": "RUBEN",
+    "ROBERTO51": "ROBERTO LEGRA",
+}
+
 
 
 def normalize_case_text(value, placeholder: str = "N/A") -> str:
@@ -1798,9 +1817,17 @@ VENDEDORES_LIST = sorted([
     "ROBERTO LEGRA"
 ])
 
-# Initialize session state for vendor
-if 'last_selected_vendedor' not in st.session_state:
-    st.session_state.last_selected_vendedor = VENDEDORES_LIST[0] if VENDEDORES_LIST else ""
+# Initialize session state for vendor (default linked to logged-in vendor ID)
+id_vendedor_logeado = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
+vendedor_predeterminado = VENDEDOR_NOMBRE_POR_ID.get(
+    id_vendedor_logeado,
+    VENDEDORES_LIST[0] if VENDEDORES_LIST else "",
+)
+if (
+    not st.session_state.get("last_selected_vendedor")
+    or st.session_state.get("last_selected_vendedor") not in VENDEDORES_LIST
+):
+    st.session_state.last_selected_vendedor = vendedor_predeterminado
 
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
@@ -1904,6 +1931,13 @@ with tab1:
     with st.form(key="new_pedido_form", clear_on_submit=True):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
+
+        default_vendedor = VENDEDOR_NOMBRE_POR_ID.get(
+            normalize_vendedor_id(st.session_state.get("id_vendedor", "")),
+            st.session_state.get("last_selected_vendedor", ""),
+        )
+        if default_vendedor in VENDEDORES_LIST:
+            st.session_state.last_selected_vendedor = default_vendedor
 
         try:
             initial_vendedor_index = VENDEDORES_LIST.index(st.session_state.last_selected_vendedor)
