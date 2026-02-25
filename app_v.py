@@ -113,6 +113,7 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
 }
 
 TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
+TAB1_VENDOR_EMPTY_OPTION = ""
 
 TAB1_RESTORE_EXCLUDED_KEYS: set[str] = {
     "pedido_adjuntos",
@@ -1821,7 +1822,7 @@ VENDEDORES_LIST = sorted([
 id_vendedor_logeado = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
 vendedor_predeterminado = VENDEDOR_NOMBRE_POR_ID.get(
     id_vendedor_logeado,
-    VENDEDORES_LIST[0] if VENDEDORES_LIST else "",
+    TAB1_VENDOR_EMPTY_OPTION,
 )
 if (
     not st.session_state.get("last_selected_vendedor")
@@ -1932,19 +1933,25 @@ with tab1:
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
-        default_vendedor = VENDEDOR_NOMBRE_POR_ID.get(
-            normalize_vendedor_id(st.session_state.get("id_vendedor", "")),
-            st.session_state.get("last_selected_vendedor", ""),
-        )
+        id_vendedor_form = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
+        default_vendedor = VENDEDOR_NOMBRE_POR_ID.get(id_vendedor_form, TAB1_VENDOR_EMPTY_OPTION)
+        vendor_options_tab1 = [TAB1_VENDOR_EMPTY_OPTION] + VENDEDORES_LIST
+
+        # Si el usuario logeado tiene mapeo, siempre forzamos ese vendedor como base del formulario.
         if default_vendedor in VENDEDORES_LIST:
             st.session_state.last_selected_vendedor = default_vendedor
 
+        selected_vendedor_state = st.session_state.get("last_selected_vendedor", TAB1_VENDOR_EMPTY_OPTION)
+        if selected_vendedor_state not in vendor_options_tab1:
+            selected_vendedor_state = default_vendedor if default_vendedor in vendor_options_tab1 else TAB1_VENDOR_EMPTY_OPTION
+            st.session_state.last_selected_vendedor = selected_vendedor_state
+
         try:
-            initial_vendedor_index = VENDEDORES_LIST.index(st.session_state.last_selected_vendedor)
-        except Exception:
+            initial_vendedor_index = vendor_options_tab1.index(selected_vendedor_state)
+        except ValueError:
             initial_vendedor_index = 0
 
-        vendedor = st.selectbox("👤 Vendedor", VENDEDORES_LIST, index=initial_vendedor_index)
+        vendedor = st.selectbox("👤 Vendedor", vendor_options_tab1, index=initial_vendedor_index)
         if vendedor != st.session_state.get("last_selected_vendedor", None):
             st.session_state.last_selected_vendedor = vendedor
 
@@ -2511,6 +2518,10 @@ with tab1:
             def clear_pedido_status_message() -> None:
                 """Limpia el aviso y prepara el formulario para capturar un pedido nuevo."""
                 reset_tab1_form_state()
+                st.session_state["last_selected_vendedor"] = VENDEDOR_NOMBRE_POR_ID.get(
+                    normalize_vendedor_id(st.session_state.get("id_vendedor", "")),
+                    TAB1_VENDOR_EMPTY_OPTION,
+                )
                 st.session_state.pop("pedido_submission_status", None)
                 st.session_state["pedido_submit_disabled"] = False
                 st.session_state.pop("pedido_submit_disabled_at", None)
@@ -2991,6 +3002,10 @@ with tab1:
 
             reset_tab1_form_state()
             id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
+            st.session_state["last_selected_vendedor"] = VENDEDOR_NOMBRE_POR_ID.get(
+                normalize_vendedor_id(id_vendedor_actual),
+                TAB1_VENDOR_EMPTY_OPTION,
+            )
             id_vendedor_segment = (
                 f" (ID vendedor: {id_vendedor_actual})" if id_vendedor_actual else ""
             )
