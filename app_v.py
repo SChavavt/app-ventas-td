@@ -3456,18 +3456,6 @@ with tab2:
                             f"**Fecha de Entrega:** {selected_row_data.get('Fecha_Entrega', 'N/A')}"
                         )
 
-                    direccion_envio = selected_row_data.get("Direccion_Guia_Retorno", "")
-                    if not str(direccion_envio).strip() or str(direccion_envio).strip().lower() in {"nan", "none"}:
-                        direccion_envio = selected_row_data.get("Direccion_Envio", "")
-                    direccion_envio = (
-                        str(direccion_envio).strip()
-                        if pd.notna(direccion_envio)
-                        else ""
-                    )
-                    st.markdown(
-                        f"**📬 Dirección para Envió:** {direccion_envio or 'N/A'}"
-                    )
-
                     st.markdown("**Comentario Original:**")
                     st.write(selected_row_data.get("Comentario", "N/A"))
 
