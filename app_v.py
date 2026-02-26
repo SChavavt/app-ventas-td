@@ -268,6 +268,16 @@ def get_pending_submission_key() -> str:
     )
 
 
+def build_submission_identity() -> tuple[str, str, str]:
+    """Construye un ID estable de pedido para reintentos y su prefijo de adjuntos."""
+    zona_mexico = timezone("America/Mexico_City")
+    now = datetime.now(zona_mexico)
+    pedido_id = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8].upper()}"
+    hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
+    s3_prefix = f"adjuntos_pedidos/{pedido_id}/"
+    return pedido_id, hora_registro, s3_prefix
+
+
 def _pending_submission_paths(cache_key: str) -> tuple[Path, Path]:
     cache_dir = PENDING_SUBMISSIONS_DIR / cache_key
     return cache_dir, cache_dir / "payload.json"
@@ -322,6 +332,37 @@ def load_pending_submission(cache_key: str) -> Optional[dict]:
         return json.loads(payload_path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def resolve_pending_submission(cache_key: str) -> tuple[str, Optional[dict]]:
+    """Resuelve el pedido pendiente activo aun si cambió la llave de sesión."""
+    direct_match = load_pending_submission(cache_key)
+    if direct_match and direct_match.get("payload"):
+        return cache_key, direct_match
+
+    # Compatibilidad: si la llave actual cambió (p.ej. restauración de sesión),
+    # recupera el pendiente más reciente que sí tenga payload.
+    if not PENDING_SUBMISSIONS_DIR.exists():
+        return cache_key, None
+
+    candidates: list[tuple[str, dict]] = []
+    for payload_path in PENDING_SUBMISSIONS_DIR.glob("*/payload.json"):
+        try:
+            record = json.loads(payload_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not record.get("payload"):
+            continue
+        candidates.append((payload_path.parent.name, record))
+
+    if not candidates:
+        return cache_key, None
+
+    resolved_key, resolved_record = max(
+        candidates,
+        key=lambda item: float(item[1].get("saved_at", 0) or 0),
+    )
+    return resolved_key, resolved_record
 
 
 def clear_pending_submission(cache_key: str) -> None:
@@ -1210,6 +1251,25 @@ def rerun_with_pedido_loading(message: str = "⏳ Actualizando el estado del ped
     st.session_state["pedido_submission_loading_message"] = message
     st.rerun()
 
+
+def clear_order_related_caches() -> None:
+    """Limpia cachés de lectura para reflejar pedidos recién registrados sin recargar la app."""
+    for fn_name in (
+        "cargar_pedidos",
+        "cargar_pedidos_combinados",
+        "cargar_pedidos_busqueda",
+        "obtener_resumen_guias_vendedor",
+    ):
+        clear_fn = getattr(globals().get(fn_name), "clear", None)
+        if not callable(clear_fn):
+            continue
+        try:
+            clear_fn()
+        except Exception:
+            continue
+
+
+
 @st.cache_data(ttl=300)
 def cargar_pedidos():
     sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet(SHEET_PEDIDOS_OPERATIVOS)
@@ -1834,7 +1894,7 @@ if (
 with tab1:
     restore_tab1_form_state_for_retry()
     pending_cache_key = get_pending_submission_key()
-    pending_submission_record = load_pending_submission(pending_cache_key)
+    pending_cache_key, pending_submission_record = resolve_pending_submission(pending_cache_key)
     has_pending_submission = bool(pending_submission_record and pending_submission_record.get("payload"))
     submission_payload_override = None
 
@@ -2537,6 +2597,9 @@ with tab1:
     if should_process_submission:
         st.info("⏳ Registrando pedido, espera la confirmación final...")
         try:
+            pedido_id = ""
+            hora_registro = ""
+            s3_prefix = ""
             if submission_payload_override:
                 vendedor = submission_payload_override.get("vendedor", vendedor)
                 registro_cliente = submission_payload_override.get("registro_cliente", registro_cliente)
@@ -2584,6 +2647,9 @@ with tab1:
                         fecha_entrega = datetime.strptime(fecha_entrega_str, "%Y-%m-%d").date()
                     except ValueError:
                         fecha_entrega = datetime.now().date()
+                pedido_id = str(submission_payload_override.get("pedido_id", "") or "").strip()
+                hora_registro = str(submission_payload_override.get("hora_registro", "") or "").strip()
+                s3_prefix = str(submission_payload_override.get("s3_prefix", "") or "").strip()
                 uploaded_files = _deserialize_uploaded_files(submission_payload_override.get("uploaded_files"))
                 comprobante_pago_files = _deserialize_uploaded_files(submission_payload_override.get("comprobante_pago_files"))
                 comprobante_cliente = _deserialize_uploaded_files(submission_payload_override.get("comprobante_cliente"))
@@ -2598,7 +2664,11 @@ with tab1:
                 rerun_with_pedido_loading("⏳ Recargando formulario...")
 
             if not submission_payload_override:
+                pedido_id, hora_registro, s3_prefix = build_submission_identity()
                 payload_to_retry = {
+                    "pedido_id": pedido_id,
+                    "hora_registro": hora_registro,
+                    "s3_prefix": s3_prefix,
                     "tipo_envio": tipo_envio,
                     "vendedor": vendedor,
                     "registro_cliente": registro_cliente,
@@ -2640,6 +2710,9 @@ with tab1:
                     "comprobante_cliente": _serialize_uploaded_files(comprobante_cliente),
                 }
                 save_pending_submission(pending_cache_key, payload_to_retry)
+            else:
+                if not all([pedido_id, hora_registro, s3_prefix]):
+                    pedido_id, hora_registro, s3_prefix = build_submission_identity()
 
             pedido_sin_adjuntos = not (
                 uploaded_files or comprobante_pago_files or comprobante_cliente
@@ -2761,12 +2834,9 @@ with tab1:
                     )
                     rerun_with_pedido_loading()
 
-                # Hora local de CDMX para ID y Hora_Registro
-                zona_mexico = timezone("America/Mexico_City")
-                now = datetime.now(zona_mexico)
-                pedido_id = f"PED-{now.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8].upper()}"
-                s3_prefix = f"adjuntos_pedidos/{pedido_id}/"
-                hora_registro = now.strftime('%Y-%m-%d %H:%M:%S')
+                # Reutilizar identidad estable del envío actual para evitar duplicados en reintentos.
+                if not all([pedido_id, hora_registro, s3_prefix]):
+                    pedido_id, hora_registro, s3_prefix = build_submission_identity()
 
             except gspread.exceptions.APIError as e:
                 if "RESOURCE_EXHAUSTED" in str(e):
@@ -3009,6 +3079,7 @@ with tab1:
             id_vendedor_segment = (
                 f" (ID vendedor: {id_vendedor_actual})" if id_vendedor_actual else ""
             )
+            clear_order_related_caches()
             set_pedido_submission_status(
                 "success",
                 f"✅ El pedido {pedido_id}{id_vendedor_segment} fue subido correctamente.",
