@@ -3471,6 +3471,18 @@ with tab2:
                     st.markdown("**Comentario Original:**")
                     st.write(selected_row_data.get("Comentario", "N/A"))
 
+                    direccion_envio = selected_row_data.get("Direccion_Guia_Retorno", "")
+                    if not str(direccion_envio).strip() or str(direccion_envio).strip().lower() in {"nan", "none"}:
+                        direccion_envio = selected_row_data.get("Direccion_Envio", "")
+                    direccion_envio = (
+                        str(direccion_envio).strip()
+                        if pd.notna(direccion_envio)
+                        else ""
+                    )
+                    st.markdown(
+                        f"**📬 Dirección para Envió:** {direccion_envio or 'N/A'}"
+                    )
+
                     current_adjuntos_str_basic = selected_row_data.get('Adjuntos', '')
                     current_adjuntos_list_basic = [f.strip() for f in str(current_adjuntos_str_basic).split(',') if f.strip()]
                     current_adjuntos_surtido_str_basic = selected_row_data.get('Adjuntos_Surtido', '')
