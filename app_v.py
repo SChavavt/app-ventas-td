@@ -4601,31 +4601,33 @@ with tab4:
                             f"📌 **Seguimiento:** {row.get('Seguimiento', 'N/A') or 'N/A'}  |  "
                             f"🕒 **Hora Registro:** {row.get('Hora_Registro', 'N/A') or 'N/A'}"
                         )
-                        folio_input = st.text_input(
-                            "📄 Folio Nuevo",
-                            key=f"{row_key}_folio_input",
-                            placeholder="Ej. F197176",
-                        )
+                        with st.form(key=f"{row_key}_form_folio_nuevo", clear_on_submit=False):
+                            folio_input = st.text_input(
+                                "📄 Folio Nuevo",
+                                key=f"{row_key}_folio_input",
+                                placeholder="Ej. F197176",
+                            )
 
-                        notas_devolucion = st.text_area(
-                            "✍️ Notas de Devolucion Pendiente",
-                            key=f"{row_key}_notas_devolucion",
-                            height=100,
-                        )
-                        uploaded_files_devolucion = st.file_uploader(
-                            "📎 Subir Archivos de Devolucion",
-                            type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
-                            accept_multiple_files=True,
-                            key=f"{row_key}_archivos_devolucion",
-                        )
-                        uploaded_comprobantes_extra = st.file_uploader(
-                            "🧾 Subir Comprobante(s) Adicional(es)",
-                            type=["pdf", "jpg", "jpeg", "png"],
-                            accept_multiple_files=True,
-                            key=f"{row_key}_comprobantes_extra",
-                        )
+                            notas_devolucion = st.text_area(
+                                "✍️ Notas de Devolucion Pendiente",
+                                key=f"{row_key}_notas_devolucion",
+                                height=100,
+                            )
+                            uploaded_files_devolucion = st.file_uploader(
+                                "📎 Subir Archivos de Devolucion",
+                                type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
+                                accept_multiple_files=True,
+                                key=f"{row_key}_archivos_devolucion",
+                            )
+                            uploaded_comprobantes_extra = st.file_uploader(
+                                "🧾 Subir Comprobante(s) Adicional(es)",
+                                type=["pdf", "jpg", "jpeg", "png"],
+                                accept_multiple_files=True,
+                                key=f"{row_key}_comprobantes_extra",
+                            )
+                            submit_folio_nuevo = st.form_submit_button("Guardar Folio Nuevo")
 
-                        if st.button("Guardar Folio Nuevo", key=f"{row_key}_save"):
+                        if submit_folio_nuevo:
                             folio_sanitizado = str(folio_input or "").strip()
                             if not folio_sanitizado:
                                 st.error("❌ El Folio Nuevo no puede estar vacío.")
