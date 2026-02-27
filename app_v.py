@@ -4613,6 +4613,11 @@ with tab4:
                                 key=f"{row_key}_notas_devolucion",
                                 height=100,
                             )
+                            direccion_guia_retorno_pendiente = st.text_area(
+                                "📬 Dirección Guia_Retorno (Obligatorio al Solicitar Guia)",
+                                key=f"{row_key}_direccion_guia_retorno",
+                                height=80,
+                            )
                             uploaded_files_devolucion = st.file_uploader(
                                 "📎 Subir Archivos de Devolucion",
                                 type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
@@ -4633,6 +4638,8 @@ with tab4:
                                 st.error("❌ El Folio Nuevo no puede estar vacío.")
                             elif not str(notas_devolucion or "").strip():
                                 st.error("❌ El campo 'Notas de Devolucion Pendiente' es obligatorio.")
+                            elif not str(direccion_guia_retorno_pendiente or "").strip():
+                                st.error("❌ El campo 'Dirección Guia_Retorno' es obligatorio al solicitar guía.")
                             elif sheet_row_number is None:
                                 st.error("❌ No se pudo identificar la fila real en Google Sheets para actualizar.")
                             else:
@@ -4662,6 +4669,12 @@ with tab4:
                                         cell_updates.append({
                                             "range": rowcol_to_a1(row_idx, col_idx("Modificacion_Surtido")),
                                             "values": [[str(notas_devolucion).strip()]],
+                                        })
+
+                                    if col_exists("Direccion_Guia_Retorno"):
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(row_idx, col_idx("Direccion_Guia_Retorno")),
+                                            "values": [[str(direccion_guia_retorno_pendiente).strip()]],
                                         })
 
                                     new_adjuntos_surtido_urls = []
@@ -4721,6 +4734,7 @@ with tab4:
                                     st.success(f"✅ Folio Nuevo guardado correctamente: {folio_sanitizado}")
                                     st.session_state.pop(f"{row_key}_folio_input", None)
                                     st.session_state.pop(f"{row_key}_notas_devolucion", None)
+                                    st.session_state.pop(f"{row_key}_direccion_guia_retorno", None)
                                     cargar_casos_especiales.clear()
                                     obtener_devoluciones_autorizadas_sin_folio.clear()
                                     st.rerun()
@@ -4735,98 +4749,99 @@ with tab4:
         if df_casos.empty:
             st.info("No hay casos especiales abiertos.")
         else:
-            if "Hora_Registro" in df_casos.columns:
-                df_casos["Hora_Registro"] = pd.to_datetime(df_casos["Hora_Registro"], errors="coerce")
+            with st.expander("🔎 Filtrar y revisar casos especiales", expanded=True):
+                if "Hora_Registro" in df_casos.columns:
+                    df_casos["Hora_Registro"] = pd.to_datetime(df_casos["Hora_Registro"], errors="coerce")
 
-            if "Vendedor_Registro" in df_casos.columns:
-                df_casos["Vendedor_Registro"] = (
-                    df_casos["Vendedor_Registro"].astype(str).str.strip()
-                )
-
-            col_vend_casos, col_fecha_casos = st.columns(2)
-
-            with col_vend_casos:
-                vendedores_casos = ["Todos"]
                 if "Vendedor_Registro" in df_casos.columns:
-                    unique_vendedores_casos = sorted(
-                        [
-                            v
-                            for v in df_casos["Vendedor_Registro"].dropna().astype(str).str.strip().unique().tolist()
-                            if v and v.lower() not in ["none", "nan"]
-                        ]
+                    df_casos["Vendedor_Registro"] = (
+                        df_casos["Vendedor_Registro"].astype(str).str.strip()
                     )
-                    vendedores_casos.extend(unique_vendedores_casos)
-                selected_vendedor_casos = st.selectbox(
-                    "Filtrar por Vendedor:",
-                    options=vendedores_casos,
-                    key="filtro_vendedor_casos_especiales"
-                )
 
-            with col_fecha_casos:
-                (
-                    fecha_inicio_casos,
-                    fecha_fin_casos,
-                    _rango_activo_casos,
-                    rango_valido_casos,
-                ) = render_date_filter_controls(
-                    "📅 Filtrar por Fecha de Registro:",
-                    "tab4_casos_filtro",
-                )
+                col_vend_casos, col_fecha_casos = st.columns(2)
 
-            filtered_casos = df_casos.copy()
-
-            if (
-                selected_vendedor_casos != "Todos"
-                and "Vendedor_Registro" in filtered_casos.columns
-            ):
-                filtered_casos = filtered_casos[
-                    filtered_casos["Vendedor_Registro"] == selected_vendedor_casos
-                ]
-
-            if "Hora_Registro" in filtered_casos.columns:
-                filtered_casos = filtered_casos.copy()
-                hora_registro_series = filtered_casos["Hora_Registro"]
-                if not pd.api.types.is_datetime64_any_dtype(hora_registro_series):
-                    hora_registro_series = pd.to_datetime(
-                        hora_registro_series,
-                        errors="coerce",
+                with col_vend_casos:
+                    vendedores_casos = ["Todos"]
+                    if "Vendedor_Registro" in df_casos.columns:
+                        unique_vendedores_casos = sorted(
+                            [
+                                v
+                                for v in df_casos["Vendedor_Registro"].dropna().astype(str).str.strip().unique().tolist()
+                                if v and v.lower() not in ["none", "nan"]
+                            ]
+                        )
+                        vendedores_casos.extend(unique_vendedores_casos)
+                    selected_vendedor_casos = st.selectbox(
+                        "Filtrar por Vendedor:",
+                        options=vendedores_casos,
+                        key="filtro_vendedor_casos_especiales"
                     )
-                    filtered_casos["Hora_Registro"] = hora_registro_series
 
-                if rango_valido_casos:
-                    start_dt = datetime.combine(fecha_inicio_casos, datetime.min.time())
-                    end_dt = datetime.combine(fecha_fin_casos, datetime.max.time())
+                with col_fecha_casos:
+                    (
+                        fecha_inicio_casos,
+                        fecha_fin_casos,
+                        _rango_activo_casos,
+                        rango_valido_casos,
+                    ) = render_date_filter_controls(
+                        "📅 Filtrar por Fecha de Registro:",
+                        "tab4_casos_filtro",
+                    )
+
+                filtered_casos = df_casos.copy()
+
+                if (
+                    selected_vendedor_casos != "Todos"
+                    and "Vendedor_Registro" in filtered_casos.columns
+                ):
                     filtered_casos = filtered_casos[
-                        hora_registro_series.between(start_dt, end_dt)
+                        filtered_casos["Vendedor_Registro"] == selected_vendedor_casos
                     ]
+
+                if "Hora_Registro" in filtered_casos.columns:
+                    filtered_casos = filtered_casos.copy()
+                    hora_registro_series = filtered_casos["Hora_Registro"]
+                    if not pd.api.types.is_datetime64_any_dtype(hora_registro_series):
+                        hora_registro_series = pd.to_datetime(
+                            hora_registro_series,
+                            errors="coerce",
+                        )
+                        filtered_casos["Hora_Registro"] = hora_registro_series
+
+                    if rango_valido_casos:
+                        start_dt = datetime.combine(fecha_inicio_casos, datetime.min.time())
+                        end_dt = datetime.combine(fecha_fin_casos, datetime.max.time())
+                        filtered_casos = filtered_casos[
+                            hora_registro_series.between(start_dt, end_dt)
+                        ]
+                    else:
+                        filtered_casos = filtered_casos.iloc[0:0]
+
+                if filtered_casos.empty:
+                    if not rango_valido_casos:
+                        st.info("Ajusta el rango de fechas para continuar.")
+                    else:
+                        st.warning("No hay casos especiales que coincidan con los filtros seleccionados.")
                 else:
-                    filtered_casos = filtered_casos.iloc[0:0]
+                    filtered_casos = filtered_casos.reset_index(drop=True)
+                    columnas_mostrar = ["Estado","Cliente","Vendedor_Registro","Tipo_Envio","Seguimiento"]
+                    st.dataframe(filtered_casos[columnas_mostrar], use_container_width=True, hide_index=True)
 
-            if filtered_casos.empty:
-                if not rango_valido_casos:
-                    st.info("Ajusta el rango de fechas para continuar.")
-                else:
-                    st.warning("No hay casos especiales que coincidan con los filtros seleccionados.")
-            else:
-                filtered_casos = filtered_casos.reset_index(drop=True)
-                columnas_mostrar = ["Estado","Cliente","Vendedor_Registro","Tipo_Envio","Seguimiento"]
-                st.dataframe(filtered_casos[columnas_mostrar], use_container_width=True, hide_index=True)
+                    filtered_casos = filtered_casos.copy()
+                    filtered_casos["display_label"] = filtered_casos.apply(
+                        lambda r: f"{r['Estado']} - {r['Cliente']} ({r['Tipo_Envio']})", axis=1
+                    )
+                    selected_case = st.selectbox(
+                        "📂 Selecciona un caso para ver detalles",
+                        filtered_casos["display_label"].tolist(),
+                        key="select_caso_especial_tab4"
+                    )
 
-                filtered_casos = filtered_casos.copy()
-                filtered_casos["display_label"] = filtered_casos.apply(
-                    lambda r: f"{r['Estado']} - {r['Cliente']} ({r['Tipo_Envio']})", axis=1
-                )
-                selected_case = st.selectbox(
-                    "📂 Selecciona un caso para ver detalles",
-                    filtered_casos["display_label"].tolist(),
-                    key="select_caso_especial_tab4"
-                )
-
-                if selected_case:
-                    case_row = filtered_casos[
-                        filtered_casos["display_label"] == selected_case
-                    ].iloc[0]
-                    render_caso_especial(case_row)
+                    if selected_case:
+                        case_row = filtered_casos[
+                            filtered_casos["display_label"] == selected_case
+                        ].iloc[0]
+                        render_caso_especial(case_row)
 
 
 # --- TAB 5: GUIAS CARGADAS ---
