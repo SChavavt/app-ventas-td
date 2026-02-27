@@ -1349,7 +1349,7 @@ if id_vendedor_sesion_global:
     pendientes_devoluciones_home = obtener_devoluciones_autorizadas_sin_folio(id_vendedor_sesion_global)
     if pendientes_devoluciones_home > 0:
         st.warning(
-            f"⚠️ Aviso rápido: tienes devoluciones autorizadas sin Folio Nuevo. Captura el Folio Nuevo. ({pendientes_devoluciones_home})"
+            f"⚠️ Aviso: tienes devoluciones autorizadas sin Folio Nuevo, Pestaña "📁 Casos Especiales". ({pendientes_devoluciones_home})"
         )
 
     resumen_guias = obtener_resumen_guias_vendedor(
