@@ -4614,9 +4614,10 @@ with tab4:
                                 height=100,
                             )
                             direccion_guia_retorno_pendiente = st.text_area(
-                                "📬 Dirección Guia_Retorno (Obligatorio al Solicitar Guia)",
+                                "📬 Dirección Guia_Retorno (Opcional)",
                                 key=f"{row_key}_direccion_guia_retorno",
                                 height=80,
+                                help="Si lo dejas vacío, se limpiará el valor previo en Excel/Sheets. Si capturas un valor, reemplazará el existente.",
                             )
                             uploaded_files_devolucion = st.file_uploader(
                                 "📎 Subir Archivos de Devolucion",
@@ -4638,8 +4639,6 @@ with tab4:
                                 st.error("❌ El Folio Nuevo no puede estar vacío.")
                             elif not str(notas_devolucion or "").strip():
                                 st.error("❌ El campo 'Notas de Devolucion Pendiente' es obligatorio.")
-                            elif not str(direccion_guia_retorno_pendiente or "").strip():
-                                st.error("❌ El campo 'Dirección Guia_Retorno' es obligatorio al solicitar guía.")
                             elif sheet_row_number is None:
                                 st.error("❌ No se pudo identificar la fila real en Google Sheets para actualizar.")
                             else:
@@ -4671,10 +4670,12 @@ with tab4:
                                             "values": [[str(notas_devolucion).strip()]],
                                         })
 
+                                    direccion_guia_retorno_normalizada = str(direccion_guia_retorno_pendiente or "").strip()
                                     if col_exists("Direccion_Guia_Retorno"):
+                                        # Siempre sobrescribir: vacío => limpia celda, con valor => reemplaza contenido previo.
                                         cell_updates.append({
                                             "range": rowcol_to_a1(row_idx, col_idx("Direccion_Guia_Retorno")),
-                                            "values": [[str(direccion_guia_retorno_pendiente).strip()]],
+                                            "values": [[direccion_guia_retorno_normalizada]],
                                         })
 
                                     new_adjuntos_surtido_urls = []
