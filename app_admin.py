@@ -4702,7 +4702,7 @@ with tab3, suppress(StopException):
             "Folio_Nuevo",
             "Folio_Factura_Error",
             "id_vendedor",
-            "ID_Pedido",
+            "Cliente",
             "Seguimiento",
             "Hora_Registro",
         ]
