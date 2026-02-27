@@ -4602,12 +4602,6 @@ with tab4:
                             f"🕒 **Hora Registro:** {row.get('Hora_Registro', 'N/A') or 'N/A'}"
                         )
                         with st.form(key=f"{row_key}_form_folio_nuevo", clear_on_submit=False):
-                            seguimiento_actual = str(row.get("Seguimiento", "") or "").strip().lower()
-                            requiere_direccion_guia = (
-                                "solicitar guia" in seguimiento_actual
-                                or "solicitar guía" in seguimiento_actual
-                            )
-
                             folio_input = st.text_input(
                                 "📄 Folio Nuevo",
                                 key=f"{row_key}_folio_input",
@@ -4617,12 +4611,6 @@ with tab4:
                             notas_devolucion = st.text_area(
                                 "✍️ Notas de Devolucion Pendiente",
                                 key=f"{row_key}_notas_devolucion",
-                                height=100,
-                            )
-                            direccion_guia_retorno_pendiente = st.text_area(
-                                "📬 Dirección Guia_Retorno (Obligatorio al Solicitar Guia)",
-                                key=f"{row_key}_direccion_guia_retorno",
-                                value=str(row.get("Direccion_Guia_Retorno", "") or ""),
                                 height=100,
                             )
                             uploaded_files_devolucion = st.file_uploader(
@@ -4645,8 +4633,6 @@ with tab4:
                                 st.error("❌ El Folio Nuevo no puede estar vacío.")
                             elif not str(notas_devolucion or "").strip():
                                 st.error("❌ El campo 'Notas de Devolucion Pendiente' es obligatorio.")
-                            elif requiere_direccion_guia and not str(direccion_guia_retorno_pendiente or "").strip():
-                                st.error("❌ El campo 'Dirección Guia_Retorno' es obligatorio al solicitar guía.")
                             elif sheet_row_number is None:
                                 st.error("❌ No se pudo identificar la fila real en Google Sheets para actualizar.")
                             else:
@@ -4676,12 +4662,6 @@ with tab4:
                                         cell_updates.append({
                                             "range": rowcol_to_a1(row_idx, col_idx("Modificacion_Surtido")),
                                             "values": [[str(notas_devolucion).strip()]],
-                                        })
-
-                                    if col_exists("Direccion_Guia_Retorno"):
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(row_idx, col_idx("Direccion_Guia_Retorno")),
-                                            "values": [[str(direccion_guia_retorno_pendiente).strip()]],
                                         })
 
                                     new_adjuntos_surtido_urls = []
@@ -4763,36 +4743,35 @@ with tab4:
                     df_casos["Vendedor_Registro"].astype(str).str.strip()
                 )
 
-            with st.expander("🔎 Filtros de Casos Especiales", expanded=False):
-                col_vend_casos, col_fecha_casos = st.columns(2)
+            col_vend_casos, col_fecha_casos = st.columns(2)
 
-                with col_vend_casos:
-                    vendedores_casos = ["Todos"]
-                    if "Vendedor_Registro" in df_casos.columns:
-                        unique_vendedores_casos = sorted(
-                            [
-                                v
-                                for v in df_casos["Vendedor_Registro"].dropna().astype(str).str.strip().unique().tolist()
-                                if v and v.lower() not in ["none", "nan"]
-                            ]
-                        )
-                        vendedores_casos.extend(unique_vendedores_casos)
-                    selected_vendedor_casos = st.selectbox(
-                        "Filtrar por Vendedor:",
-                        options=vendedores_casos,
-                        key="filtro_vendedor_casos_especiales"
+            with col_vend_casos:
+                vendedores_casos = ["Todos"]
+                if "Vendedor_Registro" in df_casos.columns:
+                    unique_vendedores_casos = sorted(
+                        [
+                            v
+                            for v in df_casos["Vendedor_Registro"].dropna().astype(str).str.strip().unique().tolist()
+                            if v and v.lower() not in ["none", "nan"]
+                        ]
                     )
+                    vendedores_casos.extend(unique_vendedores_casos)
+                selected_vendedor_casos = st.selectbox(
+                    "Filtrar por Vendedor:",
+                    options=vendedores_casos,
+                    key="filtro_vendedor_casos_especiales"
+                )
 
-                with col_fecha_casos:
-                    (
-                        fecha_inicio_casos,
-                        fecha_fin_casos,
-                        _rango_activo_casos,
-                        rango_valido_casos,
-                    ) = render_date_filter_controls(
-                        "📅 Filtrar por Fecha de Registro:",
-                        "tab4_casos_filtro",
-                    )
+            with col_fecha_casos:
+                (
+                    fecha_inicio_casos,
+                    fecha_fin_casos,
+                    _rango_activo_casos,
+                    rango_valido_casos,
+                ) = render_date_filter_controls(
+                    "📅 Filtrar por Fecha de Registro:",
+                    "tab4_casos_filtro",
+                )
 
             filtered_casos = df_casos.copy()
 
