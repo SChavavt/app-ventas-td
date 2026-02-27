@@ -330,6 +330,37 @@ def load_pending_submission(cache_key: str) -> Optional[dict]:
         return None
 
 
+def resolve_pending_submission(cache_key: str) -> tuple[str, Optional[dict]]:
+    """Resuelve el pedido pendiente activo aun si cambió la llave de sesión."""
+    direct_match = load_pending_submission(cache_key)
+    if direct_match and direct_match.get("payload"):
+        return cache_key, direct_match
+
+    # Compatibilidad: si la llave actual cambió (p.ej. restauración de sesión),
+    # recupera el pendiente más reciente que sí tenga payload.
+    if not PENDING_SUBMISSIONS_DIR.exists():
+        return cache_key, None
+
+    candidates: list[tuple[str, dict]] = []
+    for payload_path in PENDING_SUBMISSIONS_DIR.glob("*/payload.json"):
+        try:
+            record = json.loads(payload_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not record.get("payload"):
+            continue
+        candidates.append((payload_path.parent.name, record))
+
+    if not candidates:
+        return cache_key, None
+
+    resolved_key, resolved_record = max(
+        candidates,
+        key=lambda item: float(item[1].get("saved_at", 0) or 0),
+    )
+    return resolved_key, resolved_record
+
+
 def clear_pending_submission(cache_key: str) -> None:
     """Elimina pedido pendiente guardado para el vendedor actual."""
     cache_dir, payload_path = _pending_submission_paths(cache_key)
@@ -1858,7 +1889,7 @@ if (
 with tab1:
     restore_tab1_form_state_for_retry()
     pending_cache_key = get_pending_submission_key()
-    pending_submission_record = load_pending_submission(pending_cache_key)
+    pending_cache_key, pending_submission_record = resolve_pending_submission(pending_cache_key)
     has_pending_submission = bool(pending_submission_record and pending_submission_record.get("payload"))
     submission_payload_override = None
 
