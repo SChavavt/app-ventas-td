@@ -124,9 +124,6 @@ TAB1_RESTORE_EXCLUDED_KEYS: set[str] = {
     "cp_pago3",
 }
 
-TAB1_SCROLL_RESTORE_FLAG_KEY = "tab1_restore_scroll_after_submit"
-TAB1_FEEDBACK_ANCHOR_ID = "tab1-pedido-feedback-anchor"
-
 
 USUARIOS_VALIDOS = [
     "DIANASOFIA47",
@@ -264,32 +261,6 @@ def get_pending_submission_key() -> str:
         normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
         or normalize_vendedor_id(st.session_state.get("last_selected_vendedor", ""))
         or "GLOBAL"
-    )
-
-
-def scroll_to_tab1_feedback_section() -> None:
-    """Lleva la vista a la sección de mensajes del registro de pedidos."""
-    components.html(
-        f"""
-        <script>
-        (function() {{
-            const parentWindow = window.parent;
-            const anchorId = {json.dumps(TAB1_FEEDBACK_ANCHOR_ID)};
-
-            function scrollToFeedback() {{
-                const anchor = parentWindow.document.getElementById(anchorId);
-                if (!anchor) return false;
-                anchor.scrollIntoView({{ behavior: 'auto', block: 'start' }});
-                return true;
-            }}
-
-            if (!scrollToFeedback()) {{
-                setTimeout(scrollToFeedback, 150);
-            }}
-        }})();
-        </script>
-        """,
-        height=0,
     )
 
 
@@ -2453,7 +2424,6 @@ with tab1:
 
     should_process_submission = submit_button
     if submit_button:
-        st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
         st.session_state["pedido_submit_disabled"] = True
         st.session_state["pedido_submit_disabled_at"] = time.time()
 
@@ -2517,10 +2487,6 @@ with tab1:
         else ""
     )
 
-    st.markdown(f"<div id='{TAB1_FEEDBACK_ANCHOR_ID}'></div>", unsafe_allow_html=True)
-    if st.session_state.get(TAB1_SCROLL_RESTORE_FLAG_KEY, False):
-        scroll_to_tab1_feedback_section()
-
     message_container = st.container()
 
     with message_container:
@@ -2575,7 +2541,6 @@ with tab1:
 
             def clear_pedido_status_message() -> None:
                 """Limpia el aviso y prepara el formulario para capturar un pedido nuevo."""
-                st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = False
                 reset_tab1_form_state()
                 st.session_state["last_selected_vendedor"] = VENDEDOR_NOMBRE_POR_ID.get(
                     normalize_vendedor_id(st.session_state.get("id_vendedor", "")),
