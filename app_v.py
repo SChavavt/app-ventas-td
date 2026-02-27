@@ -5559,6 +5559,104 @@ with tab7:
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
+        st.markdown("### 📌 Últimos pedidos según filtro")
+        st.caption("Selecciona un pedido para ver un resumen rápido con la información más importante.")
+
+        pedidos_resumen = filtered_df_download.copy()
+        if "Hora_Registro" in pedidos_resumen.columns:
+            pedidos_resumen["_sort_hora"] = pd.to_datetime(
+                pedidos_resumen["Hora_Registro"], errors="coerce"
+            )
+        else:
+            pedidos_resumen["_sort_hora"] = pd.NaT
+
+        if "Fecha_Entrega" in pedidos_resumen.columns:
+            pedidos_resumen["_sort_entrega"] = pd.to_datetime(
+                pedidos_resumen["Fecha_Entrega"], errors="coerce"
+            )
+        else:
+            pedidos_resumen["_sort_entrega"] = pd.NaT
+
+        pedidos_resumen = pedidos_resumen.sort_values(
+            by=["_sort_hora", "_sort_entrega"],
+            ascending=[False, False],
+            na_position="last",
+        ).head(15)
+
+        if pedidos_resumen.empty:
+            st.info("No hay pedidos en la lista filtrada para mostrar detalle.")
+        else:
+            pedidos_resumen["_label_detalle"] = pedidos_resumen.apply(
+                lambda row: (
+                    f"{str(row.get('ID_Pedido', '')).strip() or str(row.get('Folio_Factura', '')).strip() or 'Sin ID'}"
+                    f" · {str(row.get('Cliente', '')).strip() or 'Cliente sin nombre'}"
+                    f" · {str(row.get('Hora_Registro', '')).strip() or str(row.get('Fecha_Entrega', '')).strip() or 'Sin fecha'}"
+                ),
+                axis=1,
+            )
+
+            pedido_detalle_label = st.selectbox(
+                "📦 Elegir pedido",
+                pedidos_resumen["_label_detalle"].tolist(),
+                key="dashboard_pedido_detalle_tab7",
+            )
+
+            pedido_detalle = pedidos_resumen[
+                pedidos_resumen["_label_detalle"] == pedido_detalle_label
+            ].iloc[0]
+
+            def _valor_visible(value, default="Sin información"):
+                text = str(value or "").strip()
+                return text if text else default
+
+            def _render_adjuntos_resumen(raw_value, empty_text):
+                links = partir_urls(raw_value)
+                if not links:
+                    st.caption(empty_text)
+                    return
+                for i, link in enumerate(links, start=1):
+                    safe_link = quote(str(link).strip(), safe=':/?&=%#')
+                    st.markdown(f"- [Adjunto {i}]({safe_link})")
+
+            st.markdown("#### 🧾 Info general")
+            col_info_1, col_info_2 = st.columns(2)
+            with col_info_1:
+                st.markdown(f"**id_vendedor:** {_valor_visible(pedido_detalle.get('id_vendedor'))}")
+                turno_val = str(pedido_detalle.get("Turno", "") or "").strip()
+                if turno_val:
+                    st.markdown(f"**Turno:** {turno_val}")
+                st.markdown(f"**Comentario:** {_valor_visible(pedido_detalle.get('Comentario'))}")
+            with col_info_2:
+                st.markdown(f"**Estado_Pago:** {_valor_visible(pedido_detalle.get('Estado_Pago'))}")
+                st.markdown("**Adjuntos:**")
+                _render_adjuntos_resumen(
+                    pedido_detalle.get("Adjuntos", ""),
+                    "Sin adjuntos en este pedido.",
+                )
+
+            st.markdown("#### 🚚 Sección de guías")
+            st.markdown(
+                f"**Direccion_Guia_Retorno:** {_valor_visible(pedido_detalle.get('Direccion_Guia_Retorno'))}"
+            )
+            st.markdown("**Adjuntos_Guia:**")
+            _render_adjuntos_resumen(
+                pedido_detalle.get("Adjuntos_Guia", ""),
+                "Sin adjuntos de guía.",
+            )
+
+            st.markdown("#### 🛠 Sección de modificación")
+            id_vendedor_mod = str(pedido_detalle.get("id_vendedor_Mod", "") or "").strip()
+            if id_vendedor_mod:
+                st.markdown(f"**id_vendedor_Mod:** {id_vendedor_mod}")
+            st.markdown(
+                f"**Modificacion_Surtido:** {_valor_visible(pedido_detalle.get('Modificacion_Surtido'))}"
+            )
+            st.markdown("**Adjuntos_Surtido:**")
+            _render_adjuntos_resumen(
+                pedido_detalle.get("Adjuntos_Surtido", ""),
+                "Sin adjuntos de surtido.",
+            )
+
         if not filtered_df_download.empty:
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
