@@ -124,6 +124,9 @@ TAB1_RESTORE_EXCLUDED_KEYS: set[str] = {
     "cp_pago3",
 }
 
+TAB1_SCROLL_STORAGE_KEY = "tab1_registrar_pedido_scroll_y"
+TAB1_SCROLL_RESTORE_FLAG_KEY = "tab1_restore_scroll_after_submit"
+
 
 USUARIOS_VALIDOS = [
     "DIANASOFIA47",
@@ -261,6 +264,71 @@ def get_pending_submission_key() -> str:
         normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
         or normalize_vendedor_id(st.session_state.get("last_selected_vendedor", ""))
         or "GLOBAL"
+    )
+
+
+def sync_tab1_scroll_position(should_restore: bool = False, should_clear: bool = False) -> None:
+    """Guarda/restaura el scroll de la pestaña de registro para mantener el contexto visual."""
+    restore_flag = "true" if should_restore else "false"
+    clear_flag = "true" if should_clear else "false"
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            const parentWindow = window.parent;
+            const storageKey = {json.dumps(TAB1_SCROLL_STORAGE_KEY)};
+            const shouldRestore = {restore_flag};
+            const shouldClear = {clear_flag};
+
+            function markSubmitButtons() {{
+                const buttons = parentWindow.document.querySelectorAll('button');
+                buttons.forEach((button) => {{
+                    const label = (button.innerText || button.textContent || '').trim();
+                    if (label.includes('Registrar Pedido') && button.dataset.tab1ScrollBound !== 'true') {{
+                        button.dataset.tab1ScrollBound = 'true';
+                        button.addEventListener('click', () => {{
+                            try {{
+                                parentWindow.sessionStorage.setItem(storageKey, String(parentWindow.scrollY || 0));
+                            }} catch (error) {{
+                                console.error('No se pudo guardar scroll de tab1', error);
+                            }}
+                        }});
+                    }}
+                }});
+            }}
+
+            function restoreScroll() {{
+                if (!shouldRestore) return;
+                try {{
+                    const saved = parentWindow.sessionStorage.getItem(storageKey);
+                    if (saved !== null) {{
+                        const y = parseInt(saved, 10);
+                        if (!Number.isNaN(y)) {{
+                            parentWindow.scrollTo({{ top: y, behavior: 'auto' }});
+                        }}
+                    }}
+                }} catch (error) {{
+                    console.error('No se pudo restaurar scroll de tab1', error);
+                }}
+            }}
+
+            function clearScroll() {{
+                if (!shouldClear) return;
+                try {{
+                    parentWindow.sessionStorage.removeItem(storageKey);
+                }} catch (error) {{
+                    console.error('No se pudo limpiar scroll de tab1', error);
+                }}
+            }}
+
+            markSubmitButtons();
+            restoreScroll();
+            clearScroll();
+            setTimeout(markSubmitButtons, 250);
+        }})();
+        </script>
+        """,
+        height=0,
     )
 
 
@@ -1857,6 +1925,8 @@ if (
 # --- TAB 1: REGISTER NEW ORDER ---
 with tab1:
     restore_tab1_form_state_for_retry()
+    if st.session_state.pop(TAB1_SCROLL_RESTORE_FLAG_KEY, False):
+        sync_tab1_scroll_position(should_restore=True)
     pending_cache_key = get_pending_submission_key()
     pending_submission_record = load_pending_submission(pending_cache_key)
     has_pending_submission = bool(pending_submission_record and pending_submission_record.get("payload"))
@@ -2424,6 +2494,7 @@ with tab1:
 
     should_process_submission = submit_button
     if submit_button:
+        st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
         st.session_state["pedido_submit_disabled"] = True
         st.session_state["pedido_submit_disabled_at"] = time.time()
 
@@ -2541,6 +2612,7 @@ with tab1:
 
             def clear_pedido_status_message() -> None:
                 """Limpia el aviso y prepara el formulario para capturar un pedido nuevo."""
+                st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = False
                 reset_tab1_form_state()
                 st.session_state["last_selected_vendedor"] = VENDEDOR_NOMBRE_POR_ID.get(
                     normalize_vendedor_id(st.session_state.get("id_vendedor", "")),
@@ -2549,6 +2621,7 @@ with tab1:
                 st.session_state.pop("pedido_submission_status", None)
                 st.session_state["pedido_submit_disabled"] = False
                 st.session_state.pop("pedido_submit_disabled_at", None)
+                sync_tab1_scroll_position(should_clear=True)
                 st.rerun()
 
             if st.button("Registrar otro pedido", key="acknowledge_pedido_status"):
