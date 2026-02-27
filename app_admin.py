@@ -4667,6 +4667,54 @@ with tab3, suppress(StopException):
 
     df_casos = ensure_id_vendedor_column(df_casos, df_pedidos)
 
+    seguimiento_autorizacion = "Autorización de devolución"
+    df_folios_post = df_casos.copy()
+    df_folios_post = df_folios_post[df_folios_post.apply(is_devolucion_case_row, axis=1)]
+    df_folios_post["Folio_Factura"] = df_folios_post["Folio_Factura"].apply(normalize_folio_factura)
+    df_folios_post = df_folios_post[
+        df_folios_post["Folio_Factura"].astype(str).str.startswith("*")
+    ]
+
+    df_folios_post_pendientes = df_folios_post[
+        df_folios_post["Seguimiento"].astype(str).str.strip().eq(seguimiento_autorizacion)
+    ].copy()
+
+    if df_folios_post_pendientes.empty:
+        st.info("✅ No hay devoluciones con folio post-registro (*) pendientes de refacturar.")
+    else:
+        st.warning(
+            f"⚠️ Hay {len(df_folios_post_pendientes)} devolución(es) con folio post-registro (*) pendientes de refacturar."
+        )
+
+    st.subheader("🧾 Folios nuevos capturados post-registro")
+    st.caption("Se listan devoluciones con Folio_Factura guardado con prefijo * para identificar captura posterior al registro original.")
+
+    if not df_folios_post.empty:
+        df_folios_post = df_folios_post.copy()
+        df_folios_post["Folio_Nuevo"] = df_folios_post["Folio_Factura"].apply(clean_folio_for_ui)
+        if "Hora_Registro" in df_folios_post.columns:
+            _dt_post = pd.to_datetime(df_folios_post["Hora_Registro"], errors="coerce", dayfirst=True)
+            df_folios_post = df_folios_post.assign(_dt_sort=_dt_post).sort_values(
+                "_dt_sort", ascending=False, na_position="last"
+            ).drop(columns=["_dt_sort"])
+
+        columnas_post = [
+            "Folio_Nuevo",
+            "Folio_Factura_Error",
+            "id_vendedor",
+            "ID_Pedido",
+            "Seguimiento",
+            "Hora_Registro",
+        ]
+        columnas_post_existentes = [c for c in columnas_post if c in df_folios_post.columns]
+        st.dataframe(
+            df_folios_post[columnas_post_existentes],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.markdown("---")
+
     # Utils
     def _is_blank(v: str) -> bool:
         s = str(v).strip().lower()
@@ -5538,62 +5586,7 @@ with tab4:
 
     st.markdown("---")
 
-    seguimiento_autorizacion = "Autorización de devolución"
-
-    df_folios_post = df_ce.copy()
-    df_folios_post = df_folios_post[df_folios_post.apply(is_devolucion_case_row, axis=1)]
-    df_folios_post["Folio_Factura"] = df_folios_post["Folio_Factura"].apply(normalize_folio_factura)
-    df_folios_post = df_folios_post[
-        df_folios_post["Folio_Factura"].astype(str).str.startswith("*")
-    ]
-
-    # Solo avisar pendientes cuando ya hay registros capturados post-registro (*).
-    if df_folios_post.empty:
-        st.success("✅ Todo bien: no hay folios post-registro para revisar.")
-    else:
-        df_devol_sin_refacturar = df_ce.copy()
-        df_devol_sin_refacturar = df_devol_sin_refacturar[
-            df_devol_sin_refacturar.apply(is_devolucion_case_row, axis=1)
-        ]
-        df_devol_sin_refacturar["Folio_Factura"] = df_devol_sin_refacturar["Folio_Factura"].apply(normalize_folio_factura)
-        df_devol_sin_refacturar = df_devol_sin_refacturar[
-            df_devol_sin_refacturar["Seguimiento"].astype(str).str.strip().eq(seguimiento_autorizacion)
-            & df_devol_sin_refacturar["Folio_Factura"].eq("")
-        ]
-
-        if df_devol_sin_refacturar.empty:
-            st.info("✅ No hay devoluciones sin refacturar pendientes.")
-        else:
-            st.warning(f"⚠️ Hay {len(df_devol_sin_refacturar)} devolución(es) sin refacturar pendientes.")
-
-    st.subheader("🧾 Folios nuevos capturados post-registro")
-    st.caption("Se listan devoluciones con Folio_Factura guardado con prefijo * para identificar captura posterior al registro original.")
-
-    if df_folios_post.empty:
-        pass
-    else:
-        df_folios_post = df_folios_post.copy()
-        df_folios_post["Folio_Nuevo"] = df_folios_post["Folio_Factura"].apply(clean_folio_for_ui)
-        if "Hora_Registro" in df_folios_post.columns:
-            _dt_post = pd.to_datetime(df_folios_post["Hora_Registro"], errors="coerce", dayfirst=True)
-            df_folios_post = df_folios_post.assign(_dt_sort=_dt_post).sort_values(
-                "_dt_sort", ascending=False, na_position="last"
-            ).drop(columns=["_dt_sort"])
-
-        columnas_post = [
-            "Folio_Nuevo",
-            "Folio_Factura_Error",
-            "id_vendedor",
-            "ID_Pedido",
-            "Seguimiento",
-            "Hora_Registro",
-        ]
-        columnas_post_existentes = [c for c in columnas_post if c in df_folios_post.columns]
-        st.dataframe(
-            df_folios_post[columnas_post_existentes],
-            use_container_width=True,
-            hide_index=True,
-        )
+    st.info("ℹ️ La alerta y el detalle de folios post-registro (*) ahora se muestran en la pestaña 📦 Casos Especiales.")
 
     # ------- Columnas a mostrar/descargar -------
     columnas_base = [
