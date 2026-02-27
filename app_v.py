@@ -900,6 +900,40 @@ def get_sheet_headers(sheet_name: str):
     return ws.row_values(1) if ws else []
 
 
+@st.cache_data(ttl=180)
+def obtener_devoluciones_autorizadas_sin_folio(id_vendedor_normalizado: str) -> int:
+    """Cuenta devoluciones autorizadas sin Folio Nuevo para el vendedor actual."""
+    if not id_vendedor_normalizado:
+        return 0
+
+    try:
+        ws_casos = get_worksheet_casos_especiales()
+        df_casos, _ = load_sheet_records_with_row_numbers(ws_casos)
+    except Exception:
+        return 0
+
+    if df_casos.empty:
+        return 0
+
+    if "id_vendedor" not in df_casos.columns:
+        df_casos["id_vendedor"] = ""
+    if "Seguimiento" not in df_casos.columns:
+        df_casos["Seguimiento"] = ""
+    if "Folio_Factura" not in df_casos.columns:
+        df_casos["Folio_Factura"] = ""
+
+    seguimiento_autorizacion = "Autorización de devolución"
+    df_alertas = df_casos[df_casos.apply(is_devolucion_case_row, axis=1)].copy()
+    df_alertas = df_alertas[
+        df_alertas["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_normalizado
+    ]
+    mask = (
+        df_alertas["Seguimiento"].astype(str).str.strip().eq(seguimiento_autorizacion)
+        & df_alertas["Folio_Factura"].apply(is_empty_folio)
+    )
+    return int(mask.sum())
+
+
 # --- AWS S3 CONFIGURATION (NEW) ---
 # Load AWS credentials from Streamlit secrets
 try:
@@ -1312,6 +1346,12 @@ st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
 
 id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
 if id_vendedor_sesion_global:
+    pendientes_devoluciones_home = obtener_devoluciones_autorizadas_sin_folio(id_vendedor_sesion_global)
+    if pendientes_devoluciones_home > 0:
+        st.warning(
+            f"⚠️ Aviso rápido: tienes devoluciones autorizadas sin Folio Nuevo. Captura el Folio Nuevo. ({pendientes_devoluciones_home})"
+        )
+
     resumen_guias = obtener_resumen_guias_vendedor(
         id_vendedor_sesion_global,
         st.session_state.get("guias_refresh_token"),
@@ -4504,27 +4544,8 @@ with tab4:
         id_vendedor_sesion = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
         seguimiento_autorizacion = "Autorización de devolución"
 
-        df_pending_alert = df_casos.copy()
-        df_pending_alert = df_pending_alert[df_pending_alert.apply(is_devolucion_case_row, axis=1)]
-        if id_vendedor_sesion:
-            df_pending_alert = df_pending_alert[
-                df_pending_alert["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_sesion
-            ]
-        else:
-            df_pending_alert = df_pending_alert.iloc[0:0]
-
-        pending_mask = (
-            df_pending_alert["Seguimiento"].astype(str).str.strip().eq(seguimiento_autorizacion)
-            & df_pending_alert["Folio_Factura"].apply(is_empty_folio)
-        )
-        pendientes_autorizados = int(pending_mask.sum())
-        if pendientes_autorizados > 0:
-            st.warning(
-                f"⚠️ Tienes devoluciones autorizadas sin Folio Nuevo. Captura el Folio Nuevo. ({pendientes_autorizados})"
-            )
-
-        st.markdown("#### Devoluciones sin refacturar")
-        st.caption("Solo se muestran devoluciones del vendedor logeado con Folio Nuevo pendiente. Al guardar se almacena con prefijo * para auditoría post-registro.")
+        st.markdown("#### Devoluciones sin refacturar — ✍️ Captura el Folio Nuevo")
+        st.caption("Solo se muestran devoluciones del vendedor logeado con Folio Nuevo pendiente. Captura el Folio Nuevo y guarda; se almacena con prefijo * para auditoría post-registro.")
 
         try:
             ws_casos_ref = get_worksheet_casos_especiales()
@@ -4573,13 +4594,12 @@ with tab4:
                     row_key = f"devol_sin_ref_{sheet_row_number or uuid.uuid4().hex}"
                     with st.container(border=True):
                         st.markdown(
-                            f"**ID Pedido:** {row.get('ID_Pedido', 'N/A') or 'N/A'}  |  "
-                            f"**Cliente:** {row.get('Cliente', 'N/A') or 'N/A'}  |  "
-                            f"**Folio Error:** {row.get('Folio_Factura_Error', 'N/A') or 'N/A'}"
+                            f"👤 **Cliente:** {row.get('Cliente', 'N/A') or 'N/A'}  |  "
+                            f"🧾 **Folio Error:** {row.get('Folio_Factura_Error', 'N/A') or 'N/A'}"
                         )
                         st.markdown(
-                            f"**Seguimiento:** {row.get('Seguimiento', 'N/A') or 'N/A'}  |  "
-                            f"**Hora Registro:** {row.get('Hora_Registro', 'N/A') or 'N/A'}"
+                            f"📌 **Seguimiento:** {row.get('Seguimiento', 'N/A') or 'N/A'}  |  "
+                            f"🕒 **Hora Registro:** {row.get('Hora_Registro', 'N/A') or 'N/A'}"
                         )
                         folio_input = st.text_input(
                             "📄 Folio Nuevo",
@@ -4605,6 +4625,7 @@ with tab4:
                                     st.success(f"✅ Folio Nuevo guardado correctamente: {folio_sanitizado}")
                                     st.session_state.pop(f"{row_key}_folio_input", None)
                                     cargar_casos_especiales.clear()
+                                    obtener_devoluciones_autorizadas_sin_folio.clear()
                                     st.rerun()
 
         df_casos = df_casos[
