@@ -4679,6 +4679,7 @@ with tab4:
                                         })
 
                                     new_adjuntos_surtido_urls = []
+                                    archivos_devolucion_subidos = []
                                     if uploaded_files_devolucion:
                                         for f in uploaded_files_devolucion:
                                             ext = os.path.splitext(f.name)[1]
@@ -4686,6 +4687,7 @@ with tab4:
                                             success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, f, s3_key)
                                             if success:
                                                 new_adjuntos_surtido_urls.append(url)
+                                                archivos_devolucion_subidos.append(f.name)
                                             else:
                                                 st.warning(f"⚠️ Falló la subida de {f.name}: {error_msg or 'Error desconocido'}")
 
@@ -4698,6 +4700,7 @@ with tab4:
                                         })
 
                                     comprobante_urls = []
+                                    comprobantes_subidos = []
                                     if uploaded_comprobantes_extra:
                                         for archivo in uploaded_comprobantes_extra:
                                             ext = os.path.splitext(archivo.name)[1]
@@ -4705,6 +4708,7 @@ with tab4:
                                             success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
                                             if success:
                                                 comprobante_urls.append(url)
+                                                comprobantes_subidos.append(archivo.name)
                                             else:
                                                 st.warning(f"⚠️ Falló la subida del comprobante {archivo.name}: {error_msg or 'Error desconocido'}")
 
@@ -4733,6 +4737,23 @@ with tab4:
                                         safe_batch_update(ws_casos_ref, cell_updates)
 
                                     st.success(f"✅ Folio Nuevo guardado correctamente: {folio_sanitizado}")
+                                    st.info("📝 Notas de devolución pendientes actualizadas correctamente.")
+
+                                    if archivos_devolucion_subidos:
+                                        st.success(
+                                            "📎 Archivos de devolución subidos correctamente: "
+                                            + ", ".join(archivos_devolucion_subidos)
+                                        )
+
+                                    if comprobantes_subidos:
+                                        st.success(
+                                            "🧾 Comprobante(s) adicional(es) subido(s) correctamente: "
+                                            + ", ".join(comprobantes_subidos)
+                                        )
+
+                                    if not archivos_devolucion_subidos and not comprobantes_subidos:
+                                        st.info("ℹ️ No se adjuntaron archivos en este guardado.")
+
                                     st.session_state.pop(f"{row_key}_folio_input", None)
                                     st.session_state.pop(f"{row_key}_notas_devolucion", None)
                                     st.session_state.pop(f"{row_key}_direccion_guia_retorno", None)
