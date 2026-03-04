@@ -38,6 +38,8 @@ REFRESH_COOLDOWN = 60
 PENDING_SUBMISSION_RETRY_SECONDS = 8
 PENDING_SUBMISSION_MAX_RETRY_SECONDS = 60
 PENDING_SUBMISSIONS_DIR = Path(".pedido_retry_cache")
+S3_UPLOAD_MAX_RETRIES = 4
+S3_UPLOAD_BASE_DELAY_SECONDS = 1.2
 
 
 TAB1_PRESERVED_STATE_KEYS: set[str] = {
@@ -1163,14 +1165,63 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
         tuple: (True, URL del archivo, None) si tiene éxito.
                (False, None, str(error)) cuando ocurre un problema.
     """
-    try:
-        # Asegúrate de que el puntero del archivo esté al principio
-        file_obj.seek(0)
-        s3_client.upload_fileobj(file_obj, bucket_name, s3_key)
-        file_url = f"https://{bucket_name}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
-        return True, file_url, None
-    except Exception as e:
-        return False, None, str(e)
+    retryable_markers = (
+        "timeout",
+        "timed out",
+        "connection",
+        "temporarily unavailable",
+        "throttl",
+        "slowdown",
+        "internalerror",
+        "service unavailable",
+        "requesttimeout",
+        "expiredtoken",
+    )
+
+    def _is_retryable_upload_error(error: Exception) -> bool:
+        error_text = str(error).lower()
+        if any(marker in error_text for marker in retryable_markers):
+            return True
+        response = getattr(error, "response", None)
+        if isinstance(response, dict):
+            error_code = str(response.get("Error", {}).get("Code", "")).lower()
+            status_code = int(response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0) or 0)
+            if error_code in {
+                "requesttimeout",
+                "throttling",
+                "throttlingexception",
+                "slowdown",
+                "internalerror",
+                "serviceunavailable",
+                "expiredtoken",
+            }:
+                return True
+            if status_code in {408, 429, 500, 502, 503, 504}:
+                return True
+        return False
+
+    last_error: Optional[Exception] = None
+    for attempt in range(1, S3_UPLOAD_MAX_RETRIES + 1):
+        try:
+            # Asegúrate de que el puntero del archivo esté al principio
+            file_obj.seek(0)
+            s3_client.upload_fileobj(file_obj, bucket_name, s3_key)
+            file_url = f"https://{bucket_name}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
+            return True, file_url, None
+        except Exception as e:
+            last_error = e
+            if attempt >= S3_UPLOAD_MAX_RETRIES or not _is_retryable_upload_error(e):
+                break
+
+            sleep_seconds = S3_UPLOAD_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+            time.sleep(sleep_seconds)
+
+    error_detail = str(last_error) if last_error else "Error desconocido"
+    return False, None, (
+        f"{error_detail} (reintentos agotados: {S3_UPLOAD_MAX_RETRIES})"
+        if last_error
+        else error_detail
+    )
 
 
 def upload_files_or_fail(files, s3_client, bucket, prefix):
