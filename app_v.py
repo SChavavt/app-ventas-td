@@ -2276,6 +2276,7 @@ with tab1:
 
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
+        # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button(
             "✅ Registrar Pedido",
             disabled=st.session_state.get("pedido_submit_disabled", False) or has_pending_submission,
