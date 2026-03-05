@@ -2276,12 +2276,8 @@ with tab1:
 
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
-        # AL FINAL DEL FORMULARIO: botón submit
-        submit_button = st.form_submit_button(
-            "✅ Registrar Pedido",
-            disabled=st.session_state.get("pedido_submit_disabled", False) or has_pending_submission,
-            on_click=backup_tab1_form_state_for_retry,
-        )
+        # AL FINAL DEL FORMULARIO: el botón se renderiza fuera para ubicarlo al final de la sección de pago
+        submit_button = False
 
     # -------------------------------
     # SECCIÓN DE ESTADO DE PAGO (fuera del form para refresco inmediato)
@@ -2355,6 +2351,14 @@ with tab1:
                         terminal = ""
                 with col5:
                     referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+
+    st.markdown("---")
+    submit_button = st.button(
+        "✅ Registrar Pedido",
+        key="submit_new_pedido_button",
+        disabled=st.session_state.get("pedido_submit_disabled", False) or has_pending_submission,
+        on_click=backup_tab1_form_state_for_retry,
+    )
 
     should_process_submission = submit_button
     if submit_button:
