@@ -220,7 +220,6 @@ def clean_folio_for_ui(value: object) -> str:
     return folio[1:].strip() if folio.startswith("*") else folio
 
 
-
 def is_devolucion_case_row(row: pd.Series) -> bool:
     """Detecta devoluciones usando el campo real disponible en la hoja."""
     for key in ("Tipo_Caso", "Tipo_Envio"):
@@ -3000,7 +2999,7 @@ with tab1:
             clear_order_related_caches()
             set_pedido_submission_status(
                 "success",
-                f"✅ El pedido {str(cliente).strip() or 'Cliente sin nombre'} (Folio: {clean_folio_for_ui(folio_factura_input) or 'Sin folio'}){id_vendedor_segment} fue subido correctamente.",
+                f"✅ El pedido {pedido_id}{id_vendedor_segment} fue subido correctamente.",
                 detail=aviso_estado_pago_auto,
                 attachments=adjuntos_urls,
                 missing_attachments_warning=pedido_sin_adjuntos,
@@ -3866,7 +3865,6 @@ with tab2:
                                     st.session_state["reset_inputs_tab2"] = True
                                     st.session_state["show_success_message"] = True
                                     st.session_state["last_updated_order_id"] = selected_order_id
-                                    st.session_state["last_updated_order_label"] = f"{str(selected_row_data.get('Cliente', '')).strip() or 'Cliente sin nombre'} (Folio: {clean_folio_for_ui(selected_row_data.get('Folio_Factura', '')) or 'Sin folio'})"
                                     if tab2_is_active and st.session_state.get("current_tab_index") == 1:
                                         st.query_params.update({"tab": "1"})  # mantener UX actual
                                     st.rerun()
@@ -3884,16 +3882,16 @@ with tab2:
         st.session_state.show_success_message and
         'last_updated_order_id' in st.session_state
     ):
+        pedido_id = st.session_state.last_updated_order_id
         with message_placeholder_tab2.container():
             st.success(
-                f"🎉 ¡Cambios guardados con éxito para el pedido **{st.session_state.get('last_updated_order_label', st.session_state.get('last_updated_order_id', ''))}**!"
+                f"🎉 ¡Cambios guardados con éxito para el pedido **{pedido_id}**!"
             )
             if st.button("Aceptar", key="ack_mod_success"):
                 for state_key in (
                     "show_success_message",
                     "last_updated_order_id",
                     "_mod_tab2_success_feedback_sent",
-                    "last_updated_order_label",
                 ):
                     st.session_state.pop(state_key, None)
                 message_placeholder_tab2.empty()
@@ -3901,7 +3899,7 @@ with tab2:
             st.session_state.get("show_success_message")
             and not st.session_state.get("_mod_tab2_success_feedback_sent")
         ):
-            st.toast(f"✅ Pedido {st.session_state.get('last_updated_order_label', st.session_state.get('last_updated_order_id', ''))} actualizado", icon="📦")
+            st.toast(f"✅ Pedido {pedido_id} actualizado", icon="📦")
             st.session_state["_mod_tab2_success_feedback_sent"] = True
 
 
