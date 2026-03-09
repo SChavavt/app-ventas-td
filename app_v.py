@@ -2465,8 +2465,7 @@ with tab1:
             if status == "success":
                 st.success(status_data.get("message", "✅ Pedido registrado correctamente."))
                 if should_toast:
-                    mensaje_toast = status_data.get("message", "✅ Pedido registrado correctamente.")
-                    st.toast(mensaje_toast)
+                    st.toast("✅ Pedido registrado correctamente")
                     st.session_state["pedido_status_toast_event_id"] = event_id
                 if attachments:
                     st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(url) for url in attachments))
@@ -2998,11 +2997,9 @@ with tab1:
                 f" (ID vendedor: {id_vendedor_actual})" if id_vendedor_actual else ""
             )
             clear_order_related_caches()
-            cliente_registrado = str(registro_cliente or "").strip()
-            referencia_cliente = cliente_registrado or pedido_id
             set_pedido_submission_status(
                 "success",
-                f"✅ El pedido de {referencia_cliente}{id_vendedor_segment} fue subido correctamente.",
+                f"✅ El pedido {pedido_id}{id_vendedor_segment} fue subido correctamente.",
                 detail=aviso_estado_pago_auto,
                 attachments=adjuntos_urls,
                 missing_attachments_warning=pedido_sin_adjuntos,
@@ -3868,9 +3865,6 @@ with tab2:
                                     st.session_state["reset_inputs_tab2"] = True
                                     st.session_state["show_success_message"] = True
                                     st.session_state["last_updated_order_id"] = selected_order_id
-                                    st.session_state["last_updated_cliente"] = str(
-                                        selected_row_data.get("Cliente", "")
-                                    ).strip()
                                     if tab2_is_active and st.session_state.get("current_tab_index") == 1:
                                         st.query_params.update({"tab": "1"})  # mantener UX actual
                                     st.rerun()
@@ -3889,17 +3883,14 @@ with tab2:
         'last_updated_order_id' in st.session_state
     ):
         pedido_id = st.session_state.last_updated_order_id
-        cliente_actualizado = str(st.session_state.get("last_updated_cliente", "")).strip()
-        referencia_actualizada = cliente_actualizado or pedido_id
         with message_placeholder_tab2.container():
             st.success(
-                f"🎉 ¡Cambios guardados con éxito para el cliente **{referencia_actualizada}**!"
+                f"🎉 ¡Cambios guardados con éxito para el pedido **{pedido_id}**!"
             )
             if st.button("Aceptar", key="ack_mod_success"):
                 for state_key in (
                     "show_success_message",
                     "last_updated_order_id",
-                    "last_updated_cliente",
                     "_mod_tab2_success_feedback_sent",
                 ):
                     st.session_state.pop(state_key, None)
@@ -3908,7 +3899,7 @@ with tab2:
             st.session_state.get("show_success_message")
             and not st.session_state.get("_mod_tab2_success_feedback_sent")
         ):
-            st.toast(f"✅ Pedido de {referencia_actualizada} actualizado", icon="📦")
+            st.toast(f"✅ Pedido {pedido_id} actualizado", icon="📦")
             st.session_state["_mod_tab2_success_feedback_sent"] = True
 
 
