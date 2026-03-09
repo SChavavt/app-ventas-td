@@ -40,6 +40,7 @@ PENDING_SUBMISSION_MAX_RETRY_SECONDS = 60
 PENDING_SUBMISSIONS_DIR = Path(".pedido_retry_cache")
 S3_UPLOAD_MAX_RETRIES = 4
 S3_UPLOAD_BASE_DELAY_SECONDS = 1.2
+CONNECTION_STATUS_TTL_SECONDS = 20
 
 
 TAB1_PRESERVED_STATE_KEYS: set[str] = {
@@ -1324,6 +1325,12 @@ def clear_order_related_caches() -> None:
             continue
 
 
+@st.cache_data(ttl=CONNECTION_STATUS_TTL_SECONDS, show_spinner=False)
+def get_cached_connection_statuses() -> list[dict[str, object]]:
+    """Cachea la verificación de conectividad para reducir recargas visuales frecuentes."""
+    return build_connection_statuses(g_spread_client, s3_client)
+
+
 
 @st.cache_data(ttl=300)
 def cargar_pedidos():
@@ -1334,7 +1341,7 @@ def cargar_pedidos():
 
 usuario_activo = ensure_user_logged_in()
 
-connection_statuses = build_connection_statuses(g_spread_client, s3_client)
+connection_statuses = get_cached_connection_statuses()
 display_connection_status_badge(connection_statuses)
 
 status_by_name = {status["name"]: status for status in connection_statuses}
@@ -1348,6 +1355,7 @@ if gsheet_status and not gsheet_status.get("ok", False):
     st.error(gsheet_status.get("message", "No se pudo conectar con Google Sheets."))
     if st.button("Reintentar conexión con Google Sheets", key="retry_gsheets_badge"):
         get_google_sheets_client.clear()
+        get_cached_connection_statuses.clear()
         st.session_state.pop("gsheet_error", None)
         st.rerun()
     st.stop()
@@ -1357,6 +1365,7 @@ if s3_status and not s3_status.get("ok", False):
     st.error(s3_status.get("message", "No se pudo conectar con AWS S3."))
     if st.button("Reintentar conexión con AWS S3", key="retry_s3_badge"):
         get_s3_client.clear()
+        get_cached_connection_statuses.clear()
         st.session_state.pop("s3_error", None)
         st.rerun()
     st.stop()
@@ -1366,6 +1375,7 @@ st.markdown(f"### 👋 Bienvenido, {usuario_activo}")
 if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
     if allow_refresh("main_last_refresh"):
         clear_app_caches()
+        get_cached_connection_statuses.clear()
         st.rerun()
 
 st.title("🛒 App de Vendedores TD")
