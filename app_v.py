@@ -1290,6 +1290,7 @@ def set_pedido_submission_status(
     detail: str | None = None,
     attachments: list[str] | None = None,
     missing_attachments_warning: bool = False,
+    client_name: str = "",
 ) -> None:
     """Guarda el resultado del registro de un pedido para mostrarlo en la UI."""
     st.session_state["pedido_submission_status"] = {
@@ -1299,6 +1300,7 @@ def set_pedido_submission_status(
         "detail": detail or "",
         "attachments": attachments or [],
         "missing_attachments_warning": missing_attachments_warning,
+        "client_name": client_name,
     }
 
 
@@ -2465,7 +2467,13 @@ with tab1:
             if status == "success":
                 st.success(status_data.get("message", "✅ Pedido registrado correctamente."))
                 if should_toast:
-                    st.toast("✅ Pedido registrado correctamente")
+                    cliente_toast = str(status_data.get("client_name", "")).strip()
+                    mensaje_toast = (
+                        f"✅ Pedido de {cliente_toast} registrado correctamente"
+                        if cliente_toast
+                        else "✅ Pedido registrado correctamente"
+                    )
+                    st.toast(mensaje_toast)
                     st.session_state["pedido_status_toast_event_id"] = event_id
                 if attachments:
                     st.info("📎 Archivos subidos: " + ", ".join(os.path.basename(url) for url in attachments))
@@ -2997,12 +3005,14 @@ with tab1:
                 f" (ID vendedor: {id_vendedor_actual})" if id_vendedor_actual else ""
             )
             clear_order_related_caches()
+            cliente_registrado = str(registro_cliente or "").strip()
             set_pedido_submission_status(
                 "success",
                 f"✅ El pedido {pedido_id}{id_vendedor_segment} fue subido correctamente.",
                 detail=aviso_estado_pago_auto,
                 attachments=adjuntos_urls,
                 missing_attachments_warning=pedido_sin_adjuntos,
+                client_name=cliente_registrado,
             )
             clear_pending_submission(pending_cache_key)
             if tab1_is_active and st.session_state.get("current_tab_index") == 0:
@@ -3579,25 +3589,26 @@ with tab2:
                             )
                         else:
                             try:
-                                # 1) Enrutar a la hoja correcta según la fuente
-                                client = build_gspread_client()
-                                sh = client.open_by_key(GOOGLE_SHEET_ID)
-                                hoja_objetivo = SHEET_PEDIDOS_OPERATIVOS if selected_source == SHEET_PEDIDOS_OPERATIVOS else "casos_especiales"
-                                worksheet = sh.worksheet(hoja_objetivo)
+                                with st.spinner("⏳ Enviando modificación del pedido..."):
+                                    # 1) Enrutar a la hoja correcta según la fuente
+                                    client = build_gspread_client()
+                                    sh = client.open_by_key(GOOGLE_SHEET_ID)
+                                    hoja_objetivo = SHEET_PEDIDOS_OPERATIVOS if selected_source == SHEET_PEDIDOS_OPERATIVOS else "casos_especiales"
+                                    worksheet = sh.worksheet(hoja_objetivo)
 
-                                headers = worksheet.row_values(1)
-                                if "ID_Pedido" not in headers:
-                                    feedback_slot.empty()
-                                    feedback_slot.error(f"❌ No se encontró la columna 'ID_Pedido' en la hoja {hoja_objetivo}.")
-                                    st.stop()
+                                    headers = worksheet.row_values(1)
+                                    if "ID_Pedido" not in headers:
+                                        feedback_slot.empty()
+                                        feedback_slot.error(f"❌ No se encontró la columna 'ID_Pedido' en la hoja {hoja_objetivo}.")
+                                        st.stop()
 
-                                id_col_index = headers.index("ID_Pedido")
-                                selected_order_id_normalized = str(selected_order_id).strip()
-                                selected_folio_normalized = str(selected_row_data.get("Folio_Factura", "")).strip().upper()
-                                selected_cliente_normalized = str(selected_row_data.get("Cliente", "")).strip().upper()
-                                folio_col_index = headers.index("Folio_Factura") if "Folio_Factura" in headers else None
-                                cliente_col_index = headers.index("Cliente") if "Cliente" in headers else None
-                                all_values = worksheet.get_all_values()
+                                    id_col_index = headers.index("ID_Pedido")
+                                    selected_order_id_normalized = str(selected_order_id).strip()
+                                    selected_folio_normalized = str(selected_row_data.get("Folio_Factura", "")).strip().upper()
+                                    selected_cliente_normalized = str(selected_row_data.get("Cliente", "")).strip().upper()
+                                    folio_col_index = headers.index("Folio_Factura") if "Folio_Factura" in headers else None
+                                    cliente_col_index = headers.index("Cliente") if "Cliente" in headers else None
+                                    all_values = worksheet.get_all_values()
 
                                 sheet_row_number = parse_sheet_row_number(
                                     st.session_state.get("tab2_row_to_edit")
@@ -3865,6 +3876,9 @@ with tab2:
                                     st.session_state["reset_inputs_tab2"] = True
                                     st.session_state["show_success_message"] = True
                                     st.session_state["last_updated_order_id"] = selected_order_id
+                                    st.session_state["last_updated_cliente"] = str(
+                                        selected_row_data.get("Cliente", "")
+                                    ).strip()
                                     if tab2_is_active and st.session_state.get("current_tab_index") == 1:
                                         st.query_params.update({"tab": "1"})  # mantener UX actual
                                     st.rerun()
@@ -3883,6 +3897,8 @@ with tab2:
         'last_updated_order_id' in st.session_state
     ):
         pedido_id = st.session_state.last_updated_order_id
+        cliente_actualizado = str(st.session_state.get("last_updated_cliente", "")).strip()
+        referencia_actualizada = cliente_actualizado or pedido_id
         with message_placeholder_tab2.container():
             st.success(
                 f"🎉 ¡Cambios guardados con éxito para el pedido **{pedido_id}**!"
@@ -3891,6 +3907,7 @@ with tab2:
                 for state_key in (
                     "show_success_message",
                     "last_updated_order_id",
+                    "last_updated_cliente",
                     "_mod_tab2_success_feedback_sent",
                 ):
                     st.session_state.pop(state_key, None)
@@ -3899,7 +3916,7 @@ with tab2:
             st.session_state.get("show_success_message")
             and not st.session_state.get("_mod_tab2_success_feedback_sent")
         ):
-            st.toast(f"✅ Pedido {pedido_id} actualizado", icon="📦")
+            st.toast(f"✅ Pedido de {referencia_actualizada} actualizado", icon="📦")
             st.session_state["_mod_tab2_success_feedback_sent"] = True
 
 
