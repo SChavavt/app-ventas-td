@@ -2288,50 +2288,41 @@ with tab1:
 
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
-        # AL FINAL DEL FORMULARIO: botón submit
-        submit_button = st.form_submit_button(
-            "✅ Registrar Pedido",
-            disabled=st.session_state.get("pedido_submit_disabled", False) or has_pending_submission,
-            on_click=backup_tab1_form_state_for_retry,
-        )
+        # -------------------------------
+        # SECCIÓN DE ESTADO DE PAGO (dentro del form para evitar recargas al adjuntar archivos)
+        # -------------------------------
+        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+            st.markdown("---")
+            st.subheader("💰 Estado de Pago")
+            opciones_estado_pago = (
+                ["🎟️ No Aplica", "🔴 No Pagado", "✅ Pagado"]
+                if registrar_nota_venta
+                else ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"]
+            )
+            if st.session_state.get("estado_pago") not in opciones_estado_pago:
+                st.session_state["estado_pago"] = opciones_estado_pago[0]
 
-    # -------------------------------
-    # SECCIÓN DE ESTADO DE PAGO (fuera del form para refresco inmediato)
-    # -------------------------------
-    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-        st.markdown("---")
-        st.subheader("💰 Estado de Pago")
-        opciones_estado_pago = (
-            ["🎟️ No Aplica", "🔴 No Pagado", "✅ Pagado"]
-            if registrar_nota_venta
-            else ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"]
-        )
-        if st.session_state.get("estado_pago") not in opciones_estado_pago:
-            st.session_state["estado_pago"] = opciones_estado_pago[0]
+            estado_pago = st.selectbox(
+                "Estado de Pago",
+                opciones_estado_pago,
+                index=0,
+                key="estado_pago",
+            )
 
-        estado_pago = st.selectbox(
-            "Estado de Pago",
-            opciones_estado_pago,
-            index=0,
-            key="estado_pago",
-        )
+            requiere_captura_pago = estado_pago == "✅ Pagado"
 
-        if estado_pago == "✅ Pagado":
-            st.info("⚠️ El comprobante es obligatorio solo cuando el estado es 'Pagado'.")
-
-        requiere_captura_pago = estado_pago == "✅ Pagado"
-
-        if not requiere_captura_pago:
-            st.caption("ℹ️ Para este estado no se requieren comprobantes ni detalles de pago.")
-        else:
             comprobante_pago_files = st.file_uploader(
                 "💲 Comprobante(s) de Pago",
                 type=["pdf", "jpg", "jpeg", "png"],
                 accept_multiple_files=True,
                 key="comprobante_uploader_final"
             )
-            st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
             render_uploaded_files_preview("Comprobantes de pago seleccionados", comprobante_pago_files)
+
+            if requiere_captura_pago:
+                st.warning("⚠️ Estado en PAGADO: debes adjuntar al menos un comprobante antes de registrar el pedido.")
+            else:
+                st.caption("ℹ️ Puedes adelantar la carga de comprobantes. Solo serán obligatorios cuando el estado sea '✅ Pagado'.")
 
             with st.expander("🧾 Detalles del Pago (opcional)"):
                 col1, col2, col3 = st.columns(3)
@@ -2367,6 +2358,13 @@ with tab1:
                         terminal = ""
                 with col5:
                     referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+
+        # AL FINAL DEL FORMULARIO: botón submit
+        submit_button = st.form_submit_button(
+            "✅ Registrar Pedido",
+            disabled=st.session_state.get("pedido_submit_disabled", False) or has_pending_submission,
+            on_click=backup_tab1_form_state_for_retry,
+        )
 
     should_process_submission = submit_button
     if submit_button:
@@ -3214,7 +3212,7 @@ with tab2:
 
     message_placeholder_tab2 = st.empty()
 
-    # 🔄 Cargar pedidos combinados (data_pedidos + casos_especiales)
+    # 🔄 Cargar pedidos combinados siempre (Tab 1 y Tab 2 activos de forma permanente)
     try:
         df_pedidos = cargar_pedidos_combinados()
     except Exception as e:
@@ -3890,6 +3888,14 @@ with tab2:
                                 feedback_slot.empty()
                                 feedback_slot.error(f"❌ Error inesperado al guardar: {e}")
 
+                if (
+                    st.session_state.get("show_success_message")
+                    and st.session_state.get("last_updated_order_id")
+                ):
+                    st.success(
+                        f"🎉 ¡Cambios guardados con éxito para el pedido **{st.session_state.get('last_updated_order_id')}**!"
+                    )
+
     # ----------------- Mensaje de éxito persistente -----------------
     if (
         'show_success_message' in st.session_state and
@@ -3930,53 +3936,59 @@ with tab3:
     df_pedidos_comprobante = pd.DataFrame()
     worksheets_by_source: dict[str, object] = {}
     headers_by_source: dict[str, list[str]] = {}
-    try:
-        dataframes_comprobante: list[pd.DataFrame] = []
-        source_getters = [
-            (SHEET_PEDIDOS_HISTORICOS, get_worksheet_historico),
-            (SHEET_PEDIDOS_OPERATIVOS, get_worksheet_operativa),
-        ]
 
-        for source_name, getter in source_getters:
-            worksheet_source = getter()
-            if worksheet_source is None:
-                continue
-            ws_headers = worksheet_source.row_values(1)
-            if not ws_headers:
-                continue
+    if tab3_is_active:
+        try:
+            dataframes_comprobante: list[pd.DataFrame] = []
+            source_getters = [
+                (SHEET_PEDIDOS_HISTORICOS, get_worksheet_historico),
+                (SHEET_PEDIDOS_OPERATIVOS, get_worksheet_operativa),
+            ]
 
-            ws_df, _ = load_sheet_records_with_row_numbers(worksheet_source)
-            if ws_df.empty:
-                continue
+            for source_name, getter in source_getters:
+                worksheet_source = getter()
+                if worksheet_source is None:
+                    continue
+                ws_headers = worksheet_source.row_values(1)
+                if not ws_headers:
+                    continue
 
-            ws_df["Fuente"] = source_name
-            dataframes_comprobante.append(ws_df)
-            worksheets_by_source[source_name] = worksheet_source
-            headers_by_source[source_name] = ws_headers
+                ws_df, _ = load_sheet_records_with_row_numbers(worksheet_source)
+                if ws_df.empty:
+                    continue
 
-        if dataframes_comprobante:
-            df_pedidos_comprobante = pd.concat(dataframes_comprobante, ignore_index=True)
+                ws_df["Fuente"] = source_name
+                dataframes_comprobante.append(ws_df)
+                worksheets_by_source[source_name] = worksheet_source
+                headers_by_source[source_name] = ws_headers
 
-            for col_name in ["Adjuntos_Guia", "Adjuntos", "Estado_Pago", "Vendedor_Registro", "ID_Pedido", "Cliente", "Folio_Factura"]:
-                if col_name not in df_pedidos_comprobante.columns:
-                    df_pedidos_comprobante[col_name] = ""
+            if dataframes_comprobante:
+                df_pedidos_comprobante = pd.concat(dataframes_comprobante, ignore_index=True)
 
-            df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '').str.strip()
+                for col_name in ["Adjuntos_Guia", "Adjuntos", "Estado_Pago", "Vendedor_Registro", "ID_Pedido", "Cliente", "Folio_Factura"]:
+                    if col_name not in df_pedidos_comprobante.columns:
+                        df_pedidos_comprobante[col_name] = ""
 
-            vendedores_limpios = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
-            vendedores_limpios = vendedores_limpios.replace({'nan': '', 'None': ''})
-            df_pedidos_comprobante['Vendedor_Registro'] = vendedores_limpios
-            df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'] == '', 'Vendedor_Registro'] = 'N/A'
-            df_pedidos_comprobante.loc[
-                ~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST + ['N/A']),
-                'Vendedor_Registro',
-            ] = 'Otro/Desconocido'
-        else:
-            st.warning("No se encontraron datos disponibles en las hojas de pedidos para comprobantes.")
-    except Exception as e:
-        st.error(f"❌ Error al cargar pedidos para comprobante: {e}")
+                df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '').str.strip()
 
-    if df_pedidos_comprobante.empty:
+                vendedores_limpios = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
+                vendedores_limpios = vendedores_limpios.replace({'nan': '', 'None': ''})
+                df_pedidos_comprobante['Vendedor_Registro'] = vendedores_limpios
+                df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'] == '', 'Vendedor_Registro'] = 'N/A'
+                df_pedidos_comprobante.loc[
+                    ~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST + ['N/A']),
+                    'Vendedor_Registro',
+                ] = 'Otro/Desconocido'
+            else:
+                st.warning("No se encontraron datos disponibles en las hojas de pedidos para comprobantes.")
+        except Exception as e:
+            st.error(f"❌ Error al cargar pedidos para comprobante: {e}")
+    else:
+        st.caption("ℹ️ Abre esta pestaña para cargar pendientes de comprobante y evitar lecturas innecesarias.")
+
+    if not tab3_is_active:
+        pass
+    elif df_pedidos_comprobante.empty:
         st.info("No hay pedidos registrados.")
     else:
         filtered_pedidos_comprobante = df_pedidos_comprobante.copy()
