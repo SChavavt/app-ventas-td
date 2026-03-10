@@ -3030,19 +3030,19 @@ with tab1:
                                 if parsed_fecha is not None and not pd.isna(parsed_fecha):
                                     fecha_value = parsed_fecha.date()
                                 else:
-                                    fecha_value = None
+                                    fecha_value = datetime.today().date()
 
                                 fecha_i = st.date_input(
                                     f"📅 Fecha Pago {i+1}",
                                     value=fecha_value,
-                                    key=f"fecha_pago_{i}"
+                                    key=_comprobante_form_key(f"fecha_pago_{i}")
                                 )
                             with col_pago[1]:
                                 forma_i = st.selectbox(
                                     f"💳 Forma de Pago {i+1}",
                                     ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"],
                                     index=["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"].index(forma_list[i]) if forma_list[i] in ["Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"] else 0,
-                                    key=f"forma_pago_{i}"
+                                    key=_comprobante_form_key(f"forma_pago_{i}")
                                 )
                             with col_pago[2]:
                                 if forma_i in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
@@ -3051,7 +3051,7 @@ with tab1:
                                         f"🏧 Terminal {i+1}",
                                         terminal_options,
                                         index=terminal_options.index(terminal_list[i]) if terminal_list[i] in terminal_options else 0,
-                                        key=f"terminal_pago_{i}"
+                                        key=_comprobante_form_key(f"terminal_pago_{i}")
                                     )
                                     banco_i = ""
                                 else:
@@ -3060,7 +3060,7 @@ with tab1:
                                         f"🏦 Banco Destino {i+1}",
                                         banco_options,
                                         index=banco_options.index(banco_list[i]) if banco_list[i] in banco_options else 0,
-                                        key=f"banco_pago_{i}"
+                                        key=_comprobante_form_key(f"banco_pago_{i}")
                                     )
                                     terminal_i = ""
 
@@ -3070,13 +3070,13 @@ with tab1:
                                     min_value=0.0,
                                     format="%.2f",
                                     value=monto_list[i] if i < len(monto_list) else 0.0,
-                                    key=f"monto_pago_{i}"
+                                    key=_comprobante_form_key(f"monto_pago_{i}")
                                 )
 
                             referencia_i = st.text_input(
                                 f"🔢 Referencia {i+1}",
                                 value=ref_list[i] if i < len(ref_list) else "",
-                                key=f"ref_pago_{i}"
+                                key=_comprobante_form_key(f"ref_pago_{i}")
                             )
 
                             fecha_list[i] = fecha_i.strftime("%Y-%m-%d") if fecha_i else ""
