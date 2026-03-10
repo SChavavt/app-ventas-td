@@ -1840,9 +1840,9 @@ s3_client = get_s3_client()  # Initialize S3 client
 tabs_labels = [
     "🛒 Registrar Nuevo Pedido",
     "✏️ Modificar Pedido Existente",
+    "📦 Guías Cargadas",
     "🧾 Pedidos Pendientes de Comprobante",
     "📁 Casos Especiales",
-    "📦 Guías Cargadas",
     "⏳ Pedidos No Entregados",
     "⬇️ Descargar Datos",
     "🔍 Buscar Pedido"
@@ -1929,7 +1929,7 @@ components.html(
     """,
     height=0,
 )
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = tabs
+tab1, tab2, tab5, tab3, tab4, tab6, tab7, tab8 = tabs
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
@@ -2288,50 +2288,41 @@ with tab1:
 
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
-        # AL FINAL DEL FORMULARIO: botón submit
-        submit_button = st.form_submit_button(
-            "✅ Registrar Pedido",
-            disabled=st.session_state.get("pedido_submit_disabled", False) or has_pending_submission,
-            on_click=backup_tab1_form_state_for_retry,
-        )
+        # -------------------------------
+        # SECCIÓN DE ESTADO DE PAGO (dentro del form para evitar recargas al adjuntar archivos)
+        # -------------------------------
+        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+            st.markdown("---")
+            st.subheader("💰 Estado de Pago")
+            opciones_estado_pago = (
+                ["🎟️ No Aplica", "🔴 No Pagado", "✅ Pagado"]
+                if registrar_nota_venta
+                else ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"]
+            )
+            if st.session_state.get("estado_pago") not in opciones_estado_pago:
+                st.session_state["estado_pago"] = opciones_estado_pago[0]
 
-    # -------------------------------
-    # SECCIÓN DE ESTADO DE PAGO (fuera del form para refresco inmediato)
-    # -------------------------------
-    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
-        st.markdown("---")
-        st.subheader("💰 Estado de Pago")
-        opciones_estado_pago = (
-            ["🎟️ No Aplica", "🔴 No Pagado", "✅ Pagado"]
-            if registrar_nota_venta
-            else ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"]
-        )
-        if st.session_state.get("estado_pago") not in opciones_estado_pago:
-            st.session_state["estado_pago"] = opciones_estado_pago[0]
+            estado_pago = st.selectbox(
+                "Estado de Pago",
+                opciones_estado_pago,
+                index=0,
+                key="estado_pago",
+            )
 
-        estado_pago = st.selectbox(
-            "Estado de Pago",
-            opciones_estado_pago,
-            index=0,
-            key="estado_pago",
-        )
+            requiere_captura_pago = estado_pago == "✅ Pagado"
 
-        if estado_pago == "✅ Pagado":
-            st.info("⚠️ El comprobante es obligatorio solo cuando el estado es 'Pagado'.")
-
-        requiere_captura_pago = estado_pago == "✅ Pagado"
-
-        if not requiere_captura_pago:
-            st.caption("ℹ️ Para este estado no se requieren comprobantes ni detalles de pago.")
-        else:
             comprobante_pago_files = st.file_uploader(
                 "💲 Comprobante(s) de Pago",
                 type=["pdf", "jpg", "jpeg", "png"],
                 accept_multiple_files=True,
                 key="comprobante_uploader_final"
             )
-            st.info("⚠️ El comprobante es obligatorio si el estado es 'Pagado'.")
             render_uploaded_files_preview("Comprobantes de pago seleccionados", comprobante_pago_files)
+
+            if requiere_captura_pago:
+                st.warning("⚠️ Estado en PAGADO: debes adjuntar al menos un comprobante antes de registrar el pedido.")
+            else:
+                st.caption("ℹ️ Puedes adelantar la carga de comprobantes. Solo serán obligatorios cuando el estado sea '✅ Pagado'.")
 
             with st.expander("🧾 Detalles del Pago (opcional)"):
                 col1, col2, col3 = st.columns(3)
@@ -2367,6 +2358,13 @@ with tab1:
                         terminal = ""
                 with col5:
                     referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+
+        # AL FINAL DEL FORMULARIO: botón submit
+        submit_button = st.form_submit_button(
+            "✅ Registrar Pedido",
+            disabled=st.session_state.get("pedido_submit_disabled", False) or has_pending_submission,
+            on_click=backup_tab1_form_state_for_retry,
+        )
 
     should_process_submission = submit_button
     if submit_button:
@@ -3214,7 +3212,7 @@ with tab2:
 
     message_placeholder_tab2 = st.empty()
 
-    # 🔄 Cargar pedidos combinados (data_pedidos + casos_especiales)
+    # 🔄 Cargar pedidos combinados siempre (Tab 1 y Tab 2 activos de forma permanente)
     try:
         df_pedidos = cargar_pedidos_combinados()
     except Exception as e:
@@ -3890,6 +3888,14 @@ with tab2:
                                 feedback_slot.empty()
                                 feedback_slot.error(f"❌ Error inesperado al guardar: {e}")
 
+                if (
+                    st.session_state.get("show_success_message")
+                    and st.session_state.get("last_updated_order_id")
+                ):
+                    st.success(
+                        f"🎉 ¡Cambios guardados con éxito para el pedido **{st.session_state.get('last_updated_order_id')}**!"
+                    )
+
     # ----------------- Mensaje de éxito persistente -----------------
     if (
         'show_success_message' in st.session_state and
@@ -3922,61 +3928,67 @@ with tab2:
 
 # --- TAB 3: PENDING PROOF OF PAYMENT ---
 with tab3:
-    tab3_is_active = default_tab == 2
+    tab3_is_active = default_tab == 3
     if tab3_is_active:
-        st.session_state["current_tab_index"] = 2
+        st.session_state["current_tab_index"] = 3
     st.header("🧾 Pedidos Pendientes de Comprobante")
 
     df_pedidos_comprobante = pd.DataFrame()
     worksheets_by_source: dict[str, object] = {}
     headers_by_source: dict[str, list[str]] = {}
-    try:
-        dataframes_comprobante: list[pd.DataFrame] = []
-        source_getters = [
-            (SHEET_PEDIDOS_HISTORICOS, get_worksheet_historico),
-            (SHEET_PEDIDOS_OPERATIVOS, get_worksheet_operativa),
-        ]
 
-        for source_name, getter in source_getters:
-            worksheet_source = getter()
-            if worksheet_source is None:
-                continue
-            ws_headers = worksheet_source.row_values(1)
-            if not ws_headers:
-                continue
+    if tab3_is_active:
+        try:
+            dataframes_comprobante: list[pd.DataFrame] = []
+            source_getters = [
+                (SHEET_PEDIDOS_HISTORICOS, get_worksheet_historico),
+                (SHEET_PEDIDOS_OPERATIVOS, get_worksheet_operativa),
+            ]
 
-            ws_df, _ = load_sheet_records_with_row_numbers(worksheet_source)
-            if ws_df.empty:
-                continue
+            for source_name, getter in source_getters:
+                worksheet_source = getter()
+                if worksheet_source is None:
+                    continue
+                ws_headers = worksheet_source.row_values(1)
+                if not ws_headers:
+                    continue
 
-            ws_df["Fuente"] = source_name
-            dataframes_comprobante.append(ws_df)
-            worksheets_by_source[source_name] = worksheet_source
-            headers_by_source[source_name] = ws_headers
+                ws_df, _ = load_sheet_records_with_row_numbers(worksheet_source)
+                if ws_df.empty:
+                    continue
 
-        if dataframes_comprobante:
-            df_pedidos_comprobante = pd.concat(dataframes_comprobante, ignore_index=True)
+                ws_df["Fuente"] = source_name
+                dataframes_comprobante.append(ws_df)
+                worksheets_by_source[source_name] = worksheet_source
+                headers_by_source[source_name] = ws_headers
 
-            for col_name in ["Adjuntos_Guia", "Adjuntos", "Estado_Pago", "Vendedor_Registro", "ID_Pedido", "Cliente", "Folio_Factura"]:
-                if col_name not in df_pedidos_comprobante.columns:
-                    df_pedidos_comprobante[col_name] = ""
+            if dataframes_comprobante:
+                df_pedidos_comprobante = pd.concat(dataframes_comprobante, ignore_index=True)
 
-            df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '').str.strip()
+                for col_name in ["Adjuntos_Guia", "Adjuntos", "Estado_Pago", "Vendedor_Registro", "ID_Pedido", "Cliente", "Folio_Factura"]:
+                    if col_name not in df_pedidos_comprobante.columns:
+                        df_pedidos_comprobante[col_name] = ""
 
-            vendedores_limpios = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
-            vendedores_limpios = vendedores_limpios.replace({'nan': '', 'None': ''})
-            df_pedidos_comprobante['Vendedor_Registro'] = vendedores_limpios
-            df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'] == '', 'Vendedor_Registro'] = 'N/A'
-            df_pedidos_comprobante.loc[
-                ~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST + ['N/A']),
-                'Vendedor_Registro',
-            ] = 'Otro/Desconocido'
-        else:
-            st.warning("No se encontraron datos disponibles en las hojas de pedidos para comprobantes.")
-    except Exception as e:
-        st.error(f"❌ Error al cargar pedidos para comprobante: {e}")
+                df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '').str.strip()
 
-    if df_pedidos_comprobante.empty:
+                vendedores_limpios = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
+                vendedores_limpios = vendedores_limpios.replace({'nan': '', 'None': ''})
+                df_pedidos_comprobante['Vendedor_Registro'] = vendedores_limpios
+                df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'] == '', 'Vendedor_Registro'] = 'N/A'
+                df_pedidos_comprobante.loc[
+                    ~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST + ['N/A']),
+                    'Vendedor_Registro',
+                ] = 'Otro/Desconocido'
+            else:
+                st.warning("No se encontraron datos disponibles en las hojas de pedidos para comprobantes.")
+        except Exception as e:
+            st.error(f"❌ Error al cargar pedidos para comprobante: {e}")
+    else:
+        st.caption("ℹ️ Esta pestaña se carga al abrirla. Si no ves datos o no hay conexión, usa el botón superior '🔄 Recargar Página y Conexión' para habilitar/actualizar la vista.")
+
+    if not tab3_is_active:
+        pass
+    elif df_pedidos_comprobante.empty:
         st.info("No hay pedidos registrados.")
     else:
         filtered_pedidos_comprobante = df_pedidos_comprobante.copy()
@@ -4416,15 +4428,19 @@ def cargar_casos_especiales():
 
 # --- TAB 4: CASOS ESPECIALES ---
 with tab4:
-    tab4_is_active = default_tab == 3
+    tab4_is_active = default_tab == 4
     if tab4_is_active:
-        st.session_state["current_tab_index"] = 3
+        st.session_state["current_tab_index"] = 4
     st.header("📁 Casos Especiales")
 
-    try:
-        df_casos = cargar_casos_especiales()
-    except Exception as e:
-        st.error(f"❌ Error al cargar casos especiales: {e}")
+    if tab4_is_active:
+        try:
+            df_casos = cargar_casos_especiales()
+        except Exception as e:
+            st.error(f"❌ Error al cargar casos especiales: {e}")
+            df_casos = pd.DataFrame()
+    else:
+        st.caption("ℹ️ Esta pestaña se carga al abrirla. Si algo no carga, usa '🔄 Recargar Página y Conexión' (botón superior).")
         df_casos = pd.DataFrame()
 
     if df_casos.empty:
@@ -4761,7 +4777,7 @@ with tab4:
 # --- TAB 5: GUIAS CARGADAS ---
 def fijar_tab5_activa():
     """Mantiene referencia de pestaña activa sin tocar query params en render."""
-    st.session_state["current_tab_index"] = 4
+    st.session_state["current_tab_index"] = 2
 
 @st.cache_data(ttl=60)
 def cargar_datos_guias_unificadas(refresh_token: float | None = None):
@@ -4878,9 +4894,9 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
     return df
 
 with tab5:
-    tab5_is_active = default_tab == 4
+    tab5_is_active = default_tab == 2
     if tab5_is_active:
-        st.session_state["current_tab_index"] = 4
+        st.session_state["current_tab_index"] = 2
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
     id_vendedor_sesion = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
@@ -5093,10 +5109,14 @@ with tab6:
             st.toast("🔄 Datos de pedidos recargados")
             st.rerun()
 
-    try:
-        df_pedidos_no_entregados = cargar_pedidos()
-    except Exception as e:
-        st.error(f"❌ Error al cargar los pedidos: {e}")
+    if tab6_is_active:
+        try:
+            df_pedidos_no_entregados = cargar_pedidos()
+        except Exception as e:
+            st.error(f"❌ Error al cargar los pedidos: {e}")
+            df_pedidos_no_entregados = pd.DataFrame()
+    else:
+        st.caption("ℹ️ Esta pestaña se carga al abrirla. Si no hay conexión, presiona '🔄 Recargar Página y Conexión' en la parte superior.")
         df_pedidos_no_entregados = pd.DataFrame()
 
     if df_pedidos_no_entregados.empty:
@@ -5353,40 +5373,43 @@ with tab7:
     df_all_pedidos = pd.DataFrame()
     headers = []
 
-    try:
-        df_all_pedidos, headers = cargar_todos_los_pedidos()
+    if tab7_is_active:
+        try:
+            df_all_pedidos, headers = cargar_todos_los_pedidos()
     
-        if "Adjuntos_Guia" not in df_all_pedidos.columns:
-            df_all_pedidos["Adjuntos_Guia"] = ""
+            if "Adjuntos_Guia" not in df_all_pedidos.columns:
+                df_all_pedidos["Adjuntos_Guia"] = ""
     
-        # 🧹 AÑADIDO: Filtrar filas donde 'Folio_Factura' y 'ID_Pedido' son ambos vacíos
-        df_all_pedidos = df_all_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
+            # 🧹 AÑADIDO: Filtrar filas donde 'Folio_Factura' y 'ID_Pedido' son ambos vacíos
+            df_all_pedidos = df_all_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
     
-        # 🧹 Eliminar registros vacíos o inválidos con ID_Pedido en blanco, 'nan', 'N/A'
-        df_all_pedidos = df_all_pedidos[
-            df_all_pedidos['ID_Pedido'].astype(str).str.strip().ne('') &
-            df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('n/a') &
-            df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('nan')
-        ]
+            # 🧹 Eliminar registros vacíos o inválidos con ID_Pedido en blanco, 'nan', 'N/A'
+            df_all_pedidos = df_all_pedidos[
+                df_all_pedidos['ID_Pedido'].astype(str).str.strip().ne('') &
+                df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('n/a') &
+                df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('nan')
+            ]
     
-        if 'Fecha_Entrega' in df_all_pedidos.columns:
-            df_all_pedidos['Fecha_Entrega'] = pd.to_datetime(df_all_pedidos['Fecha_Entrega'], errors='coerce')
+            if 'Fecha_Entrega' in df_all_pedidos.columns:
+                df_all_pedidos['Fecha_Entrega'] = pd.to_datetime(df_all_pedidos['Fecha_Entrega'], errors='coerce')
     
-        if 'Vendedor_Registro' in df_all_pedidos.columns:
-            df_all_pedidos['Vendedor_Registro'] = df_all_pedidos['Vendedor_Registro'].apply(
-                lambda x: x if x in VENDEDORES_LIST else 'Otro/Desconocido' if pd.notna(x) and str(x).strip() != '' else 'N/A'
-            ).astype(str)
-        else:
-            st.warning("La columna 'Vendedor_Registro' no se encontró en el Google Sheet para el filtrado. Asegúrate de que exista y esté correctamente nombrada.")
+            if 'Vendedor_Registro' in df_all_pedidos.columns:
+                df_all_pedidos['Vendedor_Registro'] = df_all_pedidos['Vendedor_Registro'].apply(
+                    lambda x: x if x in VENDEDORES_LIST else 'Otro/Desconocido' if pd.notna(x) and str(x).strip() != '' else 'N/A'
+                ).astype(str)
+            else:
+                st.warning("La columna 'Vendedor_Registro' no se encontró en el Google Sheet para el filtrado. Asegúrate de que exista y esté correctamente nombrada.")
     
-        if 'Folio_Factura' in df_all_pedidos.columns:
-            df_all_pedidos['Folio_Factura'] = df_all_pedidos['Folio_Factura'].astype(str).replace('nan', '')
-        else:
-            st.warning("La columna 'Folio_Factura' no se encontró en el Google Sheet. No se podrá mostrar en la vista previa.")
-    except Exception as e:
-        st.error(f"❌ Error al cargar datos para descarga: {e}")
-        st.info("Asegúrate de que la primera fila de tu Google Sheet contiene los encabezados esperados y que la API de Google Sheets está habilitada.")
-        st.stop()
+            if 'Folio_Factura' in df_all_pedidos.columns:
+                df_all_pedidos['Folio_Factura'] = df_all_pedidos['Folio_Factura'].astype(str).replace('nan', '')
+            else:
+                st.warning("La columna 'Folio_Factura' no se encontró en el Google Sheet. No se podrá mostrar en la vista previa.")
+        except Exception as e:
+            st.error(f"❌ Error al cargar datos para descarga: {e}")
+            st.info("Asegúrate de que la primera fila de tu Google Sheet contiene los encabezados esperados y que la API de Google Sheets está habilitada.")
+            st.stop()
+    else:
+        st.caption("ℹ️ Esta pestaña se carga al abrirla. Si no carga, usa '🔄 Recargar Página y Conexión' (botón superior).")
 
     if df_all_pedidos.empty:
         st.info("No hay datos de pedidos para descargar.")
@@ -5864,6 +5887,8 @@ with tab8:
     if tab8_is_active:
         st.session_state["current_tab_index"] = 7
     st.subheader("🔍 Buscador de Pedidos por Guía o Cliente")
+    if not tab8_is_active:
+        st.caption("ℹ️ La búsqueda se habilita al abrir esta pestaña. Si falla la conexión, usa '🔄 Recargar Página y Conexión' arriba.")
 
     modo_busqueda = st.radio(
         "Selecciona el modo de búsqueda:",
