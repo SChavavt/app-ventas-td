@@ -2322,7 +2322,7 @@ with tab1:
             if requiere_captura_pago:
                 st.warning("⚠️ Estado en PAGADO: debes adjuntar al menos un comprobante antes de registrar el pedido.")
             else:
-                st.caption("ℹ️ Puedes adelantar la carga de comprobantes. Solo serán obligatorios cuando el estado sea '✅ Pagado'.")
+                st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado'.")
 
             with st.expander("🧾 Detalles del Pago (opcional)"):
                 col1, col2, col3 = st.columns(3)
