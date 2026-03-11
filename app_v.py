@@ -5112,17 +5112,27 @@ with tab5:
             fuente = ""
             if "Fuente" in pedido_row:
                 fuente = str(pedido_row["Fuente"]).strip()
+            guias_unicas = partir_urls(pedido_row.get("URLs_Guia", ""))
 
-            st.markdown("### 📎 Última Guía Subida")
-            if ultima_guia:
-                url_encoded = quote(ultima_guia, safe=':/')
-                if fuente == "casos_especiales":
+            if fuente == "casos_especiales":
+                st.markdown("### 📎 Guías Subidas")
+                if guias_unicas:
+                    for guia_url in guias_unicas:
+                        url_encoded = quote(guia_url, safe=':/')
+                        render_attachment_link(url_encoded, _infer_display_name(guia_url), bullet=False)
+                elif ultima_guia:
+                    url_encoded = quote(ultima_guia, safe=':/')
                     render_attachment_link(url_encoded, _infer_display_name(ultima_guia), bullet=False)
                 else:
+                    st.warning("⚠️ No se encontró una URL válida para la guía.")
+            else:
+                st.markdown("### 📎 Última Guía Subida")
+                if ultima_guia:
+                    url_encoded = quote(ultima_guia, safe=':/')
                     nombre = ultima_guia.split("/")[-1]
                     render_attachment_link(url_encoded, f"📄 {nombre}")
-            else:
-                st.warning("⚠️ No se encontró una URL válida para la guía.")
+                else:
+                    st.warning("⚠️ No se encontró una URL válida para la guía.")
 
 # --- TAB 6: PEDIDOS NO ENTREGADOS ---
 with tab6:
