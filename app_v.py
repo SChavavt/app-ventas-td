@@ -104,6 +104,7 @@ TAB1_RESTORE_EXCLUDED_KEYS: set[str] = {
 TAB1_SCROLL_RESTORE_FLAG_KEY = "tab1_restore_scroll_after_submit"
 TAB1_FEEDBACK_ANCHOR_ID = "tab1-pedido-feedback-anchor"
 TAB1_FORM_NONCE_KEY = "tab1_form_nonce"
+TAB2_LOADING_MESSAGE_KEY = "tab2_modification_loading_message"
 
 
 USUARIOS_VALIDOS = [
@@ -1330,6 +1331,12 @@ def set_pedido_submission_status(
 def rerun_with_pedido_loading(message: str = "⏳ Actualizando el estado del pedido...") -> None:
     """Marca un mensaje de carga para el siguiente render y relanza la app."""
     st.session_state["pedido_submission_loading_message"] = message
+    st.rerun()
+
+
+def rerun_with_tab2_loading(message: str = "⏳ Actualizando la modificación del pedido...") -> None:
+    """Muestra aviso de carga al modificar antes de relanzar la app."""
+    st.session_state[TAB2_LOADING_MESSAGE_KEY] = message
     st.rerun()
 
 
@@ -3237,6 +3244,10 @@ with tab2:
         cargar_pedidos_combinados.clear()
 
     message_placeholder_tab2 = st.empty()
+    loading_message_tab2 = st.session_state.pop(TAB2_LOADING_MESSAGE_KEY, None)
+    if loading_message_tab2:
+        message_placeholder_tab2.info(loading_message_tab2)
+
 
     # 🔄 Cargar pedidos combinados siempre (Tab 1 y Tab 2 activos de forma permanente)
     try:
@@ -3907,7 +3918,7 @@ with tab2:
                                     ).strip()
                                     if tab2_is_active and st.session_state.get("current_tab_index") == 1:
                                         st.query_params.update({"tab": "1"})  # mantener UX actual
-                                    st.rerun()
+                                    rerun_with_tab2_loading("⏳ Guardando cambios del pedido...")
                                 else:
                                     feedback_slot.empty()
                                     feedback_slot.info("ℹ️ No se detectaron cambios nuevos para guardar.")
