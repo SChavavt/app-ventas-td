@@ -2704,7 +2704,6 @@ with tab1:
                 and estado_pago == "✅ Pagado"
                 and not comprobante_pago_files
             ):
-                clear_pending_submission(pending_cache_key)
                 set_pedido_submission_status(
                     "warning",
                     "⚠️ El pedido no se subió. Adjunta un comprobante si el pedido está marcado como pagado.",
