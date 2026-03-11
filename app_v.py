@@ -103,6 +103,7 @@ TAB1_RESTORE_EXCLUDED_KEYS: set[str] = {
 
 TAB1_SCROLL_RESTORE_FLAG_KEY = "tab1_restore_scroll_after_submit"
 TAB1_FEEDBACK_ANCHOR_ID = "tab1-pedido-feedback-anchor"
+TAB1_FORM_NONCE_KEY = "tab1_form_nonce"
 
 
 USUARIOS_VALIDOS = [
@@ -767,6 +768,7 @@ def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None)
         st.session_state[key] = value
 
     st.session_state.pop(TAB1_WARNING_FORM_BACKUP_KEY, None)
+    st.session_state[TAB1_FORM_NONCE_KEY] = int(st.session_state.get(TAB1_FORM_NONCE_KEY, 0) or 0) + 1
 
 
 def backup_tab1_form_state_for_retry() -> None:
@@ -2081,7 +2083,8 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
-    with st.form(key="new_pedido_form", clear_on_submit=True):
+    form_nonce = int(st.session_state.get(TAB1_FORM_NONCE_KEY, 0) or 0)
+    with st.form(key=f"new_pedido_form_{form_nonce}", clear_on_submit=False):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
 
@@ -2528,11 +2531,12 @@ with tab1:
                 st.session_state["pedido_submit_disabled"] = False
                 st.session_state.pop("pedido_submit_disabled_at", None)
 
-            st.button(
-                "Registrar otro pedido",
-                key="acknowledge_pedido_status",
-                on_click=clear_pedido_status_message,
-            )
+            if status == "success":
+                st.button(
+                    "Registrar otro pedido",
+                    key="acknowledge_pedido_status",
+                    on_click=clear_pedido_status_message,
+                )
 
 
     # -------------------------------
@@ -2704,6 +2708,7 @@ with tab1:
                 and estado_pago == "✅ Pagado"
                 and not comprobante_pago_files
             ):
+                clear_pending_submission(pending_cache_key)
                 set_pedido_submission_status(
                     "warning",
                     "⚠️ El pedido no se subió. Adjunta un comprobante si el pedido está marcado como pagado.",
