@@ -3264,15 +3264,56 @@ with tab2:
                 selected_vendedor_mod = "Todos"
 
         with col2:
-            (
-                fecha_inicio_mod,
-                fecha_fin_mod,
-                _rango_activo_mod,
-                rango_valido_mod,
-            ) = render_date_filter_controls(
-                "📅 Filtrar por Fecha de Registro:",
-                "tab2_modificar_filtro",
+            usar_rango_mod = st.checkbox(
+                "🔁 Activar búsqueda por rango de fechas",
+                key="tab2_modificar_filtro_usar_rango",
             )
+
+            if usar_rango_mod and st.session_state.get("tab2_modificar_4_dias"):
+                st.session_state["tab2_modificar_4_dias"] = False
+
+            filtrar_4_dias_mod = st.checkbox(
+                "Mostrar últimos 4 días",
+                key="tab2_modificar_4_dias",
+                disabled=usar_rango_mod,
+            )
+
+            rango_valido_mod = True
+            if usar_rango_mod:
+                fecha_fin_mod = st.date_input(
+                    "📅 Fecha final:",
+                    value=st.session_state.get(
+                        "tab2_modificar_filtro_fecha_fin",
+                        datetime.now().date(),
+                    ),
+                    key="tab2_modificar_filtro_fecha_fin",
+                )
+                fecha_inicio_mod = st.date_input(
+                    "📅 Fecha inicial:",
+                    value=st.session_state.get(
+                        "tab2_modificar_filtro_fecha_inicio",
+                        fecha_fin_mod - timedelta(days=7),
+                    ),
+                    key="tab2_modificar_filtro_fecha_inicio",
+                )
+
+                if fecha_inicio_mod > fecha_fin_mod:
+                    st.error("La fecha final no puede ser anterior a la fecha inicial.")
+                    rango_valido_mod = False
+            elif filtrar_4_dias_mod:
+                fecha_fin_mod = datetime.now().date()
+                fecha_inicio_mod = fecha_fin_mod - timedelta(days=3)
+            else:
+                fecha_unica_mod = st.date_input(
+                    "📅 Filtrar por Fecha de Registro:",
+                    value=st.session_state.get(
+                        "tab2_modificar_filtro_fecha",
+                        datetime.now().date(),
+                    ),
+                    key="tab2_modificar_filtro_fecha",
+                )
+                fecha_inicio_mod = fecha_unica_mod
+                fecha_fin_mod = fecha_unica_mod
 
         # ----------------- Aplicar filtros -----------------
         filtered_orders = df_pedidos.copy()
