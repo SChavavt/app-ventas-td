@@ -478,6 +478,73 @@ def load_sheet_records_with_row_numbers(worksheet):
     return df_records, headers
 
 
+@st.cache_data(ttl=90)
+def get_tab3_pending_comprobante_dataset(
+    refresh_token: float | None = None,
+) -> tuple[pd.DataFrame, dict[str, list[str]]]:
+    """Carga y cachea los datos necesarios para la pestaña de comprobantes."""
+    _ = refresh_token
+
+    dataframes_comprobante: list[pd.DataFrame] = []
+    headers_by_source: dict[str, list[str]] = {}
+    source_getters = [
+        (SHEET_PEDIDOS_HISTORICOS, get_worksheet_historico),
+        (SHEET_PEDIDOS_OPERATIVOS, get_worksheet_operativa),
+    ]
+
+    for source_name, getter in source_getters:
+        worksheet_source = getter()
+        if worksheet_source is None:
+            continue
+
+        ws_df, ws_headers = load_sheet_records_with_row_numbers(worksheet_source)
+        if not ws_headers:
+            continue
+
+        headers_by_source[source_name] = ws_headers
+
+        if ws_df.empty:
+            continue
+
+        ws_df["Fuente"] = source_name
+        dataframes_comprobante.append(ws_df)
+
+    if not dataframes_comprobante:
+        return pd.DataFrame(), headers_by_source
+
+    df_pedidos_comprobante = pd.concat(dataframes_comprobante, ignore_index=True)
+
+    required_columns = [
+        "Adjuntos_Guia",
+        "Adjuntos",
+        "Estado_Pago",
+        "Vendedor_Registro",
+        "ID_Pedido",
+        "Cliente",
+        "Folio_Factura",
+    ]
+    for col_name in required_columns:
+        if col_name not in df_pedidos_comprobante.columns:
+            df_pedidos_comprobante[col_name] = ""
+
+    df_pedidos_comprobante["Folio_Factura"] = (
+        df_pedidos_comprobante["Folio_Factura"].astype(str).replace("nan", "").str.strip()
+    )
+
+    vendedores_limpios = df_pedidos_comprobante["Vendedor_Registro"].astype(str).str.strip()
+    vendedores_limpios = vendedores_limpios.replace({"nan": "", "None": ""})
+    df_pedidos_comprobante["Vendedor_Registro"] = vendedores_limpios
+    df_pedidos_comprobante.loc[
+        df_pedidos_comprobante["Vendedor_Registro"] == "", "Vendedor_Registro"
+    ] = "N/A"
+    df_pedidos_comprobante.loc[
+        ~df_pedidos_comprobante["Vendedor_Registro"].isin(VENDEDORES_LIST + ["N/A"]),
+        "Vendedor_Registro",
+    ] = "Otro/Desconocido"
+
+    return df_pedidos_comprobante, headers_by_source
+
+
 def extract_id_vendedor(data, placeholder: str = "N/A") -> str:
     """Return a readable vendor ID from heterogeneous row/dict structures."""
 
@@ -742,6 +809,16 @@ def render_date_filter_controls(
     )
 
     return selected_date, selected_date, False, True
+
+
+def render_lazy_tab_placeholder(tab_index: int, key_prefix: str, message: str) -> None:
+    """Muestra aviso de pestaña diferida y botón para cargarla en la app."""
+    st.caption(message)
+    if st.button("🔄 Cargar esta pestaña ahora", key=f"{key_prefix}_load_now"):
+        st.query_params.update({"tab": str(tab_index)})
+        clear_app_caches()
+        get_cached_connection_statuses.clear()
+        st.rerun()
 
 
 def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None) -> None:
@@ -1347,6 +1424,8 @@ def clear_order_related_caches() -> None:
         "cargar_pedidos_combinados",
         "cargar_pedidos_busqueda",
         "obtener_resumen_guias_vendedor",
+        "get_tab3_pending_comprobante_dataset",
+        "get_tab4_casos_especiales_dataset",
     ):
         clear_fn = getattr(globals().get(fn_name), "clear", None)
         if not callable(clear_fn):
@@ -3960,6 +4039,9 @@ with tab3:
     if tab3_is_active:
         st.session_state["current_tab_index"] = 3
     st.header("🧾 Pedidos Pendientes de Comprobante")
+    st.caption(
+        f"Fuentes consultadas en esta pestaña: **{SHEET_PEDIDOS_HISTORICOS}** y **{SHEET_PEDIDOS_OPERATIVOS}**."
+    )
 
     df_pedidos_comprobante = pd.DataFrame()
     worksheets_by_source: dict[str, object] = {}
@@ -3967,52 +4049,34 @@ with tab3:
 
     if tab3_is_active:
         try:
-            dataframes_comprobante: list[pd.DataFrame] = []
-            source_getters = [
+            tab3_refresh_token = st.session_state.get(
+                "tab3_pending_comprobante_refresh_token",
+                0.0,
+            )
+            df_pedidos_comprobante, headers_by_source = get_tab3_pending_comprobante_dataset(
+                tab3_refresh_token
+            )
+
+            for source_name, getter in (
                 (SHEET_PEDIDOS_HISTORICOS, get_worksheet_historico),
                 (SHEET_PEDIDOS_OPERATIVOS, get_worksheet_operativa),
-            ]
-
-            for source_name, getter in source_getters:
+            ):
+                if source_name not in headers_by_source:
+                    continue
                 worksheet_source = getter()
-                if worksheet_source is None:
-                    continue
-                ws_headers = worksheet_source.row_values(1)
-                if not ws_headers:
-                    continue
+                if worksheet_source is not None:
+                    worksheets_by_source[source_name] = worksheet_source
 
-                ws_df, _ = load_sheet_records_with_row_numbers(worksheet_source)
-                if ws_df.empty:
-                    continue
-
-                ws_df["Fuente"] = source_name
-                dataframes_comprobante.append(ws_df)
-                worksheets_by_source[source_name] = worksheet_source
-                headers_by_source[source_name] = ws_headers
-
-            if dataframes_comprobante:
-                df_pedidos_comprobante = pd.concat(dataframes_comprobante, ignore_index=True)
-
-                for col_name in ["Adjuntos_Guia", "Adjuntos", "Estado_Pago", "Vendedor_Registro", "ID_Pedido", "Cliente", "Folio_Factura"]:
-                    if col_name not in df_pedidos_comprobante.columns:
-                        df_pedidos_comprobante[col_name] = ""
-
-                df_pedidos_comprobante['Folio_Factura'] = df_pedidos_comprobante['Folio_Factura'].astype(str).replace('nan', '').str.strip()
-
-                vendedores_limpios = df_pedidos_comprobante['Vendedor_Registro'].astype(str).str.strip()
-                vendedores_limpios = vendedores_limpios.replace({'nan': '', 'None': ''})
-                df_pedidos_comprobante['Vendedor_Registro'] = vendedores_limpios
-                df_pedidos_comprobante.loc[df_pedidos_comprobante['Vendedor_Registro'] == '', 'Vendedor_Registro'] = 'N/A'
-                df_pedidos_comprobante.loc[
-                    ~df_pedidos_comprobante['Vendedor_Registro'].isin(VENDEDORES_LIST + ['N/A']),
-                    'Vendedor_Registro',
-                ] = 'Otro/Desconocido'
-            else:
+            if df_pedidos_comprobante.empty:
                 st.warning("No se encontraron datos disponibles en las hojas de pedidos para comprobantes.")
         except Exception as e:
             st.error(f"❌ Error al cargar pedidos para comprobante: {e}")
     else:
-        st.caption("ℹ️ Esta pestaña se carga al abrirla. Si no ves datos o no hay conexión, usa el botón superior '🔄 Recargar Página y Conexión' para habilitar/actualizar la vista.")
+        render_lazy_tab_placeholder(
+            3,
+            "tab3_lazy",
+            "ℹ️ Esta pestaña se carga al abrirla. Si no hay conexión, presiona '🔄 Recargar Página y Conexión' en la parte superior.",
+        )
 
     if not tab3_is_active:
         pass
@@ -4044,6 +4108,8 @@ with tab3:
             ) = render_date_filter_controls(
                 "📅 Filtrar por Fecha de Registro:",
                 "tab3_comprobantes_filtro",
+                recent_days_option=7,
+                recent_days_label="📆 Mostrar solo últimos 7 días",
             )
 
         # Filtrar por fecha si existe la columna 'Hora_Registro'
@@ -4264,6 +4330,8 @@ with tab3:
                                     safe_batch_update(worksheet_obj, updates)
 
                                     st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
+                                    st.session_state["tab3_pending_comprobante_refresh_token"] = time.time()
+                                    get_tab3_pending_comprobante_dataset.clear()
                                     st.rerun()
                                 else:
                                     st.warning("⚠️ No se subió ningún archivo correctamente.")
@@ -4353,6 +4421,8 @@ with tab3:
                         safe_batch_update(worksheet_obj, updates)
 
                         st.success("✅ Pedido marcado como pagado sin comprobante.")
+                        st.session_state["tab3_pending_comprobante_refresh_token"] = time.time()
+                        get_tab3_pending_comprobante_dataset.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
@@ -4397,6 +4467,42 @@ def partir_urls(value):
         if u not in seen:
             seen.add(u); out.append(u)
     return out
+
+
+@st.cache_data(ttl=90)
+def get_tab4_casos_especiales_dataset(
+    refresh_token: float | None = None,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Carga casos especiales con número de fila para la pestaña 4."""
+    _ = refresh_token
+
+    ws = get_worksheet_casos_especiales()
+    df, headers = load_sheet_records_with_row_numbers(ws)
+    if df.empty:
+        return pd.DataFrame(), headers
+
+    columnas_necesarias = [
+        "ID_Pedido","Cliente","Vendedor_Registro","Folio_Factura","Folio_Factura_Error",
+        "Hora_Registro","Tipo_Envio","Tipo_Caso","Estado","Estado_Caso","Turno",
+        "Refacturacion_Tipo","Refacturacion_Subtipo","Folio_Factura_Refacturada",
+        "Resultado_Esperado","Motivo_Detallado","Material_Devuelto","Monto_Devuelto","Motivo_NotaVenta",
+        "Area_Responsable","Nombre_Responsable","Numero_Cliente_RFC","Tipo_Envio_Original","Estatus_OrigenF",
+        "Direccion_Guia_Retorno","Direccion_Envio","Numero_Serie","Fecha_Compra",
+        "Fecha_Entrega","Fecha_Recepcion_Devolucion","Estado_Recepcion",
+        "Nota_Credito_URL","Documento_Adicional_URL","Comentarios_Admin_Devolucion",
+        "Modificacion_Surtido","Adjuntos_Surtido","Adjuntos","Hoja_Ruta_Mensajero",
+        "Hora_Proceso","Seguimiento","id_vendedor",
+    ]
+    for col in columnas_necesarias:
+        if col not in df.columns:
+            df[col] = ""
+
+    if "Fecha_Compra" not in df.columns and "FechaCompra" in df.columns:
+        df["Fecha_Compra"] = df["FechaCompra"]
+    elif "Fecha_Compra" in df.columns and "FechaCompra" in df.columns and df["Fecha_Compra"].eq("").all():
+        df["Fecha_Compra"] = df["Fecha_Compra"].where(df["Fecha_Compra"].astype(str).str.strip() != "", df["FechaCompra"])
+
+    return df, headers
 
 
 @st.cache_data(ttl=300)
@@ -4461,17 +4567,40 @@ with tab4:
         st.session_state["current_tab_index"] = 4
     st.header("📁 Casos Especiales")
 
+    df_casos_ref = pd.DataFrame()
+    headers_casos_ref: list[str] = []
+    ws_casos_ref = None
+
     if tab4_is_active:
         try:
-            df_casos = cargar_casos_especiales()
+            tab4_refresh_token = st.session_state.get(
+                "tab4_casos_refresh_token",
+                0.0,
+            )
+            df_casos_ref, headers_casos_ref = get_tab4_casos_especiales_dataset(tab4_refresh_token)
+            df_casos = df_casos_ref.copy()
+            ws_casos_ref = get_worksheet_casos_especiales()
+
+            if "Seguimiento" in df_casos.columns:
+                df_casos["Seguimiento"] = df_casos["Seguimiento"].fillna("")
+                df_casos = df_casos[~df_casos["Seguimiento"].astype(str).str.lower().eq("cerrado")]
         except Exception as e:
             st.error(f"❌ Error al cargar casos especiales: {e}")
             df_casos = pd.DataFrame()
+            df_casos_ref = pd.DataFrame()
+            headers_casos_ref = []
+            ws_casos_ref = None
     else:
-        st.caption("ℹ️ Esta pestaña se carga al abrirla. Si algo no carga, usa '🔄 Recargar Página y Conexión' (botón superior).")
+        render_lazy_tab_placeholder(
+            4,
+            "tab4_lazy",
+            "ℹ️ Esta pestaña se carga al abrirla. Si no hay conexión, presiona '🔄 Recargar Página y Conexión' en la parte superior.",
+        )
         df_casos = pd.DataFrame()
 
-    if df_casos.empty:
+    if not tab4_is_active:
+        pass
+    elif df_casos.empty:
         st.info("No hay casos especiales.")
     else:
         if "id_vendedor" not in df_casos.columns:
@@ -4483,14 +4612,8 @@ with tab4:
         st.markdown("#### Devoluciones sin refacturar — ✍️ Captura el Folio Nuevo")
         st.caption("Solo se muestran devoluciones del vendedor logeado con Folio Nuevo pendiente. Captura el Folio Nuevo y guarda; se almacena con prefijo * para auditoría post-registro.")
 
-        try:
-            ws_casos_ref = get_worksheet_casos_especiales()
-            df_casos_ref, headers_casos_ref = load_sheet_records_with_row_numbers(ws_casos_ref)
-        except Exception as e:
-            st.error(f"❌ No fue posible cargar devoluciones sin refacturar: {e}")
-            df_casos_ref = pd.DataFrame()
-            headers_casos_ref = []
-            ws_casos_ref = None
+        if ws_casos_ref is None:
+            st.error("❌ No fue posible conectar con la hoja de casos especiales para devoluciones.")
 
         if not df_casos_ref.empty:
             for col in ["id_vendedor", "Tipo_Envio", "Tipo_Caso", "Seguimiento", "Folio_Factura", "Hora_Registro"]:
@@ -4694,6 +4817,8 @@ with tab4:
                                     st.session_state.pop(f"{row_key}_notas_devolucion", None)
                                     st.session_state.pop(f"{row_key}_direccion_guia_retorno", None)
                                     cargar_casos_especiales.clear()
+                                    get_tab4_casos_especiales_dataset.clear()
+                                    st.session_state["tab4_casos_refresh_token"] = time.time()
                                     obtener_devoluciones_autorizadas_sin_folio.clear()
                                     st.rerun()
                                 except Exception as e:
@@ -4744,6 +4869,8 @@ with tab4:
                     ) = render_date_filter_controls(
                         "📅 Filtrar por Fecha de Registro:",
                         "tab4_casos_filtro",
+                        recent_days_option=7,
+                        recent_days_label="📆 Mostrar solo últimos 7 días",
                     )
 
                 filtered_casos = df_casos.copy()
@@ -5447,9 +5574,15 @@ with tab7:
             st.info("Asegúrate de que la primera fila de tu Google Sheet contiene los encabezados esperados y que la API de Google Sheets está habilitada.")
             st.stop()
     else:
-        st.caption("ℹ️ Esta pestaña se carga al abrirla. Si no carga, usa '🔄 Recargar Página y Conexión' (botón superior).")
+        render_lazy_tab_placeholder(
+            6,
+            "tab7_lazy",
+            "ℹ️ Esta pestaña se carga al abrirla. Si no hay conexión, presiona '🔄 Recargar Página y Conexión' en la parte superior.",
+        )
 
-    if df_all_pedidos.empty:
+    if not tab7_is_active:
+        pass
+    elif df_all_pedidos.empty:
         st.info("No hay datos de pedidos para descargar.")
     else:
         st.markdown("---")
