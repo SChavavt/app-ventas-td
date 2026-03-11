@@ -3037,9 +3037,10 @@ with tab1:
             )
             clear_order_related_caches()
             cliente_registrado = str(registro_cliente or "").strip()
+            referencia_pedido = cliente_registrado or pedido_id
             set_pedido_submission_status(
                 "success",
-                f"✅ El pedido {pedido_id}{id_vendedor_segment} fue subido correctamente.",
+                f"✅ El pedido {referencia_pedido}{id_vendedor_segment} fue subido correctamente.",
                 detail=aviso_estado_pago_auto,
                 attachments=adjuntos_urls,
                 missing_attachments_warning=pedido_sin_adjuntos,
@@ -3931,8 +3932,13 @@ with tab2:
                     st.session_state.get("show_success_message")
                     and st.session_state.get("last_updated_order_id")
                 ):
+                    cliente_actualizado = str(st.session_state.get("last_updated_cliente", "")).strip()
+                    referencia_actualizada = (
+                        cliente_actualizado
+                        or st.session_state.get("last_updated_order_id")
+                    )
                     st.success(
-                        f"🎉 ¡Cambios guardados con éxito para el pedido **{st.session_state.get('last_updated_order_id')}**!"
+                        f"🎉 ¡Cambios guardados con éxito para el pedido **{referencia_actualizada}**!"
                     )
 
     # ----------------- Mensaje de éxito persistente -----------------
@@ -3946,7 +3952,7 @@ with tab2:
         referencia_actualizada = cliente_actualizado or pedido_id
         with message_placeholder_tab2.container():
             st.success(
-                f"🎉 ¡Cambios guardados con éxito para el pedido **{pedido_id}**!"
+                f"🎉 ¡Cambios guardados con éxito para el pedido **{referencia_actualizada}**!"
             )
             if st.button("Aceptar", key="ack_mod_success"):
                 for state_key in (
