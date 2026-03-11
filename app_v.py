@@ -3940,35 +3940,18 @@ with tab2:
                     st.success(
                         f"🎉 ¡Cambios guardados con éxito para el pedido **{referencia_actualizada}**!"
                     )
-
-    # ----------------- Mensaje de éxito persistente -----------------
-    if (
-        'show_success_message' in st.session_state and
-        st.session_state.show_success_message and
-        'last_updated_order_id' in st.session_state
-    ):
-        pedido_id = st.session_state.last_updated_order_id
-        cliente_actualizado = str(st.session_state.get("last_updated_cliente", "")).strip()
-        referencia_actualizada = cliente_actualizado or pedido_id
-        with message_placeholder_tab2.container():
-            st.success(
-                f"🎉 ¡Cambios guardados con éxito para el pedido **{referencia_actualizada}**!"
-            )
-            if st.button("Aceptar", key="ack_mod_success"):
-                for state_key in (
-                    "show_success_message",
-                    "last_updated_order_id",
-                    "last_updated_cliente",
-                    "_mod_tab2_success_feedback_sent",
-                ):
-                    st.session_state.pop(state_key, None)
-                message_placeholder_tab2.empty()
-        if (
-            st.session_state.get("show_success_message")
-            and not st.session_state.get("_mod_tab2_success_feedback_sent")
-        ):
-            st.toast(f"✅ Pedido de {referencia_actualizada} actualizado", icon="📦")
-            st.session_state["_mod_tab2_success_feedback_sent"] = True
+                    if st.button("Aceptar", key="ack_mod_success"):
+                        for state_key in (
+                            "show_success_message",
+                            "last_updated_order_id",
+                            "last_updated_cliente",
+                            "_mod_tab2_success_feedback_sent",
+                        ):
+                            st.session_state.pop(state_key, None)
+                        st.rerun()
+                    if not st.session_state.get("_mod_tab2_success_feedback_sent"):
+                        st.toast(f"✅ Pedido de {referencia_actualizada} actualizado", icon="📦")
+                        st.session_state["_mod_tab2_success_feedback_sent"] = True
 
 
 # --- TAB 3: PENDING PROOF OF PAYMENT ---
