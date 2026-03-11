@@ -2528,12 +2528,11 @@ with tab1:
                 st.session_state["pedido_submit_disabled"] = False
                 st.session_state.pop("pedido_submit_disabled_at", None)
 
-            if status == "success":
-                st.button(
-                    "Registrar otro pedido",
-                    key="acknowledge_pedido_status",
-                    on_click=clear_pedido_status_message,
-                )
+            st.button(
+                "Registrar otro pedido",
+                key="acknowledge_pedido_status",
+                on_click=clear_pedido_status_message,
+            )
 
 
     # -------------------------------
@@ -2705,7 +2704,6 @@ with tab1:
                 and estado_pago == "✅ Pagado"
                 and not comprobante_pago_files
             ):
-                clear_pending_submission(pending_cache_key)
                 set_pedido_submission_status(
                     "warning",
                     "⚠️ El pedido no se subió. Adjunta un comprobante si el pedido está marcado como pagado.",
