@@ -4109,7 +4109,7 @@ with tab3:
                 "📅 Filtrar por Fecha de Registro:",
                 "tab3_comprobantes_filtro",
                 recent_days_option=7,
-                recent_days_label="📆 Mostrar solo últimos 7 días",
+                recent_days_label="Mostrar solo últimos 7 días",
             )
 
         # Filtrar por fecha si existe la columna 'Hora_Registro'
@@ -4870,7 +4870,7 @@ with tab4:
                         "📅 Filtrar por Fecha de Registro:",
                         "tab4_casos_filtro",
                         recent_days_option=7,
-                        recent_days_label="📆 Mostrar solo últimos 7 días",
+                        recent_days_label="Mostrar solo últimos 7 días",
                     )
 
                 filtered_casos = df_casos.copy()
@@ -5089,7 +5089,7 @@ with tab5:
 
         with col2_tab5:
             usar_rango_fechas = st.checkbox(
-                "Activar búsqueda por rango de fechas",
+                "🔁 Activar búsqueda por rango de fechas",
                 key="filtro_guias_rango_activo",
                 on_change=fijar_tab5_activa
             )
