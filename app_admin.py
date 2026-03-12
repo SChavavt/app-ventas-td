@@ -1426,6 +1426,64 @@ def find_pedido_subfolder_prefix(s3_client_instance, parent_prefix, folder_name)
     
     return None
 
+
+def find_pedido_prefixes(s3_client_instance, parent_prefix, folder_name) -> list[str]:
+    """Devuelve todos los prefijos detectados para un pedido, sin duplicados."""
+    if not s3_client_instance or not folder_name:
+        return []
+
+    prefixes: list[str] = []
+    seen: set[str] = set()
+
+    possible_prefixes = [
+        f"{parent_prefix}{folder_name}/",
+        f"{parent_prefix}{folder_name}",
+        f"adjuntos_pedidos/{folder_name}/",
+        f"adjuntos_pedidos/{folder_name}",
+        f"{folder_name}/",
+        folder_name,
+    ]
+
+    for pedido_prefix in possible_prefixes:
+        if pedido_prefix in seen:
+            continue
+        try:
+            response = s3_client_instance.list_objects_v2(
+                Bucket=S3_BUCKET_NAME,
+                Prefix=pedido_prefix,
+                MaxKeys=1,
+            )
+            if response.get("Contents"):
+                prefixes.append(pedido_prefix)
+                seen.add(pedido_prefix)
+        except Exception:
+            continue
+
+    fallback_prefix = find_pedido_subfolder_prefix(s3_client_instance, parent_prefix, folder_name)
+    if fallback_prefix and fallback_prefix not in seen:
+        prefixes.append(fallback_prefix)
+
+    return prefixes
+
+
+def get_all_files_for_pedido(s3_client_instance, parent_prefix, pedido_id) -> list[dict]:
+    """Obtiene y combina adjuntos desde todos los prefijos detectados para el pedido."""
+    all_files: list[dict] = []
+    existing_keys: set[str] = set()
+
+    for prefix in find_pedido_prefixes(s3_client_instance, parent_prefix, pedido_id):
+        for file in get_files_in_s3_prefix(s3_client_instance, prefix):
+            if not isinstance(file, dict):
+                continue
+            key = file.get("key")
+            if key and key in existing_keys:
+                continue
+            all_files.append(file)
+            if key:
+                existing_keys.add(key)
+
+    return all_files
+
 def get_files_in_s3_prefix(s3_client_instance, prefix): # Acepta s3_client_instance
     if not s3_client_instance or not prefix:
         return []
@@ -1815,42 +1873,10 @@ def discover_comprobante_assets(
     if not pedido_id or not s3_client_instance:
         return result
 
-    prefix = f"{S3_ATTACHMENT_PREFIX}{pedido_id}/"
-    files = get_files_in_s3_prefix(s3_client_instance, prefix)
+    files = get_all_files_for_pedido(s3_client_instance, S3_ATTACHMENT_PREFIX, pedido_id)
     comprobantes, facturas, _ = (
         clasificar_archivos_adjuntos(files) if files else ([], [], [])
     )
-
-    if not files or not comprobantes:
-        original_prefix = find_pedido_subfolder_prefix(
-            s3_client_instance, S3_ATTACHMENT_PREFIX, pedido_id
-        )
-        if original_prefix:
-            original_files = get_files_in_s3_prefix(s3_client_instance, original_prefix)
-            if original_files:
-                if not files:
-                    files = original_files
-                else:
-                    combined_files = list(files)
-                    existing_keys = {
-                        f.get("key")
-                        for f in files
-                        if isinstance(f, dict) and f.get("key")
-                    }
-                    for extra_file in original_files:
-                        if not isinstance(extra_file, dict):
-                            continue
-                        extra_key = extra_file.get("key")
-                        if extra_key and extra_key in existing_keys:
-                            continue
-                        if not extra_key and extra_file in combined_files:
-                            continue
-                        combined_files.append(extra_file)
-                        if extra_key:
-                            existing_keys.add(extra_key)
-                    files = combined_files
-
-                comprobantes, facturas, _ = clasificar_archivos_adjuntos(files)
 
     result["files"] = files
     if not files:
@@ -2337,8 +2363,11 @@ with tab1:
                                     st.markdown(f"- {enlace}", unsafe_allow_html=True)
                             st.markdown("---")
                         if s3_client:
-                            pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
-                            files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
+                            files = get_all_files_for_pedido(
+                                s3_client,
+                                S3_ATTACHMENT_PREFIX,
+                                selected_pedido_id_for_s3_search,
+                            )
 
                             if files:
                                 comprobantes, facturas, otros = clasificar_archivos_adjuntos(files)
@@ -2902,8 +2931,11 @@ with tab1:
                             st.markdown("---")
 
                         if s3_client:
-                            pedido_folder_prefix = find_pedido_subfolder_prefix(s3_client, S3_ATTACHMENT_PREFIX, selected_pedido_id_for_s3_search)
-                            files = get_files_in_s3_prefix(s3_client, pedido_folder_prefix) if pedido_folder_prefix else []
+                            files = get_all_files_for_pedido(
+                                s3_client,
+                                S3_ATTACHMENT_PREFIX,
+                                selected_pedido_id_for_s3_search,
+                            )
 
                             if files:
                                 comprobantes, facturas, otros = clasificar_archivos_adjuntos(files)
