@@ -4039,9 +4039,6 @@ with tab3:
     if tab3_is_active:
         st.session_state["current_tab_index"] = 3
     st.header("🧾 Pedidos Pendientes de Comprobante")
-    st.caption(
-        f"Fuentes consultadas en esta pestaña: **{SHEET_PEDIDOS_HISTORICOS}** y **{SHEET_PEDIDOS_OPERATIVOS}**."
-    )
 
     df_pedidos_comprobante = pd.DataFrame()
     worksheets_by_source: dict[str, object] = {}
