@@ -5326,7 +5326,8 @@ with tab6:
                     [
                         (
                             str(row.get("Folio_Factura", "")).strip()
-                            or "S/F"
+                            or str(row.get("ID_Pedido", "")).strip()
+                            or "Sin folio"
                         ),
                         str(row.get("Cliente", "")).strip() or "Sin Cliente",
                         str(row.get("Tipo_Envio", "")).strip() or "Sin Tipo",
@@ -5348,7 +5349,7 @@ with tab6:
 
                 pedido_id = str(pedido_fila.get("ID_Pedido", "")).strip()
                 pedido_folio = str(pedido_fila.get("Folio_Factura", "")).strip()
-                folio_display = pedido_folio or "S/F"
+                folio_display = pedido_folio or pedido_id
                 tipo_envio = str(pedido_fila.get("Tipo_Envio", "")).strip()
                 fecha_actual = pd.to_datetime(pedido_fila.get("Fecha_Entrega"), errors="coerce")
                 turno_actual = str(pedido_fila.get("Turno", "")).strip()
