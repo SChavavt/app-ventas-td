@@ -3466,7 +3466,8 @@ with tab2:
             base_option_values = filtered_orders.apply(
                 lambda row: (
                     f"{row.get('Fuente', SHEET_PEDIDOS_OPERATIVOS)}|"
-                    f"{_s(row.get('ID_Pedido', '')) or 'sin_id'}"
+                    f"{_s(row.get('ID_Pedido', '')) or 'sin_id'}|"
+                    f"{parse_sheet_row_number(row.get('Sheet_Row_Number')) or 'sin_fila'}"
                 ),
                 axis=1
             )
@@ -3496,7 +3497,8 @@ with tab2:
             )
 
             if selected_option_key:
-                if st.session_state.get("tab2_selected_option_key") != selected_option_key:
+                option_changed = st.session_state.get("tab2_selected_option_key") != selected_option_key
+                if option_changed:
                     st.session_state["tab2_selected_option_key"] = selected_option_key
                     st.session_state["tab2_confirm_order"] = False
                     st.session_state.pop("new_modificacion_surtido_input", None)
@@ -3613,6 +3615,8 @@ with tab2:
 
                 # ----------------- Valores actuales (para formulario) -----------------
                 current_modificacion_surtido_value = selected_row_data.get('Modificacion_Surtido', '')
+                if option_changed:
+                    st.session_state["new_modificacion_surtido_input"] = str(current_modificacion_surtido_value or "")
                 current_estado_pago_value = selected_row_data.get('Estado_Pago', '🔴 No Pagado')
                 current_adjuntos_str = selected_row_data.get('Adjuntos', '')
                 current_adjuntos_list = [f.strip() for f in str(current_adjuntos_str).split(',') if f.strip()]
@@ -3663,11 +3667,13 @@ with tab2:
 
                 # ----------------- Formulario de modificación -----------------
                 with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
-                    default_modificacion_text = "" if reset_inputs_tab2_flag else current_modificacion_surtido_value
+                    if reset_inputs_tab2_flag:
+                        st.session_state["new_modificacion_surtido_input"] = ""
+                    elif "new_modificacion_surtido_input" not in st.session_state:
+                        st.session_state["new_modificacion_surtido_input"] = str(current_modificacion_surtido_value or "")
 
                     new_modificacion_surtido_input = st.text_area(
                         "✍️ Notas de Modificación/Surtido",
-                        value=default_modificacion_text,
                         height=100,
                         key="new_modificacion_surtido_input"
                     )
@@ -3704,7 +3710,7 @@ with tab2:
                                 "⚠️ Confirma que el pedido y cliente son correctos antes de procesar la modificación."
                             )
                             st.stop()
-                        if not new_modificacion_surtido_input.strip():
+                        if not str(new_modificacion_surtido_input).strip():
                             feedback_slot.empty()
                             feedback_slot.error(
                                 "⚠️ El campo 'Notas de Modificación/Surtido' es obligatorio para procesar la modificación."
@@ -3825,13 +3831,13 @@ with tab2:
 
                                 # 2) Guardar Modificacion_Surtido (si cambió)
                                 if col_exists("Modificacion_Surtido"):
-                                    if new_modificacion_surtido_input.strip() != current_modificacion_surtido_value.strip():
+                                    if str(new_modificacion_surtido_input) != str(current_modificacion_surtido_value):
                                         cell_updates.append({
                                             "range": rowcol_to_a1(
                                                 gsheet_row_index,
                                                 col_idx("Modificacion_Surtido"),
                                             ),
-                                            "values": [[new_modificacion_surtido_input.strip()]],
+                                            "values": [[str(new_modificacion_surtido_input)]],
                                         })
                                         changes_made = True
 
