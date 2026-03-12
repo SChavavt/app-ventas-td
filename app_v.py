@@ -1409,7 +1409,7 @@ def set_pedido_submission_status(
 
 
 def rerun_with_pedido_loading(message: str = "⏳ Actualizando el estado del pedido...") -> None:
-    """Marca un mensaje de carga para el siguiente render y relanza la app."""
+    """Muestra aviso de carga para tab1 y relanza la app sin forzar cambio de pestaña."""
     st.session_state["pedido_submission_loading_message"] = message
     st.rerun()
 
@@ -2482,6 +2482,8 @@ with tab1:
     should_process_submission = submit_button
     if submit_button:
         st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
+        st.session_state["current_tab_index"] = 0
+        st.query_params.update({"tab": "0"})
         st.session_state["pedido_submit_disabled"] = True
         st.session_state["pedido_submit_disabled_at"] = time.time()
 
