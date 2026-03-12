@@ -821,6 +821,9 @@ def render_lazy_tab_placeholder(tab_index: int, key_prefix: str, message: str) -
         st.rerun()
 
 
+LAZY_TAB_MESSAGE = "ℹ️ Esta pestaña está inactiva. Presiona el botón '🔄 Cargar esta pestaña ahora' de abajo para activarla."
+
+
 def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None) -> None:
     """Elimina los valores capturados en el formulario principal, conservando envío y vendedor."""
 
@@ -4072,7 +4075,7 @@ with tab3:
         render_lazy_tab_placeholder(
             3,
             "tab3_lazy",
-            "ℹ️ Esta pestaña se carga al abrirla. Si no hay conexión, presiona '🔄 Recargar Página y Conexión' en la parte superior.",
+            LAZY_TAB_MESSAGE,
         )
 
     if not tab3_is_active:
@@ -4591,7 +4594,7 @@ with tab4:
         render_lazy_tab_placeholder(
             4,
             "tab4_lazy",
-            "ℹ️ Esta pestaña se carga al abrirla. Si no hay conexión, presiona '🔄 Recargar Página y Conexión' en la parte superior.",
+            LAZY_TAB_MESSAGE,
         )
         df_casos = pd.DataFrame()
 
@@ -5278,7 +5281,11 @@ with tab6:
             st.error(f"❌ Error al cargar los pedidos: {e}")
             df_pedidos_no_entregados = pd.DataFrame()
     else:
-        st.caption("ℹ️ Esta pestaña se carga al abrirla. Si no hay conexión, presiona '🔄 Recargar Página y Conexión' en la parte superior.")
+        render_lazy_tab_placeholder(
+            5,
+            "tab6_lazy",
+            LAZY_TAB_MESSAGE,
+        )
         df_pedidos_no_entregados = pd.DataFrame()
 
     if df_pedidos_no_entregados.empty:
@@ -5574,7 +5581,7 @@ with tab7:
         render_lazy_tab_placeholder(
             6,
             "tab7_lazy",
-            "ℹ️ Esta pestaña se carga al abrirla. Si no hay conexión, presiona '🔄 Recargar Página y Conexión' en la parte superior.",
+            LAZY_TAB_MESSAGE,
         )
 
     if not tab7_is_active:
