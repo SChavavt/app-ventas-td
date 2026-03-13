@@ -2280,7 +2280,7 @@ with tab1:
 
             resultado_esperado = st.selectbox(
                 "🎯 Resultado Esperado",
-                ["Cambio de Producto", "Devolución de Dinero", "Saldo a Favor"],
+                ["Cambio de Producto", "Devolución de Dinero", "Saldo a Favor", "Material Faltante"],
                 key="resultado_esperado"
             )
 
