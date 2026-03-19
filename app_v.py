@@ -10,6 +10,7 @@ import base64
 import uuid
 import pandas as pd
 import pdfplumber
+from openpyxl import load_workbook
 import unicodedata
 from io import BytesIO
 import time
@@ -90,6 +91,18 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "terminal_input",
     "banco_destino_input",
     "referencia_pago_input",
+    "local_route_recibe",
+    "local_route_calle_no",
+    "local_route_tipo_inmueble",
+    "local_route_acceso_privada",
+    "local_route_municipio",
+    "local_route_telefonos",
+    "local_route_interior",
+    "local_route_colonia",
+    "local_route_cp",
+    "local_route_forma_pago",
+    "local_route_total_factura",
+    "local_route_adeudo_anterior",
 }
 
 TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
@@ -175,6 +188,73 @@ def format_estado_entrega(value) -> str:
         return "Sin info de entrega"
     cleaned = str(value).strip()
     return cleaned if cleaned else "Sin info de entrega"
+
+
+def format_currency_for_route_sheet(value) -> str:
+    """Return currency text like ``$7,400.00`` for the local route sheet."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = 0.0
+    return f"${amount:,.2f}"
+
+
+def get_local_delivery_slot(turno_local: str) -> str:
+    """Map local shift names to route sheet delivery time windows."""
+    turno_normalizado = str(turno_local or "").strip()
+    if turno_normalizado == "☀️ Local Mañana":
+        return "9:00 AM a 2:00 PM"
+    if turno_normalizado == "🌙 Local Tarde":
+        return "3:00 PM a 7:00 PM"
+    return turno_normalizado or "POR DEFINIR"
+
+
+def get_weekday_name_es(delivery_date: date) -> str:
+    """Return the weekday in uppercase Spanish for the route sheet."""
+    dias = [
+        "LUNES",
+        "MARTES",
+        "MIERCOLES",
+        "JUEVES",
+        "VIERNES",
+        "SABADO",
+        "DOMINGO",
+    ]
+    if not isinstance(delivery_date, date):
+        return ""
+    return dias[delivery_date.weekday()]
+
+
+def build_local_route_sheet(template_path: Path, payload: Dict[str, object]) -> BytesIO:
+    """Fill the local delivery Excel template and return it in memory."""
+    workbook = load_workbook(template_path)
+    worksheet = workbook[workbook.sheetnames[0]]
+
+    worksheet["B2"] = payload.get("fecha", "")
+    worksheet["F2"] = payload.get("dia_entrega", "")
+    worksheet["B3"] = payload.get("cliente", "")
+    worksheet["F3"] = payload.get("hora_entrega", "")
+    worksheet["B4"] = payload.get("recibe", "")
+    worksheet["E4"] = payload.get("comentarios", "")
+    worksheet["B5"] = payload.get("calle_no", "")
+    worksheet["B6"] = payload.get("tipo_inmueble", "")
+    worksheet["D6"] = payload.get("interior", "")
+    worksheet["B7"] = payload.get("acceso_privada", "")
+    worksheet["D7"] = payload.get("colonia", "")
+    worksheet["B8"] = payload.get("municipio", "")
+    worksheet["D8"] = payload.get("cp", "")
+    worksheet["B9"] = payload.get("telefonos", "")
+    worksheet["D10"] = payload.get("estado_pago", "")
+    worksheet["D11"] = payload.get("forma_pago", "")
+    worksheet["D12"] = payload.get("vendedor", "")
+    worksheet["G10"] = payload.get("total_factura", "")
+    worksheet["G11"] = payload.get("adeudo_anterior", "")
+    worksheet["G12"] = payload.get("gran_total", "")
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output
 
 
 def parse_sheet_row_number(value) -> Optional[int]:
@@ -2169,6 +2249,20 @@ with tab1:
     referencia_pago = ""
     estado_pago = "🔴 No Pagado"
 
+    # Variables Hoja de Ruta Local
+    local_route_recibe = ""
+    local_route_calle_no = ""
+    local_route_tipo_inmueble = ""
+    local_route_acceso_privada = ""
+    local_route_municipio = "MONTERREY"
+    local_route_telefonos = ""
+    local_route_interior = ""
+    local_route_colonia = ""
+    local_route_cp = ""
+    local_route_forma_pago = "TRANSFERENCIA"
+    local_route_total_factura = 0.0
+    local_route_adeudo_anterior = 0.0
+
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
@@ -2267,6 +2361,34 @@ with tab1:
             "💬 Comentario / Descripción Detallada",
             key="comentario_detallado",
         )
+
+        if tipo_envio == "📍 Pedido Local":
+            st.markdown("### 🗺️ Hoja de Ruta Local")
+            col_local_1, col_local_2 = st.columns(2)
+            with col_local_1:
+                local_route_recibe = st.text_input("🙋 Recibe", key="local_route_recibe")
+                local_route_calle_no = st.text_input("📍 CALLE Y NO.", key="local_route_calle_no")
+                local_route_tipo_inmueble = st.text_input("🏢 TIPO INMUEBLE", key="local_route_tipo_inmueble")
+                local_route_acceso_privada = st.text_input("🚧 ACCESO PRIVADA", key="local_route_acceso_privada")
+                local_route_municipio = st.text_input("🗺️ MUNICIPIO", key="local_route_municipio")
+                local_route_telefonos = st.text_input("☎️ TELS", key="local_route_telefonos")
+            with col_local_2:
+                local_route_interior = st.text_input("🚪 INTERIOR", key="local_route_interior")
+                local_route_colonia = st.text_input("🏘️ COL.", key="local_route_colonia")
+                local_route_cp = st.text_input("📮 C.P.", key="local_route_cp")
+                local_route_forma_pago = st.text_input("💳 FORMA DE PAGO", key="local_route_forma_pago")
+                local_route_total_factura = st.number_input(
+                    "💵 TOTAL FACTURA",
+                    min_value=0.0,
+                    format="%.2f",
+                    key="local_route_total_factura",
+                )
+                local_route_adeudo_anterior = st.number_input(
+                    "💸 ADEUDO ANT.",
+                    min_value=0.0,
+                    format="%.2f",
+                    key="local_route_adeudo_anterior",
+                )
 
         if tipo_envio == "🚚 Pedido Foráneo":
             direccion_guia_retorno = st.text_area(
@@ -2401,6 +2523,9 @@ with tab1:
 
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
+        if tipo_envio == "📍 Pedido Local":
+            st.caption("La hoja de ruta se genera como descarga adicional y no modifica el guardado actual del pedido.")
+
         # -------------------------------
         # SECCIÓN DE ESTADO DE PAGO (dentro del form para evitar recargas al adjuntar archivos)
         # -------------------------------
@@ -2480,6 +2605,78 @@ with tab1:
         )
 
     should_process_submission = submit_button
+
+    if tipo_envio == "📍 Pedido Local":
+        route_template_path = Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx"
+        current_folio_for_route = (
+            nota_venta.strip()
+            if registrar_nota_venta and isinstance(nota_venta, str)
+            else folio_factura_input_value.strip()
+        )
+        route_total_amount = float(local_route_total_factura or 0.0) + float(local_route_adeudo_anterior or 0.0)
+        route_comment_parts = []
+        if current_folio_for_route:
+            route_comment_parts.append(f"FOLIO: {current_folio_for_route}")
+        if comentario.strip():
+            route_comment_parts.append(comentario.strip())
+
+        route_payload = {
+            "fecha": fecha_entrega.strftime('%Y-%m-%d') if isinstance(fecha_entrega, date) else "",
+            "dia_entrega": get_weekday_name_es(fecha_entrega),
+            "cliente": registro_cliente.strip(),
+            "hora_entrega": get_local_delivery_slot(subtipo_local),
+            "recibe": local_route_recibe.strip(),
+            "comentarios": " | ".join(route_comment_parts),
+            "calle_no": local_route_calle_no.strip(),
+            "tipo_inmueble": local_route_tipo_inmueble.strip(),
+            "interior": local_route_interior.strip(),
+            "acceso_privada": local_route_acceso_privada.strip(),
+            "colonia": local_route_colonia.strip(),
+            "municipio": local_route_municipio.strip(),
+            "cp": local_route_cp.strip(),
+            "telefonos": local_route_telefonos.strip(),
+            "estado_pago": "NO PAGADO",
+            "forma_pago": local_route_forma_pago.strip() or "TRANSFERENCIA",
+            "vendedor": vendedor.strip(),
+            "total_factura": format_currency_for_route_sheet(local_route_total_factura),
+            "adeudo_anterior": format_currency_for_route_sheet(local_route_adeudo_anterior),
+            "gran_total": format_currency_for_route_sheet(route_total_amount),
+        }
+
+        route_missing_fields = []
+        if not route_payload["cliente"]:
+            route_missing_fields.append("Cliente")
+        if not current_folio_for_route:
+            route_missing_fields.append("Folio de Factura")
+        if not route_payload["calle_no"]:
+            route_missing_fields.append("Calle y No.")
+
+        if subtipo_local not in ["☀️ Local Mañana", "🌙 Local Tarde"]:
+            st.warning("⚠️ La hoja de ruta asigna horario automático solo para ☀️ Local Mañana y 🌙 Local Tarde. Para otros turnos se usará el texto del turno seleccionado.")
+
+        st.markdown("---")
+        st.subheader("📄 Generar Hoja de Ruta")
+        st.info("Este botón descarga el Excel de ruta local sin afectar el guardado normal del pedido.")
+        if not route_template_path.exists():
+            st.error(f"No se encontró la plantilla de hoja de ruta en: {route_template_path}")
+        else:
+            route_file = build_local_route_sheet(route_template_path, route_payload)
+            route_filename_folio = re.sub(r'[^A-Za-z0-9_-]+', '_', current_folio_for_route or 'sin_folio').strip('_') or 'sin_folio'
+            st.download_button(
+                label="🗺️ Generar hoja de ruta",
+                data=route_file.getvalue(),
+                file_name=f"hoja_ruta_local_{route_filename_folio}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help=(
+                    "Descarga la hoja de ruta local con la información capturada. Si faltan datos, el formato se descargará con espacios en blanco."
+                ),
+            )
+            if route_missing_fields:
+                st.caption("Faltan datos opcionales por capturar: " + ", ".join(route_missing_fields))
+            st.caption(
+                f"Horario asignado: {route_payload['hora_entrega']} | Día de entrega: {route_payload['dia_entrega']} | Gran total a cobrar: {route_payload['gran_total']}"
+            )
+
     if submit_button:
         st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
         st.session_state["current_tab_index"] = 0
