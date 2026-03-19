@@ -240,7 +240,7 @@ def build_local_route_sheet(template_path: Path, payload: Dict[str, object]) -> 
     worksheet["B3"] = payload.get("cliente", "")
     worksheet["F3"] = payload.get("hora_entrega", "")
     worksheet["B4"] = payload.get("recibe", "")
-    worksheet["E4"] = payload.get("comentarios", "")
+    worksheet["E5"] = payload.get("comentarios", "")
     worksheet["B5"] = payload.get("calle_no", "")
     worksheet["B6"] = payload.get("tipo_inmueble", "")
     worksheet["D6"] = payload.get("interior", "")
@@ -284,11 +284,7 @@ def build_local_route_payload(
 ) -> Dict[str, str]:
     """Build the serialized payload used by the local route Excel and summary UI."""
     route_total_amount = float(total_factura or 0.0) + float(adeudo_anterior or 0.0)
-    route_comment_parts = []
-    if folio:
-        route_comment_parts.append(f"FOLIO: {folio}")
-    if comentario.strip():
-        route_comment_parts.append(comentario.strip())
+    route_comment = comentario.strip()
 
     return {
         "fecha": fecha_entrega.strftime('%Y-%m-%d') if isinstance(fecha_entrega, date) else "",
@@ -296,7 +292,7 @@ def build_local_route_payload(
         "cliente": registro_cliente.strip(),
         "hora_entrega": get_local_delivery_slot(subtipo_local),
         "recibe": recibe.strip(),
-        "comentarios": " | ".join(route_comment_parts),
+        "comentarios": route_comment,
         "calle_no": calle_no.strip(),
         "tipo_inmueble": tipo_inmueble.strip(),
         "interior": interior.strip(),
