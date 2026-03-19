@@ -2434,15 +2434,47 @@ with tab1:
             with col_local_1:
                 local_route_recibe = st.text_input("🙋 Recibe", key="local_route_recibe")
                 local_route_calle_no = st.text_input("📍 CALLE Y NO.", key="local_route_calle_no")
-                local_route_tipo_inmueble = st.text_input("🏢 TIPO INMUEBLE", key="local_route_tipo_inmueble")
-                local_route_acceso_privada = st.text_input("🚧 ACCESO PRIVADA", key="local_route_acceso_privada")
+                local_route_tipo_inmueble = st.selectbox(
+                    "🏢 TIPO INMUEBLE",
+                    [
+                        "Consultorio",
+                        "Clínica",
+                        "Hospital",
+                        "Casa",
+                        "Departamento",
+                        "Oficina",
+                        "Local comercial",
+                        "Otro",
+                    ],
+                    key="local_route_tipo_inmueble",
+                )
+                local_route_acceso_privada = st.selectbox(
+                    "🚧 ACCESO PRIVADA",
+                    [
+                        "No aplica",
+                        "Aplica",
+                        "Acceso controlado",
+                        "Requiere autorización previa",
+                    ],
+                    key="local_route_acceso_privada",
+                )
                 local_route_municipio = st.text_input("🗺️ MUNICIPIO", key="local_route_municipio")
                 local_route_telefonos = st.text_input("☎️ TELS", key="local_route_telefonos")
             with col_local_2:
                 local_route_interior = st.text_input("🚪 INTERIOR", key="local_route_interior")
                 local_route_colonia = st.text_input("🏘️ COL.", key="local_route_colonia")
                 local_route_cp = st.text_input("📮 C.P.", key="local_route_cp")
-                local_route_forma_pago = st.text_input("💳 FORMA DE PAGO", key="local_route_forma_pago")
+                local_route_forma_pago = st.selectbox(
+                    "💳 FORMA DE PAGO",
+                    [
+                        "Transferencia",
+                        "Depósito en Efectivo",
+                        "Tarjeta de Débito",
+                        "Tarjeta de Crédito",
+                        "Cheque",
+                    ],
+                    key="local_route_forma_pago",
+                )
                 local_route_total_factura = st.number_input(
                     "💵 TOTAL FACTURA",
                     min_value=0.0,
