@@ -103,8 +103,6 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_forma_pago",
     "local_route_total_factura",
     "local_route_adeudo_anterior",
-    "local_route_confirmed_payload",
-    "local_route_confirmed_at",
 }
 
 TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
@@ -120,9 +118,6 @@ TAB1_SCROLL_RESTORE_FLAG_KEY = "tab1_restore_scroll_after_submit"
 TAB1_FEEDBACK_ANCHOR_ID = "tab1-pedido-feedback-anchor"
 TAB1_FORM_NONCE_KEY = "tab1_form_nonce"
 TAB2_LOADING_MESSAGE_KEY = "tab2_modification_loading_message"
-LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY = "local_route_confirmed_payload"
-LOCAL_ROUTE_CONFIRMED_AT_KEY = "local_route_confirmed_at"
-
 
 
 USUARIOS_VALIDOS = [
@@ -260,71 +255,6 @@ def build_local_route_sheet(template_path: Path, payload: Dict[str, object]) -> 
     workbook.save(output)
     output.seek(0)
     return output
-
-
-def build_local_route_payload(
-    fecha_entrega,
-    registro_cliente: str,
-    subtipo_local: str,
-    recibe: str,
-    comentario: str,
-    calle_no: str,
-    tipo_inmueble: str,
-    interior: str,
-    acceso_privada: str,
-    colonia: str,
-    municipio: str,
-    cp: str,
-    telefonos: str,
-    forma_pago: str,
-    vendedor: str,
-    total_factura,
-    adeudo_anterior,
-    folio: str,
-) -> Dict[str, str]:
-    """Build the serialized payload used by the local route Excel and summary UI."""
-    route_total_amount = float(total_factura or 0.0) + float(adeudo_anterior or 0.0)
-    route_comment_parts = []
-    if folio:
-        route_comment_parts.append(f"FOLIO: {folio}")
-    if comentario.strip():
-        route_comment_parts.append(comentario.strip())
-
-    return {
-        "fecha": fecha_entrega.strftime('%Y-%m-%d') if isinstance(fecha_entrega, date) else "",
-        "dia_entrega": get_weekday_name_es(fecha_entrega),
-        "cliente": registro_cliente.strip(),
-        "hora_entrega": get_local_delivery_slot(subtipo_local),
-        "recibe": recibe.strip(),
-        "comentarios": " | ".join(route_comment_parts),
-        "calle_no": calle_no.strip(),
-        "tipo_inmueble": tipo_inmueble.strip(),
-        "interior": interior.strip(),
-        "acceso_privada": acceso_privada.strip(),
-        "colonia": colonia.strip(),
-        "municipio": municipio.strip(),
-        "cp": cp.strip(),
-        "telefonos": telefonos.strip(),
-        "estado_pago": "NO PAGADO",
-        "forma_pago": forma_pago.strip() or "TRANSFERENCIA",
-        "vendedor": vendedor.strip(),
-        "total_factura": format_currency_for_route_sheet(total_factura),
-        "adeudo_anterior": format_currency_for_route_sheet(adeudo_anterior),
-        "gran_total": format_currency_for_route_sheet(route_total_amount),
-        "folio": folio.strip(),
-    }
-
-
-def get_local_route_missing_fields(payload: Dict[str, str]) -> List[str]:
-    """Return required route fields that are still missing."""
-    missing_fields = []
-    if not payload.get("cliente"):
-        missing_fields.append("Cliente")
-    if not payload.get("folio"):
-        missing_fields.append("Folio de Factura")
-    if not payload.get("calle_no"):
-        missing_fields.append("Calle y No.")
-    return missing_fields
 
 
 def parse_sheet_row_number(value) -> Optional[int]:
@@ -2667,16 +2597,6 @@ with tab1:
                 with col5:
                     referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
 
-        confirm_route_button = False
-        if tipo_envio == "📍 Pedido Local":
-            st.markdown("---")
-            st.subheader("📄 Preparar Hoja de Ruta")
-            st.caption("Primero confirma estos datos para congelar la información actualizada que se usará en el Excel.")
-            confirm_route_button = st.form_submit_button(
-                "🔄 Confirmar datos hoja de ruta",
-                help="Actualiza el resumen y deja lista la descarga del Excel con los datos capturados hasta este momento.",
-            )
-
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button(
             "✅ Registrar Pedido",
@@ -2693,89 +2613,69 @@ with tab1:
             if registrar_nota_venta and isinstance(nota_venta, str)
             else folio_factura_input_value.strip()
         )
-        current_route_payload = build_local_route_payload(
-            fecha_entrega=fecha_entrega,
-            registro_cliente=registro_cliente,
-            subtipo_local=subtipo_local,
-            recibe=local_route_recibe,
-            comentario=comentario,
-            calle_no=local_route_calle_no,
-            tipo_inmueble=local_route_tipo_inmueble,
-            interior=local_route_interior,
-            acceso_privada=local_route_acceso_privada,
-            colonia=local_route_colonia,
-            municipio=local_route_municipio,
-            cp=local_route_cp,
-            telefonos=local_route_telefonos,
-            forma_pago=local_route_forma_pago,
-            vendedor=vendedor,
-            total_factura=local_route_total_factura,
-            adeudo_anterior=local_route_adeudo_anterior,
-            folio=current_folio_for_route,
-        )
+        route_total_amount = float(local_route_total_factura or 0.0) + float(local_route_adeudo_anterior or 0.0)
+        route_comment_parts = []
+        if current_folio_for_route:
+            route_comment_parts.append(f"FOLIO: {current_folio_for_route}")
+        if comentario.strip():
+            route_comment_parts.append(comentario.strip())
 
-        if confirm_route_button:
-            st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload
-            st.session_state[LOCAL_ROUTE_CONFIRMED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        route_payload = {
+            "fecha": fecha_entrega.strftime('%Y-%m-%d') if isinstance(fecha_entrega, date) else "",
+            "dia_entrega": get_weekday_name_es(fecha_entrega),
+            "cliente": registro_cliente.strip(),
+            "hora_entrega": get_local_delivery_slot(subtipo_local),
+            "recibe": local_route_recibe.strip(),
+            "comentarios": " | ".join(route_comment_parts),
+            "calle_no": local_route_calle_no.strip(),
+            "tipo_inmueble": local_route_tipo_inmueble.strip(),
+            "interior": local_route_interior.strip(),
+            "acceso_privada": local_route_acceso_privada.strip(),
+            "colonia": local_route_colonia.strip(),
+            "municipio": local_route_municipio.strip(),
+            "cp": local_route_cp.strip(),
+            "telefonos": local_route_telefonos.strip(),
+            "estado_pago": "NO PAGADO",
+            "forma_pago": local_route_forma_pago.strip() or "TRANSFERENCIA",
+            "vendedor": vendedor.strip(),
+            "total_factura": format_currency_for_route_sheet(local_route_total_factura),
+            "adeudo_anterior": format_currency_for_route_sheet(local_route_adeudo_anterior),
+            "gran_total": format_currency_for_route_sheet(route_total_amount),
+        }
 
-        confirmed_route_payload = st.session_state.get(LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY)
-        confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
-        route_missing_fields = get_local_route_missing_fields(current_route_payload)
+        route_missing_fields = []
+        if not route_payload["cliente"]:
+            route_missing_fields.append("Cliente")
+        if not current_folio_for_route:
+            route_missing_fields.append("Folio de Factura")
+        if not route_payload["calle_no"]:
+            route_missing_fields.append("Calle y No.")
 
         if subtipo_local not in ["☀️ Local Mañana", "🌙 Local Tarde"]:
             st.warning("⚠️ La hoja de ruta asigna horario automático solo para ☀️ Local Mañana y 🌙 Local Tarde. Para otros turnos se usará el texto del turno seleccionado.")
 
         st.markdown("---")
         st.subheader("📄 Generar Hoja de Ruta")
-        st.info("Confirma primero los datos para ver el resumen actualizado y luego descarga el Excel con esa misma información confirmada.")
-
-        if confirm_route_button:
-            st.success("✅ Datos de hoja de ruta confirmados. Ya puedes generar el Excel con la información más reciente.")
-
-        if not confirmed_route_payload:
-            st.warning("⚠️ Aún no confirmas los datos de la hoja de ruta. Captura la información y presiona 'Confirmar datos hoja de ruta'.")
+        st.info("Este botón descarga el Excel de ruta local sin afectar el guardado normal del pedido.")
+        if not route_template_path.exists():
+            st.error(f"No se encontró la plantilla de hoja de ruta en: {route_template_path}")
         else:
-            confirmed_missing_fields = get_local_route_missing_fields(confirmed_route_payload)
-            resumen_items = [
-                f"Cliente: {confirmed_route_payload.get('cliente') or 'N/A'}",
-                f"Folio: {confirmed_route_payload.get('folio') or 'N/A'}",
-                f"Recibe: {confirmed_route_payload.get('recibe') or 'N/A'}",
-                f"Dirección: {confirmed_route_payload.get('calle_no') or 'N/A'}",
-                f"Municipio: {confirmed_route_payload.get('municipio') or 'N/A'}",
-                f"Teléfonos: {confirmed_route_payload.get('telefonos') or 'N/A'}",
-                f"Forma de pago: {confirmed_route_payload.get('forma_pago') or 'N/A'}",
-                f"Total factura: {confirmed_route_payload.get('total_factura')}",
-                f"Adeudo anterior: {confirmed_route_payload.get('adeudo_anterior')}",
-                f"Gran total: {confirmed_route_payload.get('gran_total')}",
-            ]
-            st.caption(
-                f"Datos confirmados: {confirmed_route_timestamp or 'Sin fecha'} | "
-                f"Horario asignado: {confirmed_route_payload['hora_entrega']} | "
-                f"Día de entrega: {confirmed_route_payload['dia_entrega']} | "
-                f"Gran total a cobrar: {confirmed_route_payload['gran_total']}"
+            route_file = build_local_route_sheet(route_template_path, route_payload)
+            route_filename_folio = re.sub(r'[^A-Za-z0-9_-]+', '_', current_folio_for_route or 'sin_folio').strip('_') or 'sin_folio'
+            st.download_button(
+                label="🗺️ Generar hoja de ruta",
+                data=route_file.getvalue(),
+                file_name=f"hoja_ruta_local_{route_filename_folio}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help=(
+                    "Descarga la hoja de ruta local con la información capturada. Si faltan datos, el formato se descargará con espacios en blanco."
+                ),
             )
-            st.caption(" | ".join(resumen_items))
-
-            if confirmed_missing_fields:
-                st.caption("Faltan datos requeridos por revisar: " + ", ".join(confirmed_missing_fields))
-
-            if not route_template_path.exists():
-                st.error(f"No se encontró la plantilla de hoja de ruta en: {route_template_path}")
-            else:
-                route_file = build_local_route_sheet(route_template_path, confirmed_route_payload)
-                route_filename_folio = re.sub(r'[^A-Za-z0-9_-]+', '_', confirmed_route_payload.get('folio') or 'sin_folio').strip('_') or 'sin_folio'
-                st.download_button(
-                    label="🗺️ Generar y descargar hoja de ruta",
-                    data=route_file.getvalue(),
-                    file_name=f"hoja_ruta_local_{route_filename_folio}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    help="Descarga el Excel usando exactamente los datos confirmados en el resumen mostrado arriba.",
-                )
-
-        if confirmed_route_payload and current_route_payload != confirmed_route_payload:
-            st.warning("⚠️ Hiciste cambios después de la última confirmación. Vuelve a presionar 'Confirmar datos hoja de ruta' para actualizar el Excel antes de descargarlo.")
-        elif route_missing_fields:
-            st.caption("Campos pendientes en la captura actual: " + ", ".join(route_missing_fields))
+            if route_missing_fields:
+                st.caption("Faltan datos opcionales por capturar: " + ", ".join(route_missing_fields))
+            st.caption(
+                f"Horario asignado: {route_payload['hora_entrega']} | Día de entrega: {route_payload['dia_entrega']} | Gran total a cobrar: {route_payload['gran_total']}"
+            )
 
     if submit_button:
         st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
