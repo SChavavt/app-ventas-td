@@ -2528,15 +2528,17 @@ with tab1:
                 key="estado_pago",
             )
 
+            route_notice_placeholder = st.empty()
             confirm_route_button = st.form_submit_button(
                 "🔄 Confirmar datos hoja de ruta",
                 help="Actualiza el resumen y adjunta la hoja de ruta con los datos capturados hasta este momento.",
             )
             if route_post_confirm_notice:
-                st.success("✅ Hoja de ruta actualizada correctamente.")
                 route_notice_filename = route_post_confirm_notice.get("filename", "")
-                if route_notice_filename:
-                    st.caption(f"📎 Hoja de ruta generada: `{route_notice_filename}`")
+                with route_notice_placeholder.container():
+                    st.success("✅ Hoja de ruta actualizada correctamente.")
+                    if route_notice_filename:
+                        st.caption(f"📎 Hoja de ruta generada: `{route_notice_filename}`")
 
             requiere_captura_pago = estado_pago == "✅ Pagado"
 
@@ -2865,6 +2867,11 @@ with tab1:
                 "filename": route_filename,
                 "confirmed_at": route_generated_at,
             }
+            if "route_notice_placeholder" in locals():
+                with route_notice_placeholder.container():
+                    st.success("✅ Hoja de ruta actualizada correctamente.")
+                    if route_filename:
+                        st.caption(f"📎 Hoja de ruta generada: `{route_filename}`")
 
         confirmed_route_payload = st.session_state.get(LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY)
         confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
