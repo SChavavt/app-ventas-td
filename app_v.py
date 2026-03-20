@@ -2729,9 +2729,6 @@ with tab1:
 
         st.info(f"✅ Tipo de envío seleccionado: {tipo_envio}{confirmation_detail}")
 
-        if tipo_envio == "📍 Pedido Local":
-            st.caption("La hoja de ruta se genera como descarga adicional y no modifica el guardado actual del pedido.")
-
         # -------------------------------
         # SECCIÓN DE ESTADO DE PAGO (dentro del form para evitar recargas al adjuntar archivos)
         # -------------------------------
