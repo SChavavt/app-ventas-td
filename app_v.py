@@ -2906,7 +2906,7 @@ with tab1:
                 st.error(f"No se encontró la plantilla de hoja de ruta en: {route_template_path}")
 
         if confirmed_route_payload and current_route_payload != confirmed_route_payload:
-            st.warning("⚠️ Hiciste cambios después de la última confirmación. Vuelve a presionar 'Confirmar datos hoja de ruta' para actualizar el Excel antes de descargarlo.")
+            st.warning("⚠️ Hiciste cambios después de la última confirmación. Vuelve a presionar 'Confirmar datos hoja de ruta' para actualizar el Excel.")
         elif route_missing_fields:
             st.caption("Campos pendientes en la captura actual: " + ", ".join(route_missing_fields))
     else:
