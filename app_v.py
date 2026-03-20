@@ -108,6 +108,7 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_generated_file",
     "local_route_generated_filename",
     "local_route_generated_at",
+    "local_route_post_confirm_notice",
 }
 
 TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
@@ -128,6 +129,7 @@ LOCAL_ROUTE_CONFIRMED_AT_KEY = "local_route_confirmed_at"
 LOCAL_ROUTE_GENERATED_FILE_KEY = "local_route_generated_file"
 LOCAL_ROUTE_GENERATED_FILENAME_KEY = "local_route_generated_filename"
 LOCAL_ROUTE_GENERATED_AT_KEY = "local_route_generated_at"
+LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY = "local_route_post_confirm_notice"
 
 
 
@@ -2348,6 +2350,11 @@ with tab1:
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
     form_nonce = int(st.session_state.get(TAB1_FORM_NONCE_KEY, 0) or 0)
+    route_post_confirm_notice = (
+        st.session_state.get(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY)
+        if tipo_envio == "📍 Pedido Local"
+        else None
+    )
     with st.form(key=f"new_pedido_form_{form_nonce}", clear_on_submit=False):
         st.markdown("---")
         st.subheader("Información Básica del Cliente y Pedido")
@@ -2486,6 +2493,7 @@ with tab1:
                         "Depósito en Efectivo",
                         "Tarjeta de Débito",
                         "Tarjeta de Crédito",
+                        "Credito TD",
                         "Cheque",
                     ],
                     key="local_route_forma_pago",
@@ -2524,6 +2532,11 @@ with tab1:
                 "🔄 Confirmar datos hoja de ruta",
                 help="Actualiza el resumen y adjunta la hoja de ruta con los datos capturados hasta este momento.",
             )
+            if route_post_confirm_notice:
+                st.success("✅ Hoja de ruta actualizada correctamente.")
+                route_notice_filename = route_post_confirm_notice.get("filename", "")
+                if route_notice_filename:
+                    st.caption(f"📎 Hoja de ruta regenerada y adjuntada automáticamente: `{route_notice_filename}`")
 
             requiere_captura_pago = estado_pago == "✅ Pagado"
 
@@ -2798,6 +2811,8 @@ with tab1:
         )
 
     should_process_submission = submit_button
+    if route_post_confirm_notice:
+        st.session_state.pop(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY, None)
 
     if tipo_envio == "📍 Pedido Local":
         route_template_path = Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx"
@@ -2832,6 +2847,7 @@ with tab1:
             st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload
             st.session_state[LOCAL_ROUTE_CONFIRMED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             route_generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            route_filename = ""
             if not route_template_path.exists():
                 st.session_state.pop(LOCAL_ROUTE_GENERATED_FILE_KEY, None)
                 st.session_state.pop(LOCAL_ROUTE_GENERATED_FILENAME_KEY, None)
@@ -2847,7 +2863,12 @@ with tab1:
                 }
                 st.session_state[LOCAL_ROUTE_GENERATED_FILENAME_KEY] = route_filename
                 st.session_state[LOCAL_ROUTE_GENERATED_AT_KEY] = route_generated_at
-                st.rerun()
+
+            st.session_state[LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY] = {
+                "filename": route_filename,
+                "confirmed_at": route_generated_at,
+            }
+            st.rerun()
 
         confirmed_route_payload = st.session_state.get(LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY)
         confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
