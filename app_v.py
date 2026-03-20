@@ -105,6 +105,9 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_adeudo_anterior",
     "local_route_confirmed_payload",
     "local_route_confirmed_at",
+    "local_route_generated_file",
+    "local_route_generated_filename",
+    "local_route_generated_at",
 }
 
 TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
@@ -122,6 +125,9 @@ TAB1_FORM_NONCE_KEY = "tab1_form_nonce"
 TAB2_LOADING_MESSAGE_KEY = "tab2_modification_loading_message"
 LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY = "local_route_confirmed_payload"
 LOCAL_ROUTE_CONFIRMED_AT_KEY = "local_route_confirmed_at"
+LOCAL_ROUTE_GENERATED_FILE_KEY = "local_route_generated_file"
+LOCAL_ROUTE_GENERATED_FILENAME_KEY = "local_route_generated_filename"
+LOCAL_ROUTE_GENERATED_AT_KEY = "local_route_generated_at"
 
 
 
@@ -262,6 +268,14 @@ def build_local_route_sheet(template_path: Path, payload: Dict[str, object]) -> 
     return output
 
 
+def slugify_local_route_client_name(cliente: str, fallback: str = "CLIENTE") -> str:
+    """Return an uppercase ASCII filename-safe slug based on the client name."""
+    normalized = unicodedata.normalize("NFKD", str(cliente or "").strip())
+    ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", ascii_name).strip("_")
+    return (cleaned or fallback).upper()
+
+
 def build_local_route_payload(
     fecha_entrega,
     registro_cliente: str,
@@ -276,6 +290,7 @@ def build_local_route_payload(
     municipio: str,
     cp: str,
     telefonos: str,
+    estado_pago: str,
     forma_pago: str,
     vendedor: str,
     total_factura,
@@ -301,7 +316,7 @@ def build_local_route_payload(
         "municipio": municipio.strip(),
         "cp": cp.strip(),
         "telefonos": telefonos.strip(),
-        "estado_pago": "NO PAGADO",
+        "estado_pago": (estado_pago or "NO PAGADO").strip(),
         "forma_pago": forma_pago.strip() or "TRANSFERENCIA",
         "vendedor": vendedor.strip(),
         "total_factura": format_currency_for_route_sheet(total_factura),
@@ -2488,10 +2503,78 @@ with tab1:
                     key="local_route_adeudo_anterior",
                 )
 
+            st.markdown("---")
+            st.subheader("💰 Estado de Pago")
+            opciones_estado_pago = (
+                ["🎟️ No Aplica", "🔴 No Pagado", "✅ Pagado"]
+                if registrar_nota_venta
+                else ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"]
+            )
+            if st.session_state.get("estado_pago") not in opciones_estado_pago:
+                st.session_state["estado_pago"] = opciones_estado_pago[0]
+
+            estado_pago = st.selectbox(
+                "Estado de Pago",
+                opciones_estado_pago,
+                index=0,
+                key="estado_pago",
+            )
+
             confirm_route_button = st.form_submit_button(
                 "🔄 Confirmar datos hoja de ruta",
-                help="Actualiza el resumen y deja lista la descarga del Excel con los datos capturados hasta este momento.",
+                help="Actualiza el resumen y adjunta la hoja de ruta con los datos capturados hasta este momento.",
             )
+
+            requiere_captura_pago = estado_pago == "✅ Pagado"
+
+            comprobante_pago_files = st.file_uploader(
+                "💲 Comprobante(s) de Pago",
+                type=["pdf", "jpg", "jpeg", "png"],
+                accept_multiple_files=True,
+                key="comprobante_uploader_final"
+            )
+            render_uploaded_files_preview("Comprobantes de pago seleccionados", comprobante_pago_files)
+
+            if requiere_captura_pago:
+                st.warning("⚠️ Estado en PAGADO: debes adjuntar al menos un comprobante antes de registrar el pedido.")
+            else:
+                st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado'.")
+
+            with st.expander("🧾 Detalles del Pago (opcional)"):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
+                with col2:
+                    forma_pago = st.selectbox("💳 Forma de Pago", [
+                        "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
+                    ], key="forma_pago_input")
+                with col3:
+                    monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_input")
+
+                col4, col5 = st.columns(2)
+                with col4:
+                    if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                        terminal = st.selectbox(
+                            "🏧 Terminal",
+                            [
+                                "BANORTE",
+                                "AFIRME",
+                                "VELPAY",
+                                "CLIP",
+                                "PAYPAL",
+                                "BBVA",
+                                "CONEKTA",
+                                "MERCADO PAGO",
+                            ],
+                            key="terminal_input",
+                        )
+                        banco_destino = ""
+                    else:
+                        banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_input")
+                        terminal = ""
+                with col5:
+                    referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+
         else:
             confirm_route_button = False
 
@@ -2604,6 +2687,11 @@ with tab1:
         )
         render_uploaded_files_preview("Archivos del pedido seleccionados", uploaded_files)
 
+        auto_route_filename = st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "")
+        auto_route_file_data = st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
+        if tipo_envio == "📍 Pedido Local" and auto_route_filename and auto_route_file_data:
+            st.caption(f"✅ Hoja de ruta adjuntada automáticamente: `{auto_route_filename}`")
+
         # --- Evidencias/Comprobantes PARA DEVOLUCIONES y GARANTÍAS ---
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
             st.markdown("---")
@@ -2634,7 +2722,7 @@ with tab1:
         # -------------------------------
         # SECCIÓN DE ESTADO DE PAGO (dentro del form para evitar recargas al adjuntar archivos)
         # -------------------------------
-        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+        if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
             st.markdown("---")
             st.subheader("💰 Estado de Pago")
             opciones_estado_pago = (
@@ -2732,6 +2820,7 @@ with tab1:
             municipio=local_route_municipio,
             cp=local_route_cp,
             telefonos=local_route_telefonos,
+            estado_pago=estado_pago,
             forma_pago=local_route_forma_pago,
             vendedor=vendedor,
             total_factura=local_route_total_factura,
@@ -2742,6 +2831,23 @@ with tab1:
         if confirm_route_button:
             st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload
             st.session_state[LOCAL_ROUTE_CONFIRMED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            route_generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if not route_template_path.exists():
+                st.session_state.pop(LOCAL_ROUTE_GENERATED_FILE_KEY, None)
+                st.session_state.pop(LOCAL_ROUTE_GENERATED_FILENAME_KEY, None)
+                st.session_state.pop(LOCAL_ROUTE_GENERATED_AT_KEY, None)
+            else:
+                generated_route_file = build_local_route_sheet(route_template_path, current_route_payload)
+                generated_route_bytes = generated_route_file.getvalue()
+                route_client_slug = slugify_local_route_client_name(current_route_payload.get("cliente", ""))
+                route_filename = f"{route_client_slug}.xlsx"
+                st.session_state[LOCAL_ROUTE_GENERATED_FILE_KEY] = {
+                    "name": route_filename,
+                    "content_b64": base64.b64encode(generated_route_bytes).decode("utf-8"),
+                }
+                st.session_state[LOCAL_ROUTE_GENERATED_FILENAME_KEY] = route_filename
+                st.session_state[LOCAL_ROUTE_GENERATED_AT_KEY] = route_generated_at
+                st.rerun()
 
         confirmed_route_payload = st.session_state.get(LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY)
         confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
@@ -2752,9 +2858,6 @@ with tab1:
 
         st.markdown("---")
         st.subheader("📄 Generar Hoja de Ruta")
-
-        if confirm_route_button:
-            st.success("✅ Datos de hoja de ruta confirmados. Ya puedes generar el Excel con la información más reciente.")
 
         if confirmed_route_payload:
             confirmed_missing_fields = get_local_route_missing_fields(confirmed_route_payload)
@@ -2783,21 +2886,15 @@ with tab1:
 
             if not route_template_path.exists():
                 st.error(f"No se encontró la plantilla de hoja de ruta en: {route_template_path}")
-            else:
-                route_file = build_local_route_sheet(route_template_path, confirmed_route_payload)
-                route_filename_folio = re.sub(r'[^A-Za-z0-9_-]+', '_', confirmed_route_payload.get('folio') or 'sin_folio').strip('_') or 'sin_folio'
-                st.download_button(
-                    label="🗺️ Generar y descargar hoja de ruta",
-                    data=route_file.getvalue(),
-                    file_name=f"hoja_ruta_local_{route_filename_folio}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    help="Descarga el Excel usando exactamente los datos confirmados en el resumen mostrado arriba.",
-                )
 
         if confirmed_route_payload and current_route_payload != confirmed_route_payload:
             st.warning("⚠️ Hiciste cambios después de la última confirmación. Vuelve a presionar 'Confirmar datos hoja de ruta' para actualizar el Excel antes de descargarlo.")
         elif route_missing_fields:
             st.caption("Campos pendientes en la captura actual: " + ", ".join(route_missing_fields))
+    else:
+        st.session_state.pop(LOCAL_ROUTE_GENERATED_FILE_KEY, None)
+        st.session_state.pop(LOCAL_ROUTE_GENERATED_FILENAME_KEY, None)
+        st.session_state.pop(LOCAL_ROUTE_GENERATED_AT_KEY, None)
 
     if submit_button:
         st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
@@ -3011,6 +3108,13 @@ with tab1:
                 uploaded_files = _deserialize_uploaded_files(submission_payload_override.get("uploaded_files"))
                 comprobante_pago_files = _deserialize_uploaded_files(submission_payload_override.get("comprobante_pago_files"))
                 comprobante_cliente = _deserialize_uploaded_files(submission_payload_override.get("comprobante_cliente"))
+                auto_route_files = _deserialize_uploaded_files(submission_payload_override.get("auto_route_files"))
+            else:
+                auto_route_files = _deserialize_uploaded_files(
+                    [st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)]
+                    if tipo_envio == "📍 Pedido Local" and st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
+                    else []
+                )
 
             if not vendedor or not registro_cliente:
                 set_pedido_submission_status(
@@ -3066,6 +3170,7 @@ with tab1:
                     "uploaded_files": _serialize_uploaded_files(uploaded_files),
                     "comprobante_pago_files": _serialize_uploaded_files(comprobante_pago_files),
                     "comprobante_cliente": _serialize_uploaded_files(comprobante_cliente),
+                    "auto_route_files": _serialize_uploaded_files(auto_route_files),
                 }
                 save_pending_submission(pending_cache_key, payload_to_retry)
             else:
@@ -3073,7 +3178,7 @@ with tab1:
                     pedido_id, hora_registro, s3_prefix = build_submission_identity()
 
             pedido_sin_adjuntos = not (
-                uploaded_files or comprobante_pago_files or comprobante_cliente
+                uploaded_files or comprobante_pago_files or comprobante_cliente or auto_route_files
             )
             aviso_estado_pago_auto = ""
 
@@ -3235,6 +3340,14 @@ with tab1:
                 adjuntos_urls.extend(
                     upload_files_or_fail(
                         comprobante_cliente,
+                        s3_client,
+                        S3_BUCKET_NAME,
+                        s3_prefix,
+                    )
+                )
+                adjuntos_urls.extend(
+                    upload_files_or_fail(
+                        auto_route_files,
                         s3_client,
                         S3_BUCKET_NAME,
                         s3_prefix,
