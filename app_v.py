@@ -2705,7 +2705,7 @@ with tab1:
         auto_route_filename = st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "")
         auto_route_file_data = st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
         if tipo_envio == "📍 Pedido Local" and auto_route_filename and auto_route_file_data:
-            st.caption(f"✅ Hoja de ruta adjuntada automáticamente: `{auto_route_filename}`")
+            st.caption(f"📎 Hoja de ruta adjuntada: `{auto_route_filename}`")
 
         # --- Evidencias/Comprobantes PARA DEVOLUCIONES y GARANTÍAS ---
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
