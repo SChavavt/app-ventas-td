@@ -2942,8 +2942,7 @@ with tab1:
 
         if confirmed_route_payload and current_route_payload != confirmed_route_payload:
             st.warning("⚠️ Hiciste cambios después de la última confirmación. Vuelve a presionar 'Confirmar datos hoja de ruta' para actualizar el Excel.")
-        elif route_missing_fields:
-            st.caption("Campos pendientes en la captura actual: " + ", ".join(route_missing_fields))
+
     else:
         st.session_state.pop(LOCAL_ROUTE_GENERATED_FILE_KEY, None)
         st.session_state.pop(LOCAL_ROUTE_GENERATED_FILENAME_KEY, None)
