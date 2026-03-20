@@ -2879,6 +2879,8 @@ with tab1:
 
         if confirmed_route_payload:
             confirmed_missing_fields = get_local_route_missing_fields(confirmed_route_payload)
+            generated_route_file_data = st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
+            generated_route_filename = st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "")
             resumen_items = [
                 f"Cliente: {confirmed_route_payload.get('cliente') or 'N/A'}",
                 f"Folio: {confirmed_route_payload.get('folio') or 'N/A'}",
@@ -2898,6 +2900,26 @@ with tab1:
                 f"Gran total a cobrar: {confirmed_route_payload['gran_total']}"
             )
             st.caption(" | ".join(resumen_items))
+
+            if generated_route_file_data and generated_route_filename:
+                try:
+                    generated_route_bytes = base64.b64decode(
+                        generated_route_file_data.get("content_b64", "")
+                    )
+                except Exception:
+                    generated_route_bytes = b""
+
+                if generated_route_bytes:
+                    st.download_button(
+                        label="📥 Descargar Excel generado",
+                        data=generated_route_bytes,
+                        file_name=generated_route_filename,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="local_route_download_generated_excel",
+                        help="Descarga la hoja de ruta generada para revisarla antes de subir el pedido.",
+                    )
+                else:
+                    st.caption("No fue posible recuperar el Excel generado para descarga previa.")
 
             if confirmed_missing_fields:
                 st.caption("Faltan datos requeridos por revisar: " + ", ".join(confirmed_missing_fields))
