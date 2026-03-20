@@ -2729,7 +2729,8 @@ with tab1:
         # Confirmación antes de registrar
         confirmation_detail = ""
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"] and fecha_entrega:
-            confirmation_detail += f" | Verifica que la Fecha de Entrega sea la Correcta"
+            fecha_entrega_texto = fecha_entrega.strftime("%d/%m/%Y") if hasattr(fecha_entrega, "strftime") else str(fecha_entrega)
+            confirmation_detail += f" | Fecha de Entrega Seleccionada: {fecha_entrega_texto}"
 
         if tipo_envio == "📍 Pedido Local":
             turno_local = subtipo_local if subtipo_local else "Sin turno"
