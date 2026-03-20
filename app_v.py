@@ -3149,6 +3149,9 @@ with tab1:
                 referencia_pago = submission_payload_override.get("referencia_pago", referencia_pago)
                 comentario = submission_payload_override.get("comentario", comentario)
                 subtipo_local = submission_payload_override.get("subtipo_local", subtipo_local)
+                local_route_forma_pago = submission_payload_override.get("local_route_forma_pago", local_route_forma_pago)
+                local_route_total_factura = float(submission_payload_override.get("local_route_total_factura", local_route_total_factura) or 0)
+                local_route_adeudo_anterior = float(submission_payload_override.get("local_route_adeudo_anterior", local_route_adeudo_anterior) or 0)
                 fecha_entrega_str = submission_payload_override.get("fecha_entrega")
                 if fecha_entrega_str:
                     try:
@@ -3219,6 +3222,9 @@ with tab1:
                     "referencia_pago": referencia_pago,
                     "comentario": comentario,
                     "subtipo_local": subtipo_local,
+                    "local_route_forma_pago": local_route_forma_pago,
+                    "local_route_total_factura": local_route_total_factura,
+                    "local_route_adeudo_anterior": local_route_adeudo_anterior,
                     "fecha_entrega": fecha_entrega.strftime('%Y-%m-%d') if fecha_entrega else "",
                     "uploaded_files": _serialize_uploaded_files(uploaded_files),
                     "comprobante_pago_files": _serialize_uploaded_files(comprobante_pago_files),
@@ -3475,8 +3481,10 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Forma_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
                         values.append(forma_pago)
+                    elif tipo_envio == "📍 Pedido Local":
+                        values.append(local_route_forma_pago)
                     else:
                         values.append("")
                 elif header == "Terminal":
@@ -3490,8 +3498,11 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Monto_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
                         values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
+                    elif tipo_envio == "📍 Pedido Local":
+                        monto_comprobante_local = float(local_route_total_factura or 0) + float(local_route_adeudo_anterior or 0)
+                        values.append(f"{monto_comprobante_local:.2f}" if monto_comprobante_local > 0 else "")
                     else:
                         values.append("")
                 elif header == "Referencia_Comprobante":
