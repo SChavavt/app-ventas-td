@@ -2486,6 +2486,7 @@ with tab1:
                         "Depósito en Efectivo",
                         "Tarjeta de Débito",
                         "Tarjeta de Crédito",
+                        "Credito TD",
                         "Cheque",
                     ],
                     key="local_route_forma_pago",
@@ -2829,25 +2830,26 @@ with tab1:
         )
 
         if confirm_route_button:
-            st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload
-            st.session_state[LOCAL_ROUTE_CONFIRMED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            route_generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if not route_template_path.exists():
-                st.session_state.pop(LOCAL_ROUTE_GENERATED_FILE_KEY, None)
-                st.session_state.pop(LOCAL_ROUTE_GENERATED_FILENAME_KEY, None)
-                st.session_state.pop(LOCAL_ROUTE_GENERATED_AT_KEY, None)
-            else:
-                generated_route_file = build_local_route_sheet(route_template_path, current_route_payload)
-                generated_route_bytes = generated_route_file.getvalue()
-                route_client_slug = slugify_local_route_client_name(current_route_payload.get("cliente", ""))
-                route_filename = f"{route_client_slug}.xlsx"
-                st.session_state[LOCAL_ROUTE_GENERATED_FILE_KEY] = {
-                    "name": route_filename,
-                    "content_b64": base64.b64encode(generated_route_bytes).decode("utf-8"),
-                }
-                st.session_state[LOCAL_ROUTE_GENERATED_FILENAME_KEY] = route_filename
-                st.session_state[LOCAL_ROUTE_GENERATED_AT_KEY] = route_generated_at
-                st.rerun()
+            with st.spinner("Generando hoja de ruta..."):
+                st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload
+                st.session_state[LOCAL_ROUTE_CONFIRMED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                route_generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                if not route_template_path.exists():
+                    st.session_state.pop(LOCAL_ROUTE_GENERATED_FILE_KEY, None)
+                    st.session_state.pop(LOCAL_ROUTE_GENERATED_FILENAME_KEY, None)
+                    st.session_state.pop(LOCAL_ROUTE_GENERATED_AT_KEY, None)
+                else:
+                    generated_route_file = build_local_route_sheet(route_template_path, current_route_payload)
+                    generated_route_bytes = generated_route_file.getvalue()
+                    route_client_slug = slugify_local_route_client_name(current_route_payload.get("cliente", ""))
+                    route_filename = f"{route_client_slug}.xlsx"
+                    st.session_state[LOCAL_ROUTE_GENERATED_FILE_KEY] = {
+                        "name": route_filename,
+                        "content_b64": base64.b64encode(generated_route_bytes).decode("utf-8"),
+                    }
+                    st.session_state[LOCAL_ROUTE_GENERATED_FILENAME_KEY] = route_filename
+                    st.session_state[LOCAL_ROUTE_GENERATED_AT_KEY] = route_generated_at
+            st.success("✅ Hoja de ruta actualizada correctamente.")
 
         confirmed_route_payload = st.session_state.get(LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY)
         confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
