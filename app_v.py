@@ -2536,7 +2536,7 @@ with tab1:
                 st.success("✅ Hoja de ruta actualizada correctamente.")
                 route_notice_filename = route_post_confirm_notice.get("filename", "")
                 if route_notice_filename:
-                    st.caption(f"📎 Hoja de ruta regenerada y adjuntada automáticamente: `{route_notice_filename}`")
+                    st.caption(f"📎 Hoja de ruta generada: `{route_notice_filename}`")
 
             requiere_captura_pago = estado_pago == "✅ Pagado"
 
@@ -2878,7 +2878,7 @@ with tab1:
             st.warning("⚠️ La hoja de ruta asigna horario automático solo para ☀️ Local Mañana y 🌙 Local Tarde. Para otros turnos se usará el texto del turno seleccionado.")
 
         st.markdown("---")
-        st.subheader("📄 Generar Hoja de Ruta")
+        st.subheader("📄 Info Hoja de Ruta Adjuntada")
 
         if confirmed_route_payload:
             confirmed_missing_fields = get_local_route_missing_fields(confirmed_route_payload)
