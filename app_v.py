@@ -2539,7 +2539,6 @@ with tab1:
                     st.success("✅ Hoja de ruta actualizada correctamente.")
                     if route_notice_filename:
                         st.caption(f"📎 Hoja de ruta generada: `{route_notice_filename}`")
-                        st.info(f"📎 Hoja de ruta adjuntada automáticamente: {route_notice_filename}")
 
             requiere_captura_pago = estado_pago == "✅ Pagado"
 
@@ -2879,7 +2878,6 @@ with tab1:
                     st.success("✅ Hoja de ruta actualizada correctamente.")
                     if route_filename:
                         st.caption(f"📎 Hoja de ruta generada: `{route_filename}`")
-                        st.info(f"📎 Hoja de ruta adjuntada automáticamente: {route_filename}")
 
         confirmed_route_payload = st.session_state.get(LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY)
         confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
