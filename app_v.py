@@ -2539,6 +2539,7 @@ with tab1:
                     st.success("✅ Hoja de ruta actualizada correctamente.")
                     if route_notice_filename:
                         st.caption(f"📎 Hoja de ruta generada: `{route_notice_filename}`")
+                        st.info(f"📎 Hoja de ruta adjuntada automáticamente: {route_notice_filename}")
 
             requiere_captura_pago = estado_pago == "✅ Pagado"
 
@@ -2702,10 +2703,16 @@ with tab1:
         )
         render_uploaded_files_preview("Archivos del pedido seleccionados", uploaded_files)
 
-        auto_route_filename = st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "")
-        auto_route_file_data = st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
-        if tipo_envio == "📍 Pedido Local" and auto_route_filename and auto_route_file_data:
-            st.caption(f"📎 Hoja de ruta adjuntada: `{auto_route_filename}`")
+        auto_route_filename = ""
+        if tipo_envio == "📍 Pedido Local":
+            auto_route_filename = st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "")
+            if route_post_confirm_notice and route_post_confirm_notice.get("filename"):
+                auto_route_filename = route_post_confirm_notice.get("filename", "")
+            elif confirm_route_button and registro_cliente:
+                auto_route_filename = f"{slugify_local_route_client_name(registro_cliente)}.xlsx"
+
+        if auto_route_filename:
+            st.info(f"📎 Hoja de ruta adjuntada automáticamente: {auto_route_filename}")
 
         # --- Evidencias/Comprobantes PARA DEVOLUCIONES y GARANTÍAS ---
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
@@ -2872,6 +2879,7 @@ with tab1:
                     st.success("✅ Hoja de ruta actualizada correctamente.")
                     if route_filename:
                         st.caption(f"📎 Hoja de ruta generada: `{route_filename}`")
+                        st.info(f"📎 Hoja de ruta adjuntada automáticamente: {route_filename}")
 
         confirmed_route_payload = st.session_state.get(LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY)
         confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
