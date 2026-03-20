@@ -108,7 +108,6 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_generated_file",
     "local_route_generated_filename",
     "local_route_generated_at",
-    "local_route_post_confirm_notice",
 }
 
 TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
@@ -129,7 +128,6 @@ LOCAL_ROUTE_CONFIRMED_AT_KEY = "local_route_confirmed_at"
 LOCAL_ROUTE_GENERATED_FILE_KEY = "local_route_generated_file"
 LOCAL_ROUTE_GENERATED_FILENAME_KEY = "local_route_generated_filename"
 LOCAL_ROUTE_GENERATED_AT_KEY = "local_route_generated_at"
-LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY = "local_route_post_confirm_notice"
 
 
 
@@ -2488,7 +2486,6 @@ with tab1:
                         "Depósito en Efectivo",
                         "Tarjeta de Débito",
                         "Tarjeta de Crédito",
-                        "Credito TD",
                         "Cheque",
                     ],
                     key="local_route_forma_pago",
@@ -2692,12 +2689,6 @@ with tab1:
 
         auto_route_filename = st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "")
         auto_route_file_data = st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
-        route_post_confirm_notice = st.session_state.pop(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY, None)
-        if tipo_envio == "📍 Pedido Local" and route_post_confirm_notice:
-            route_notice_filename = route_post_confirm_notice.get("filename", "")
-            if route_notice_filename:
-                st.info(f"📎 Hoja de ruta regenerada y adjuntada automáticamente: `{route_notice_filename}`")
-            st.success("✅ Hoja de ruta actualizada correctamente.")
         if tipo_envio == "📍 Pedido Local" and auto_route_filename and auto_route_file_data:
             st.caption(f"✅ Hoja de ruta adjuntada automáticamente: `{auto_route_filename}`")
 
@@ -2841,7 +2832,6 @@ with tab1:
             st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload
             st.session_state[LOCAL_ROUTE_CONFIRMED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             route_generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            route_filename = ""
             if not route_template_path.exists():
                 st.session_state.pop(LOCAL_ROUTE_GENERATED_FILE_KEY, None)
                 st.session_state.pop(LOCAL_ROUTE_GENERATED_FILENAME_KEY, None)
@@ -2857,12 +2847,7 @@ with tab1:
                 }
                 st.session_state[LOCAL_ROUTE_GENERATED_FILENAME_KEY] = route_filename
                 st.session_state[LOCAL_ROUTE_GENERATED_AT_KEY] = route_generated_at
-
-            st.session_state[LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY] = {
-                "filename": route_filename,
-                "confirmed_at": route_generated_at,
-            }
-            st.rerun()
+                st.rerun()
 
         confirmed_route_payload = st.session_state.get(LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY)
         confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
