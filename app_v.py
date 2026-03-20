@@ -2865,7 +2865,6 @@ with tab1:
                 "filename": route_filename,
                 "confirmed_at": route_generated_at,
             }
-            st.rerun()
 
         confirmed_route_payload = st.session_state.get(LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY)
         confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
