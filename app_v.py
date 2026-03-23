@@ -324,6 +324,7 @@ def build_local_route_payload(
         "fecha": fecha_entrega.strftime('%Y-%m-%d') if isinstance(fecha_entrega, date) else "",
         "dia_entrega": get_weekday_name_es(fecha_entrega),
         "cliente": registro_cliente.strip(),
+        "subtipo_local": subtipo_local.strip(),
         "hora_entrega": get_local_delivery_slot(subtipo_local),
         "recibe": recibe.strip(),
         "comentarios": route_comment,
@@ -348,11 +349,14 @@ def build_local_route_payload(
 def get_local_route_missing_fields(payload: Dict[str, str]) -> List[str]:
     """Return required route fields that are still missing."""
     missing_fields = []
+    local_delivery_mode = str(payload.get("subtipo_local", "") or "").strip()
+    requires_address = local_delivery_mode != "📦 Pasa a Bodega"
+
     if not payload.get("cliente"):
         missing_fields.append("Cliente")
     if not payload.get("folio"):
         missing_fields.append("Folio de Factura")
-    if not payload.get("calle_no"):
+    if requires_address and not payload.get("calle_no"):
         missing_fields.append("Calle y No.")
     return missing_fields
 
