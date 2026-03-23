@@ -228,6 +228,17 @@ def get_local_delivery_slot(turno_local: str) -> str:
     return turno_normalizado or "POR DEFINIR"
 
 
+LOCAL_TURNO_CDMX_IDS = {"RUBEN67", "JUAN24", "FRANKO95"}
+
+
+def get_local_shift_options(id_vendedor: str | None = None) -> list[str]:
+    """Return local shift options, enabling CDMX only for approved users."""
+    opciones = ["☀️ Local Mañana", "🌙 Local Tarde", "🌵 Saltillo", "📦 Pasa a Bodega"]
+    if normalize_vendedor_id(id_vendedor or "") in LOCAL_TURNO_CDMX_IDS:
+        opciones.append("🏙️ Local CDMX")
+    return opciones
+
+
 def get_weekday_name_es(delivery_date: date) -> str:
     """Return the weekday in uppercase Spanish for the route sheet."""
     dias = [
@@ -2573,9 +2584,10 @@ with tab1:
     if tipo_envio == "📍 Pedido Local":
         st.markdown("---")
         st.subheader("⏰ Detalle de Pedido Local")
+        local_shift_options = get_local_shift_options(st.session_state.get("id_vendedor", ""))
         subtipo_local = st.selectbox(
             "Turno/Locales",
-            ["☀️ Local Mañana", "🌙 Local Tarde", "🌵 Saltillo", "📦 Pasa a Bodega"],
+            local_shift_options,
             index=0,
             key="subtipo_local_selector",
             help="Selecciona el turno o tipo de entrega para pedidos locales."
