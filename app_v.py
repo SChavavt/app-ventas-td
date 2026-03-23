@@ -1152,23 +1152,8 @@ def get_worksheet_clientes_locales(refresh_token: float | None = None):
     client = get_google_sheets_client(refresh_token)
     if client is None:
         return None
-    try:
-        spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-        worksheet = spreadsheet.worksheet(SHEET_CLIENTES_LOCALES)
-        st.session_state.pop("clientes_locales_error", None)
-        return worksheet
-    except APIError as e:
-        st.session_state["clientes_locales_error"] = (
-            "⚠️ No se pudo consultar el historial de clientes locales en este momento. "
-            "Puedes continuar capturando el cliente manualmente."
-        )
-        return None
-    except Exception as e:
-        st.session_state["clientes_locales_error"] = (
-            "⚠️ No se pudo abrir Clientes_Locales en este momento. "
-            "Puedes continuar capturando el cliente manualmente."
-        )
-        return None
+    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    return spreadsheet.worksheet(SHEET_CLIENTES_LOCALES)
 
 def get_worksheet_casos_especiales():
     client = build_gspread_client()
@@ -1214,48 +1199,33 @@ def ensure_clientes_locales_headers(worksheet) -> list[str]:
 @st.cache_data(ttl=120)
 def load_clientes_locales_dataset(refresh_token: float | None = None) -> pd.DataFrame:
     """Carga Clientes_Locales con metadatos normalizados para coincidencias flexibles."""
-    empty_dataset = pd.DataFrame(columns=CLIENTES_LOCALES_HEADERS + ["Sheet_Row_Number", "normalized_cliente"])
     worksheet = get_worksheet_clientes_locales(refresh_token)
     if worksheet is None:
-        return empty_dataset
+        return pd.DataFrame()
 
-    try:
-        rows = worksheet.get_all_values()
-        if not rows:
-            worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
-            return empty_dataset
+    rows = worksheet.get_all_values()
+    if not rows:
+        worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        return pd.DataFrame(columns=CLIENTES_LOCALES_HEADERS + ["Sheet_Row_Number", "normalized_cliente"])
 
-        headers = [str(value).strip() for value in rows[0]]
-        if headers != CLIENTES_LOCALES_HEADERS:
-            worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
-            headers = CLIENTES_LOCALES_HEADERS
+    headers = [str(value).strip() for value in rows[0]]
+    if headers != CLIENTES_LOCALES_HEADERS:
+        worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        headers = CLIENTES_LOCALES_HEADERS
 
-        records = []
-        for row_number, row_values in enumerate(rows[1:], start=2):
-            padded = list(row_values[: len(CLIENTES_LOCALES_HEADERS)])
-            if len(padded) < len(CLIENTES_LOCALES_HEADERS):
-                padded.extend([""] * (len(CLIENTES_LOCALES_HEADERS) - len(padded)))
-            if not any(str(cell).strip() for cell in padded):
-                continue
-            record = dict(zip(CLIENTES_LOCALES_HEADERS, padded))
-            record["Sheet_Row_Number"] = row_number
-            record["normalized_cliente"] = normalize_client_history_text(record.get("Cliente", ""))
-            records.append(record)
+    records = []
+    for row_number, row_values in enumerate(rows[1:], start=2):
+        padded = list(row_values[: len(CLIENTES_LOCALES_HEADERS)])
+        if len(padded) < len(CLIENTES_LOCALES_HEADERS):
+            padded.extend([""] * (len(CLIENTES_LOCALES_HEADERS) - len(padded)))
+        if not any(str(cell).strip() for cell in padded):
+            continue
+        record = dict(zip(CLIENTES_LOCALES_HEADERS, padded))
+        record["Sheet_Row_Number"] = row_number
+        record["normalized_cliente"] = normalize_client_history_text(record.get("Cliente", ""))
+        records.append(record)
 
-        st.session_state.pop("clientes_locales_error", None)
-        return pd.DataFrame(records)
-    except APIError:
-        st.session_state["clientes_locales_error"] = (
-            "⚠️ No se pudo cargar el historial de clientes locales por un problema temporal de Google Sheets. "
-            "Puedes seguir capturando el cliente manualmente."
-        )
-        return empty_dataset
-    except Exception:
-        st.session_state["clientes_locales_error"] = (
-            "⚠️ No se pudo leer el historial de clientes locales en este momento. "
-            "Puedes seguir capturando el cliente manualmente."
-        )
-        return empty_dataset
+    return pd.DataFrame(records)
 
 
 def find_clientes_locales_matches(search_text: str, dataset: pd.DataFrame, limit: int = 8) -> list[dict]:
@@ -1294,20 +1264,6 @@ def find_clientes_locales_matches(search_text: str, dataset: pd.DataFrame, limit
     return matches[:limit]
 
 
-def sync_local_client_lookup_to_form() -> None:
-    """Sincroniza la búsqueda rápida de clientes locales hacia el campo principal del cliente."""
-    st.session_state["registro_cliente"] = str(
-        st.session_state.get("local_route_client_search", "") or ""
-    ).strip()
-
-
-def sync_form_client_to_local_lookup() -> None:
-    """Mantiene alineada la búsqueda local cuando el usuario edita el cliente manualmente."""
-    st.session_state["local_route_client_search"] = str(
-        st.session_state.get("registro_cliente", "") or ""
-    ).strip()
-
-
 def apply_cliente_local_to_session(record: dict) -> None:
     """Rellena la hoja de ruta local con la información guardada del cliente."""
     tipo_inmueble_options = {
@@ -1328,7 +1284,6 @@ def apply_cliente_local_to_session(record: dict) -> None:
     }
 
     st.session_state["registro_cliente"] = str(record.get("Cliente", "") or "").strip()
-    st.session_state["local_route_client_search"] = st.session_state["registro_cliente"]
     st.session_state["local_route_recibe"] = str(record.get("Recibe", "") or "").strip()
     st.session_state["local_route_calle_no"] = str(record.get("CalleyNumero", "") or "").strip()
     tipo_inmueble = str(record.get("Tipo_Inmueble", "") or "").strip()
@@ -2519,20 +2474,13 @@ with tab1:
         st.markdown("---")
         st.subheader("🔎 Historial de clientes locales")
         client_history_search = st.text_input(
-            "Buscar cliente en historial / escribir cliente nuevo",
+            "Buscar cliente en historial",
             key="local_route_client_search",
             placeholder="Escribe o pega el nombre del cliente",
-            help="Escribe una sola vez: si hay coincidencias se cargan automáticamente; si no existen, el nombre se usa como cliente nuevo.",
-            on_change=sync_local_client_lookup_to_form,
+            help="Busca coincidencias flexibles en Clientes_Locales ignorando mayúsculas, acentos y pequeños errores de captura.",
         )
 
-        if client_history_search.strip() and not str(st.session_state.get("registro_cliente", "") or "").strip():
-            sync_local_client_lookup_to_form()
-
         clientes_locales_df = load_clientes_locales_dataset()
-        clientes_locales_error = str(st.session_state.get("clientes_locales_error", "") or "").strip()
-        if clientes_locales_error:
-            st.warning(clientes_locales_error)
         client_history_matches = find_clientes_locales_matches(client_history_search, clientes_locales_df)
         client_history_options: dict[str, dict] = {}
         for match in client_history_matches:
@@ -2564,7 +2512,6 @@ with tab1:
             if previous_history_label in client_history_options:
                 selected_history_index = list(client_history_options.keys()).index(previous_history_label)
 
-            st.caption("Se encontraron varias coincidencias. Selecciona una para cargar sus datos.")
             selected_history_label = st.radio(
                 "Coincidencias encontradas",
                 options=list(client_history_options.keys()),
@@ -2580,10 +2527,8 @@ with tab1:
                     apply_cliente_local_to_session(selected_history_record)
                     st.rerun()
         elif client_history_search.strip():
-            st.caption("🆕 Cliente nuevo sin historial. Puedes continuar sin volver a escribir el nombre.")
+            st.caption("No se encontraron coincidencias en Clientes_Locales para ese nombre.")
             st.session_state["local_route_selected_history_row"] = None
-            st.session_state["local_route_selected_history_label"] = None
-            sync_local_client_lookup_to_form()
 
     registrar_nota_venta = st.checkbox(
         "🧾 Registrar nota de venta",
@@ -2689,8 +2634,6 @@ with tab1:
         if vendedor != st.session_state.get("last_selected_vendedor", None):
             st.session_state.last_selected_vendedor = vendedor
 
-        if tipo_envio == "📍 Pedido Local" and not str(st.session_state.get("local_route_client_search", "") or "").strip():
-            sync_form_client_to_local_lookup()
         registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
 
         # Número de cliente / RFC para Casos Especiales (Devolución y Garantía)
