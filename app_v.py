@@ -396,6 +396,35 @@ def normalize_vendedor_id(value: object) -> str:
     return str(value or "").strip().upper()
 
 
+def get_session_vendedor_name() -> str:
+    """Return the logged-in vendor display name mapped from the session vendor ID."""
+    return VENDEDOR_NOMBRE_POR_ID.get(
+        normalize_vendedor_id(st.session_state.get("id_vendedor", "")),
+        "",
+    )
+
+
+def ensure_selectbox_vendor_default(key: str, options: list[str], fallback: str = "Todos") -> int:
+    """Preselect the current session vendor when it exists in the available options."""
+    if not options:
+        return 0
+
+    session_vendor = get_session_vendedor_name()
+    default_value = session_vendor if session_vendor in options else fallback
+    if default_value not in options:
+        default_value = options[0]
+
+    current_value = st.session_state.get(key)
+    if current_value not in options:
+        st.session_state[key] = default_value
+        current_value = default_value
+
+    try:
+        return options.index(current_value)
+    except ValueError:
+        return 0
+
+
 def is_empty_folio(value: object) -> bool:
     """True cuando el folio está vacío o no tiene valor utilizable."""
     cleaned = str(value or "").strip()
@@ -4320,6 +4349,7 @@ with tab2:
                 selected_vendedor_mod = st.selectbox(
                     "Filtrar por Vendedor:",
                     options=unique_vendedores_mod,
+                    index=ensure_selectbox_vendor_default("vendedor_filter_mod", unique_vendedores_mod),
                     key="vendedor_filter_mod"
                 )
             else:
@@ -5042,6 +5072,7 @@ with tab3:
                 selected_vendedor_comp = st.selectbox(
                     "Filtrar por Vendedor:",
                     options=unique_vendedores_comp,
+                    index=ensure_selectbox_vendor_default("comprobante_vendedor_filter", unique_vendedores_comp),
                     key="comprobante_vendedor_filter"
                 )
                 if selected_vendedor_comp != "Todos":
@@ -5805,6 +5836,7 @@ with tab4:
                     selected_vendedor_casos = st.selectbox(
                         "Filtrar por Vendedor:",
                         options=vendedores_casos,
+                        index=ensure_selectbox_vendor_default("filtro_vendedor_casos_especiales", vendedores_casos),
                         key="filtro_vendedor_casos_especiales"
                     )
 
@@ -6027,6 +6059,7 @@ with tab5:
             vendedor_filtrado = st.selectbox(
                 "Filtrar por Vendedor",
                 vendedores,
+                index=ensure_selectbox_vendor_default("filtro_vendedor_guias", vendedores),
                 key="filtro_vendedor_guias",
                 on_change=fijar_tab5_activa
             )
@@ -6584,6 +6617,7 @@ with tab7:
             selected_vendedor = st.selectbox(
                 "Filtrar por Vendedor:",
                 options=options_for_selectbox,
+                index=ensure_selectbox_vendor_default("download_vendedor_filter_tab6_final", options_for_selectbox),
                 key="download_vendedor_filter_tab6_final"
             )
 
