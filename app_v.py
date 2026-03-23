@@ -2809,7 +2809,8 @@ with tab1:
                 )
                 st.caption(
                     "Este botón actualiza la base histórica del cliente. "
-                    "La vista previa del Excel de hoja de ruta ahora es opcional y se genera más abajo."
+                    "Si solo deseas revisar cómo quedará la hoja de ruta sin modificar el historial, "
+                    "usa más abajo '👀 Ver / actualizar vista previa del Excel (opcional)'."
                 )
             else:
                 update_client_history_button = False
