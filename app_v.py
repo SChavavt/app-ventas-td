@@ -1315,29 +1315,49 @@ def load_clientes_locales_dataset(refresh_token: float | None = None) -> pd.Data
     return pd.DataFrame(records)
 
 
+def _client_name_prefix_tokens_match(query_tokens: list[str], name_tokens: list[str]) -> bool:
+    """Valida coincidencias progresivas token por token sin mezclar nombres distintos."""
+    if not query_tokens or not name_tokens or len(query_tokens) > len(name_tokens):
+        return False
+    return all(name_token.startswith(query_token) for query_token, name_token in zip(query_tokens, name_tokens))
+
+
+
 def find_clientes_locales_matches(search_text: str, dataset: pd.DataFrame, limit: int = 8) -> list[dict]:
-    """Busca coincidencias por nombre con tolerancia a pequeñas variaciones."""
+    """Busca coincidencias estrictas para evitar confundir clientes con apellidos similares."""
     normalized_query = normalize_client_history_text(search_text)
     if not normalized_query or dataset.empty:
         return []
 
+    query_tokens = normalized_query.split()
     matches: list[dict] = []
     for _, row in dataset.iterrows():
         normalized_name = str(row.get("normalized_cliente", "") or "")
         if not normalized_name:
             continue
-        score = SequenceMatcher(None, normalized_query, normalized_name).ratio()
-        if normalized_query in normalized_name:
-            score += 0.45
-        elif normalized_name in normalized_query:
-            score += 0.30
-        query_tokens = set(normalized_query.split())
-        name_tokens = set(normalized_name.split())
-        if query_tokens and name_tokens:
-            overlap = len(query_tokens & name_tokens) / max(len(query_tokens), len(name_tokens))
-            score += overlap * 0.35
-        if score < 0.55:
+
+        name_tokens = normalized_name.split()
+        ratio = SequenceMatcher(None, normalized_query, normalized_name).ratio()
+        is_exact = normalized_query == normalized_name
+        is_prefix = normalized_name.startswith(normalized_query)
+        is_token_prefix = len(normalized_query) >= 4 and _client_name_prefix_tokens_match(query_tokens, name_tokens)
+        is_near_exact = (
+            len(query_tokens) == len(name_tokens)
+            and query_tokens[:2] == name_tokens[:2]
+            and ratio >= 0.96
+        )
+
+        if is_exact:
+            score = 10.0
+        elif is_prefix:
+            score = 8.0 + ratio
+        elif is_token_prefix:
+            score = 6.0 + ratio
+        elif is_near_exact:
+            score = 4.0 + ratio
+        else:
             continue
+
         row_dict = row.to_dict()
         row_dict["_match_score"] = score
         matches.append(row_dict)
@@ -2571,7 +2591,7 @@ with tab1:
             "🤝 Cliente",
             key="registro_cliente",
             placeholder="Escribe o pega el nombre del cliente",
-            help="Busca coincidencias flexibles en Clientes_Locales ignorando mayúsculas, acentos y pequeños errores de captura.",
+            help="Busca coincidencias más estrictas en Clientes_Locales, priorizando nombres exactos o capturas progresivas del mismo nombre.",
         )
 
         clientes_locales_df = load_clientes_locales_dataset()
