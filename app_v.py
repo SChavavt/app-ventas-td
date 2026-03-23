@@ -1302,7 +1302,7 @@ def apply_cliente_local_to_session(record: dict) -> None:
         "Requiere autorización previa",
     }
 
-    st.session_state["registro_cliente"] = str(record.get("Cliente", "") or "").strip()
+    st.session_state["local_route_pending_registro_cliente"] = str(record.get("Cliente", "") or "").strip()
     st.session_state["local_route_recibe"] = str(record.get("Recibe", "") or "").strip()
     st.session_state["local_route_calle_no"] = str(record.get("CalleyNumero", "") or "").strip()
     tipo_inmueble = str(record.get("Tipo_Inmueble", "") or "").strip()
@@ -2490,18 +2490,27 @@ with tab1:
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
 
+        pending_registro_cliente = st.session_state.pop("local_route_pending_registro_cliente", None)
+        if pending_registro_cliente is not None:
+            st.session_state["registro_cliente"] = pending_registro_cliente
+
         st.markdown("---")
-        st.subheader("🔎 Historial de clientes locales")
-        client_history_search = st.text_input(
-            "Buscar cliente en historial",
-            key="local_route_client_search",
+        st.subheader("🤝 Cliente con búsqueda automática")
+        st.caption(
+            "Escribe el nombre del cliente una sola vez. La app buscará coincidencias en el historial local mientras capturas."
+        )
+        registro_cliente = st.text_input(
+            "🤝 Cliente",
+            key="registro_cliente",
             placeholder="Escribe o pega el nombre del cliente",
             help="Busca coincidencias flexibles en Clientes_Locales ignorando mayúsculas, acentos y pequeños errores de captura.",
         )
 
         clientes_locales_df = load_clientes_locales_dataset()
-        client_history_matches = find_clientes_locales_matches(client_history_search, clientes_locales_df)
+        client_history_matches = find_clientes_locales_matches(registro_cliente, clientes_locales_df)
         client_history_options: dict[str, dict] = {}
+        normalized_registro_cliente = normalize_client_history_text(registro_cliente)
+        exact_match_label = None
         for match in client_history_matches:
             display_label = f"{str(match.get('Cliente', '')).strip()} | C.P. {str(match.get('C_P.', '')).strip() or 'N/A'}"
             suffix = 2
@@ -2510,43 +2519,64 @@ with tab1:
                 display_label = f"{base_label} ({suffix})"
                 suffix += 1
             client_history_options[display_label] = match
+            if normalized_registro_cliente and normalize_client_history_text(match.get("Cliente", "")) == normalized_registro_cliente:
+                exact_match_label = display_label
 
-        if len(client_history_options) == 1:
-            selected_history_label, selected_history_record = next(iter(client_history_options.items()))
-            st.caption(f"✅ Cliente encontrado: {selected_history_label}")
+        selected_history_row = st.session_state.get("local_route_selected_history_row")
+        previous_history_label = st.session_state.get("local_route_selected_history_label")
+
+        if exact_match_label and exact_match_label in client_history_options:
+            selected_history_label = exact_match_label
+            selected_history_record = client_history_options[exact_match_label]
+            st.caption(f"✅ Cliente encontrado en historial: {selected_history_label}")
             selected_row_number = parse_sheet_row_number(selected_history_record.get("Sheet_Row_Number"))
-            st.session_state["local_route_selected_history_label"] = selected_history_label
-            current_form_cliente = str(st.session_state.get("registro_cliente", "") or "").strip()
-            matched_cliente = str(selected_history_record.get("Cliente", "") or "").strip()
             if (
-                st.session_state.get("local_route_selected_history_row") != selected_row_number
-                or current_form_cliente != matched_cliente
+                selected_history_row != selected_row_number
+                or str(st.session_state.get("registro_cliente", "") or "").strip() != str(selected_history_record.get("Cliente", "") or "").strip()
             ):
+                st.session_state["local_route_selected_history_label"] = selected_history_label
+                st.session_state["local_route_selected_history_row"] = selected_row_number
+                apply_cliente_local_to_session(selected_history_record)
+                st.rerun()
+        elif len(client_history_options) == 1:
+            selected_history_label, selected_history_record = next(iter(client_history_options.items()))
+            st.caption(f"✅ Coincidencia encontrada: {selected_history_label}")
+            selected_row_number = parse_sheet_row_number(selected_history_record.get("Sheet_Row_Number"))
+            if (
+                selected_history_row != selected_row_number
+                or str(st.session_state.get("registro_cliente", "") or "").strip() != str(selected_history_record.get("Cliente", "") or "").strip()
+            ):
+                st.session_state["local_route_selected_history_label"] = selected_history_label
                 st.session_state["local_route_selected_history_row"] = selected_row_number
                 apply_cliente_local_to_session(selected_history_record)
                 st.rerun()
         elif client_history_options:
-            previous_history_label = st.session_state.get("local_route_selected_history_label")
+            option_labels = list(client_history_options.keys())
             selected_history_index = None
             if previous_history_label in client_history_options:
-                selected_history_index = list(client_history_options.keys()).index(previous_history_label)
+                selected_history_index = option_labels.index(previous_history_label)
 
             selected_history_label = st.radio(
                 "Coincidencias encontradas",
-                options=list(client_history_options.keys()),
+                options=option_labels,
                 index=selected_history_index,
                 key="local_route_selected_history_label",
-                help="Haz clic una sola vez sobre la coincidencia para cargar la información guardada.",
+                help="Selecciona una coincidencia para cargar la información guardada del cliente.",
             )
             selected_history_record = client_history_options.get(selected_history_label)
             if selected_history_record:
                 selected_row_number = parse_sheet_row_number(selected_history_record.get("Sheet_Row_Number"))
-                if st.session_state.get("local_route_selected_history_row") != selected_row_number:
+                selected_history_name = str(selected_history_record.get("Cliente", "") or "").strip()
+                if (
+                    selected_history_row != selected_row_number
+                    or str(st.session_state.get("registro_cliente", "") or "").strip() != selected_history_name
+                ):
                     st.session_state["local_route_selected_history_row"] = selected_row_number
                     apply_cliente_local_to_session(selected_history_record)
                     st.rerun()
-        elif client_history_search.strip():
-            st.caption("No se encontraron coincidencias en Clientes_Locales para ese nombre.")
+        elif registro_cliente.strip():
+            st.caption("🆕 Cliente nuevo sin historial. Puedes continuar y al guardar se agregará al historial local.")
+            st.session_state["local_route_selected_history_label"] = None
             st.session_state["local_route_selected_history_row"] = None
 
     registrar_nota_venta = st.checkbox(
@@ -2653,7 +2683,11 @@ with tab1:
         if vendedor != st.session_state.get("last_selected_vendedor", None):
             st.session_state.last_selected_vendedor = vendedor
 
-        registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
+        if tipo_envio != "📍 Pedido Local":
+            registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
+        else:
+            registro_cliente = str(st.session_state.get("registro_cliente", "") or "").strip()
+            st.caption("ℹ️ Este nombre ya se usa para buscar y/o cargar el historial del cliente local en automático.")
 
         # Número de cliente / RFC para Casos Especiales (Devolución y Garantía)
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
