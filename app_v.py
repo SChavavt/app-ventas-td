@@ -153,6 +153,7 @@ USUARIOS_VALIDOS = [
     "PAULINA57",
     "RUBEN67",
     "ROBERTO51",
+    "FRANKO95",
 ]
 
 VENDEDOR_NOMBRE_POR_ID = {
@@ -171,6 +172,7 @@ VENDEDOR_NOMBRE_POR_ID = {
     "PAULINA57": "PAULINA TREJO",
     "RUBEN67": "RUBEN",
     "ROBERTO51": "DISTRIBUCION Y UNIVERSIDADES",
+    "FRANKO95": "FRANKO",
 }
 
 
@@ -2524,7 +2526,8 @@ VENDEDORES_LIST = sorted([
     "KAREN JAQUELINE",
     "PAULINA TREJO",
     "RUBEN",
-    "ROBERTO LEGRA"
+    "ROBERTO LEGRA",
+    "FRANKO"
 ])
 
 # Initialize session state for vendor (default linked to logged-in vendor ID)
