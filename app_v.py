@@ -344,25 +344,6 @@ def get_local_route_missing_fields(payload: Dict[str, str]) -> List[str]:
     return missing_fields
 
 
-def build_local_route_file_from_payload(
-    template_path: Path,
-    payload: Dict[str, object],
-) -> tuple[Optional[dict[str, str]], str]:
-    """Return the generated local route file payload and filename."""
-    if not template_path.exists():
-        return None, ""
-
-    generated_route_file = build_local_route_sheet(template_path, payload)
-    generated_route_bytes = generated_route_file.getvalue()
-    route_client_slug = slugify_local_route_client_name(payload.get("cliente", ""))
-    route_filename = f"{route_client_slug}.xlsx"
-    route_file_payload = {
-        "name": route_filename,
-        "content_b64": base64.b64encode(generated_route_bytes).decode("utf-8"),
-    }
-    return route_file_payload, route_filename
-
-
 def parse_sheet_row_number(value) -> Optional[int]:
     """Return a normalized Google Sheet row number or ``None`` if missing."""
     if value is None:
@@ -3158,16 +3139,20 @@ with tab1:
             st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload
             st.session_state[LOCAL_ROUTE_CONFIRMED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             route_generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            generated_route_file_data, route_filename = build_local_route_file_from_payload(
-                route_template_path,
-                current_route_payload,
-            )
-            if not generated_route_file_data:
+            route_filename = ""
+            if not route_template_path.exists():
                 st.session_state.pop(LOCAL_ROUTE_GENERATED_FILE_KEY, None)
                 st.session_state.pop(LOCAL_ROUTE_GENERATED_FILENAME_KEY, None)
                 st.session_state.pop(LOCAL_ROUTE_GENERATED_AT_KEY, None)
             else:
-                st.session_state[LOCAL_ROUTE_GENERATED_FILE_KEY] = generated_route_file_data
+                generated_route_file = build_local_route_sheet(route_template_path, current_route_payload)
+                generated_route_bytes = generated_route_file.getvalue()
+                route_client_slug = slugify_local_route_client_name(current_route_payload.get("cliente", ""))
+                route_filename = f"{route_client_slug}.xlsx"
+                st.session_state[LOCAL_ROUTE_GENERATED_FILE_KEY] = {
+                    "name": route_filename,
+                    "content_b64": base64.b64encode(generated_route_bytes).decode("utf-8"),
+                }
                 st.session_state[LOCAL_ROUTE_GENERATED_FILENAME_KEY] = route_filename
                 st.session_state[LOCAL_ROUTE_GENERATED_AT_KEY] = route_generated_at
 
@@ -3243,12 +3228,7 @@ with tab1:
                 st.error(f"No se encontró la plantilla de hoja de ruta en: {route_template_path}")
 
         if confirmed_route_payload and current_route_payload != confirmed_route_payload:
-            st.warning(
-                "⚠️ Hiciste cambios después de la última confirmación. "
-                "Si quieres revisar el Excel antes de enviar, vuelve a presionar "
-                "'Confirmar datos hoja de ruta'. Al registrar el pedido se adjuntará automáticamente "
-                "la versión más reciente con los datos actuales."
-            )
+            st.warning("⚠️ Hiciste cambios después de la última confirmación. Vuelve a presionar 'Confirmar datos hoja de ruta' para actualizar el Excel.")
 
     else:
         st.session_state.pop(LOCAL_ROUTE_GENERATED_FILE_KEY, None)
@@ -3455,15 +3435,6 @@ with tab1:
                 referencia_pago = submission_payload_override.get("referencia_pago", referencia_pago)
                 comentario = submission_payload_override.get("comentario", comentario)
                 subtipo_local = submission_payload_override.get("subtipo_local", subtipo_local)
-                local_route_recibe = submission_payload_override.get("local_route_recibe", local_route_recibe)
-                local_route_calle_no = submission_payload_override.get("local_route_calle_no", local_route_calle_no)
-                local_route_tipo_inmueble = submission_payload_override.get("local_route_tipo_inmueble", local_route_tipo_inmueble)
-                local_route_acceso_privada = submission_payload_override.get("local_route_acceso_privada", local_route_acceso_privada)
-                local_route_municipio = submission_payload_override.get("local_route_municipio", local_route_municipio)
-                local_route_telefonos = submission_payload_override.get("local_route_telefonos", local_route_telefonos)
-                local_route_interior = submission_payload_override.get("local_route_interior", local_route_interior)
-                local_route_colonia = submission_payload_override.get("local_route_colonia", local_route_colonia)
-                local_route_cp = submission_payload_override.get("local_route_cp", local_route_cp)
                 local_route_forma_pago = submission_payload_override.get("local_route_forma_pago", local_route_forma_pago)
                 local_route_total_factura = float(submission_payload_override.get("local_route_total_factura", local_route_total_factura) or 0)
                 local_route_adeudo_anterior = float(submission_payload_override.get("local_route_adeudo_anterior", local_route_adeudo_anterior) or 0)
@@ -3486,65 +3457,6 @@ with tab1:
                     if tipo_envio == "📍 Pedido Local" and st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
                     else []
                 )
-
-            if tipo_envio == "📍 Pedido Local":
-                route_template_path = Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx"
-                current_route_payload_for_submission = build_local_route_payload(
-                    fecha_entrega=fecha_entrega,
-                    registro_cliente=registro_cliente,
-                    subtipo_local=subtipo_local,
-                    recibe=local_route_recibe,
-                    comentario=comentario,
-                    calle_no=local_route_calle_no,
-                    tipo_inmueble=local_route_tipo_inmueble,
-                    interior=local_route_interior,
-                    acceso_privada=local_route_acceso_privada,
-                    colonia=local_route_colonia,
-                    municipio=local_route_municipio,
-                    cp=local_route_cp,
-                    telefonos=local_route_telefonos,
-                    estado_pago=estado_pago,
-                    forma_pago=local_route_forma_pago,
-                    vendedor=vendedor,
-                    total_factura=local_route_total_factura,
-                    adeudo_anterior=local_route_adeudo_anterior,
-                    folio=folio_factura,
-                )
-                route_missing_fields_for_submission = get_local_route_missing_fields(
-                    current_route_payload_for_submission
-                )
-                if route_missing_fields_for_submission:
-                    clear_pending_submission(pending_cache_key)
-                    set_pedido_submission_status(
-                        "warning",
-                        "⚠️ El pedido local no se subió. Completa los datos obligatorios de la hoja de ruta.",
-                        "Faltan: " + ", ".join(route_missing_fields_for_submission),
-                    )
-                    st.session_state["pedido_submit_disabled"] = False
-                    st.session_state.pop("pedido_submit_disabled_at", None)
-                    rerun_with_pedido_loading()
-
-                generated_route_file_data, generated_route_filename = build_local_route_file_from_payload(
-                    route_template_path,
-                    current_route_payload_for_submission,
-                )
-                if not generated_route_file_data:
-                    clear_pending_submission(pending_cache_key)
-                    set_pedido_submission_status(
-                        "error",
-                        "❌ El pedido local no se subió.",
-                        f"No se encontró la plantilla de hoja de ruta en: {route_template_path}",
-                    )
-                    st.session_state["pedido_submit_disabled"] = False
-                    st.session_state.pop("pedido_submit_disabled_at", None)
-                    rerun_with_pedido_loading()
-
-                st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload_for_submission
-                st.session_state[LOCAL_ROUTE_CONFIRMED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                st.session_state[LOCAL_ROUTE_GENERATED_FILE_KEY] = generated_route_file_data
-                st.session_state[LOCAL_ROUTE_GENERATED_FILENAME_KEY] = generated_route_filename
-                st.session_state[LOCAL_ROUTE_GENERATED_AT_KEY] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                auto_route_files = _deserialize_uploaded_files([generated_route_file_data])
 
             if not vendedor or not registro_cliente:
                 set_pedido_submission_status(
@@ -3596,15 +3508,6 @@ with tab1:
                     "referencia_pago": referencia_pago,
                     "comentario": comentario,
                     "subtipo_local": subtipo_local,
-                    "local_route_recibe": local_route_recibe,
-                    "local_route_calle_no": local_route_calle_no,
-                    "local_route_tipo_inmueble": local_route_tipo_inmueble,
-                    "local_route_acceso_privada": local_route_acceso_privada,
-                    "local_route_municipio": local_route_municipio,
-                    "local_route_telefonos": local_route_telefonos,
-                    "local_route_interior": local_route_interior,
-                    "local_route_colonia": local_route_colonia,
-                    "local_route_cp": local_route_cp,
                     "local_route_forma_pago": local_route_forma_pago,
                     "local_route_total_factura": local_route_total_factura,
                     "local_route_adeudo_anterior": local_route_adeudo_anterior,
@@ -3990,7 +3893,6 @@ with tab1:
                 rerun_with_pedido_loading()
 
             cliente_local_history_notice = ""
-            local_route_upload_notice = ""
             if tipo_envio == "📍 Pedido Local":
                 try:
                     inserted, _history_message = upsert_cliente_local_if_missing(
@@ -4000,18 +3902,6 @@ with tab1:
                         cliente_local_history_notice = " Se agregó el cliente al historial local."
                 except Exception as e:
                     cliente_local_history_notice = f" No se pudo actualizar Clientes_Locales: {e}"
-
-                local_route_filename = str(
-                    st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "") or ""
-                ).strip()
-                if local_route_filename:
-                    local_route_upload_notice = (
-                        f" 📎 La hoja de ruta local se generó y se adjuntó automáticamente: {local_route_filename}."
-                    )
-                else:
-                    local_route_upload_notice = (
-                        " 📎 La hoja de ruta local se generó y se adjuntó automáticamente."
-                    )
 
             reset_tab1_form_state()
             id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
@@ -4028,9 +3918,7 @@ with tab1:
             set_pedido_submission_status(
                 "success",
                 f"✅ El pedido {referencia_pedido}{id_vendedor_segment} fue subido correctamente.",
-                detail=(
-                    f"{aviso_estado_pago_auto}{local_route_upload_notice}{cliente_local_history_notice}"
-                ).strip(),
+                detail=f"{aviso_estado_pago_auto}{cliente_local_history_notice}".strip(),
                 attachments=adjuntos_urls,
                 missing_attachments_warning=pedido_sin_adjuntos,
                 client_name=cliente_registrado,
