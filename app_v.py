@@ -1264,6 +1264,20 @@ def find_clientes_locales_matches(search_text: str, dataset: pd.DataFrame, limit
     return matches[:limit]
 
 
+def sync_local_client_lookup_to_form() -> None:
+    """Sincroniza la búsqueda rápida de clientes locales hacia el campo principal del cliente."""
+    st.session_state["registro_cliente"] = str(
+        st.session_state.get("local_route_client_search", "") or ""
+    ).strip()
+
+
+def sync_form_client_to_local_lookup() -> None:
+    """Mantiene alineada la búsqueda local cuando el usuario edita el cliente manualmente."""
+    st.session_state["local_route_client_search"] = str(
+        st.session_state.get("registro_cliente", "") or ""
+    ).strip()
+
+
 def apply_cliente_local_to_session(record: dict) -> None:
     """Rellena la hoja de ruta local con la información guardada del cliente."""
     tipo_inmueble_options = {
@@ -1284,6 +1298,7 @@ def apply_cliente_local_to_session(record: dict) -> None:
     }
 
     st.session_state["registro_cliente"] = str(record.get("Cliente", "") or "").strip()
+    st.session_state["local_route_client_search"] = st.session_state["registro_cliente"]
     st.session_state["local_route_recibe"] = str(record.get("Recibe", "") or "").strip()
     st.session_state["local_route_calle_no"] = str(record.get("CalleyNumero", "") or "").strip()
     tipo_inmueble = str(record.get("Tipo_Inmueble", "") or "").strip()
@@ -2474,11 +2489,15 @@ with tab1:
         st.markdown("---")
         st.subheader("🔎 Historial de clientes locales")
         client_history_search = st.text_input(
-            "Buscar cliente en historial",
+            "Buscar cliente en historial / escribir cliente nuevo",
             key="local_route_client_search",
             placeholder="Escribe o pega el nombre del cliente",
-            help="Busca coincidencias flexibles en Clientes_Locales ignorando mayúsculas, acentos y pequeños errores de captura.",
+            help="Escribe una sola vez: si hay coincidencias se cargan automáticamente; si no existen, el nombre se usa como cliente nuevo.",
+            on_change=sync_local_client_lookup_to_form,
         )
+
+        if client_history_search.strip() and not str(st.session_state.get("registro_cliente", "") or "").strip():
+            sync_local_client_lookup_to_form()
 
         clientes_locales_df = load_clientes_locales_dataset()
         client_history_matches = find_clientes_locales_matches(client_history_search, clientes_locales_df)
@@ -2512,6 +2531,7 @@ with tab1:
             if previous_history_label in client_history_options:
                 selected_history_index = list(client_history_options.keys()).index(previous_history_label)
 
+            st.caption("Se encontraron varias coincidencias. Selecciona una para cargar sus datos.")
             selected_history_label = st.radio(
                 "Coincidencias encontradas",
                 options=list(client_history_options.keys()),
@@ -2527,8 +2547,10 @@ with tab1:
                     apply_cliente_local_to_session(selected_history_record)
                     st.rerun()
         elif client_history_search.strip():
-            st.caption("No se encontraron coincidencias en Clientes_Locales para ese nombre.")
+            st.caption("🆕 Cliente nuevo sin historial. Puedes continuar sin volver a escribir el nombre.")
             st.session_state["local_route_selected_history_row"] = None
+            st.session_state["local_route_selected_history_label"] = None
+            sync_local_client_lookup_to_form()
 
     registrar_nota_venta = st.checkbox(
         "🧾 Registrar nota de venta",
@@ -2634,7 +2656,7 @@ with tab1:
         if vendedor != st.session_state.get("last_selected_vendedor", None):
             st.session_state.last_selected_vendedor = vendedor
 
-        registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
+        registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente", on_change=sync_form_client_to_local_lookup)
 
         # Número de cliente / RFC para Casos Especiales (Devolución y Garantía)
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
