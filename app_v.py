@@ -2565,7 +2565,7 @@ with tab1:
         st.markdown("---")
         st.subheader("🤝 Cliente con búsqueda automática")
         st.caption(
-            "Escribe el nombre del cliente una sola vez. La app buscará coincidencias en el historial local mientras capturas."
+            "Escribe el nombre del cliente y dale ENTER. La app buscará coincidencias en el historial local."
         )
         registro_cliente = st.text_input(
             "🤝 Cliente",
@@ -2643,7 +2643,7 @@ with tab1:
                     apply_cliente_local_to_session(selected_history_record)
                     st.rerun()
         elif registro_cliente.strip():
-            st.caption("🆕 Cliente nuevo sin historial. Puedes continuar y al guardar se agregará al historial local.")
+            st.caption("🆕 Cliente nuevo sin historial. Puedes continuar y al registrar el pedido se agregará al historial local.")
             st.session_state["local_route_selected_history_label"] = None
             st.session_state["local_route_selected_history_row"] = None
 
@@ -2755,7 +2755,6 @@ with tab1:
             registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
         else:
             registro_cliente = str(st.session_state.get("registro_cliente", "") or "").strip()
-            st.caption("ℹ️ Este nombre ya se usa para buscar y/o cargar el historial del cliente local en automático.")
 
         # Número de cliente / RFC para Casos Especiales (Devolución y Garantía)
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
