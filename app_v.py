@@ -1135,7 +1135,24 @@ def build_gspread_client():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
 
-_gsheets_client = None
+
+def format_gspread_api_error(error: APIError) -> str:
+    """Resume errores frecuentes de Google Sheets sin exponer secretos."""
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    detail = str(error)
+    if status == 403:
+        return (
+            "Permiso denegado al abrir Google Sheets. "
+            "Verifica que la service account tenga acceso al archivo y que las APIs de Google Sheets/Drive estén habilitadas."
+        )
+    if status == 404:
+        return (
+            "No se encontró el Google Sheet configurado. "
+            "Revisa que GOOGLE_SHEET_ID sea correcto y que el archivo siga existiendo."
+        )
+    if status == 429 or "RESOURCE_EXHAUSTED" in detail:
+        return "La cuota de Google Sheets se agotó temporalmente. Intenta nuevamente en unos minutos."
+    return f"Google Sheets devolvió un error inesperado ({status or 'sin código'}): {detail}"
 
 
 @st.cache_resource
@@ -1162,7 +1179,9 @@ def get_google_sheets_client(refresh_token: float | None = None):
             if status == 429 or "RESOURCE_EXHAUSTED" in str(e):
                 time.sleep(2 ** attempt)
                 continue
-            st.session_state["gsheet_error"] = f"❌ Error al conectar con Google Sheets: {e}"
+            st.session_state["gsheet_error"] = (
+                f"❌ Error al conectar con Google Sheets: {format_gspread_api_error(e)}"
+            )
             return None
         except Exception as e:
             st.session_state["gsheet_error"] = f"❌ Error al conectar con Google Sheets: {e}"
@@ -1173,12 +1192,28 @@ def get_google_sheets_client(refresh_token: float | None = None):
     )
     return None
 
+
+def open_google_sheet(client):
+    """Abre el spreadsheet principal y captura errores transitorios/permisos."""
+    try:
+        spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+        st.session_state.pop("gsheet_error", None)
+        return spreadsheet
+    except gspread.exceptions.APIError as e:
+        st.session_state["gsheet_error"] = f"❌ Error al abrir Google Sheets: {format_gspread_api_error(e)}"
+        return None
+    except Exception as e:
+        st.session_state["gsheet_error"] = f"❌ Error al abrir Google Sheets: {e}"
+        return None
+
 @st.cache_resource
 def get_worksheet_operativa(refresh_token: float | None = None):
     client = get_google_sheets_client(refresh_token)
     if client is None:
         return None
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    spreadsheet = open_google_sheet(client)
+    if spreadsheet is None:
+        return None
     return spreadsheet.worksheet(SHEET_PEDIDOS_OPERATIVOS)
 
 
@@ -1187,7 +1222,9 @@ def get_worksheet_historico(refresh_token: float | None = None):
     client = get_google_sheets_client(refresh_token)
     if client is None:
         return None
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    spreadsheet = open_google_sheet(client)
+    if spreadsheet is None:
+        return None
     return spreadsheet.worksheet(SHEET_PEDIDOS_HISTORICOS)
 
 
@@ -1200,7 +1237,9 @@ def get_worksheet_clientes_locales(refresh_token: float | None = None):
     client = get_google_sheets_client(refresh_token)
     if client is None:
         return None
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    spreadsheet = open_google_sheet(client)
+    if spreadsheet is None:
+        return None
     return spreadsheet.worksheet(SHEET_CLIENTES_LOCALES)
 
 def get_worksheet_casos_especiales():
