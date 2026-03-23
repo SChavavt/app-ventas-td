@@ -19,6 +19,7 @@ import re
 import gspread
 import html
 from typing import Dict, List, Optional
+from difflib import SequenceMatcher
 from urllib.parse import quote, urlsplit, urlunsplit, urlparse, unquote
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -109,6 +110,9 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_generated_filename",
     "local_route_generated_at",
     "local_route_post_confirm_notice",
+    "local_route_client_search",
+    "local_route_selected_history_label",
+    "local_route_selected_history_row",
 }
 
 TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
@@ -854,6 +858,7 @@ def clear_app_caches() -> None:
         get_google_sheets_client,
         get_worksheet_operativa,
         get_worksheet_historico,
+        get_worksheet_clientes_locales,
         get_s3_client,
     ):
         clear_fn = getattr(cached_fn, "clear", None)
@@ -1059,6 +1064,19 @@ def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 SHEET_PEDIDOS_OPERATIVOS = "data_pedidos"
 SHEET_PEDIDOS_HISTORICOS = "datos_pedidos"
+SHEET_CLIENTES_LOCALES = "Clientes_Locales"
+CLIENTES_LOCALES_HEADERS = [
+    "Cliente",
+    "Recibe",
+    "CalleyNumero",
+    "Tipo_Inmueble",
+    "Acceso_Privada",
+    "Municipio",
+    "Tels",
+    "Interior",
+    "Col",
+    "C_P.",
+]
 
 def build_gspread_client():
     credentials_json_str = st.secrets["google_credentials"]
@@ -1129,10 +1147,186 @@ def get_worksheet(refresh_token: float | None = None):
     """Compatibilidad para tabs legadas que aún leen histórico."""
     return get_worksheet_historico(refresh_token)
 
+@st.cache_resource
+def get_worksheet_clientes_locales(refresh_token: float | None = None):
+    client = get_google_sheets_client(refresh_token)
+    if client is None:
+        return None
+    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+    return spreadsheet.worksheet(SHEET_CLIENTES_LOCALES)
+
 def get_worksheet_casos_especiales():
     client = build_gspread_client()
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
     return spreadsheet.worksheet("casos_especiales")
+
+
+def normalize_client_history_text(value: object) -> str:
+    """Normaliza texto para búsquedas flexibles tolerando acentos y captura irregular."""
+    normalized = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    ascii_text = re.sub(r"[^a-z0-9 ]+", " ", ascii_text)
+    return re.sub(r"\s+", " ", ascii_text).strip()
+
+
+def build_clientes_locales_record_from_form() -> dict[str, str]:
+    """Construye un registro de Clientes_Locales usando el estado actual del formulario."""
+    return {
+        "Cliente": str(st.session_state.get("registro_cliente", "") or "").strip(),
+        "Recibe": str(st.session_state.get("local_route_recibe", "") or "").strip(),
+        "CalleyNumero": str(st.session_state.get("local_route_calle_no", "") or "").strip(),
+        "Tipo_Inmueble": str(st.session_state.get("local_route_tipo_inmueble", "") or "").strip(),
+        "Acceso_Privada": str(st.session_state.get("local_route_acceso_privada", "") or "").strip(),
+        "Municipio": str(st.session_state.get("local_route_municipio", "") or "").strip(),
+        "Tels": str(st.session_state.get("local_route_telefonos", "") or "").strip(),
+        "Interior": str(st.session_state.get("local_route_interior", "") or "").strip(),
+        "Col": str(st.session_state.get("local_route_colonia", "") or "").strip(),
+        "C_P.": str(st.session_state.get("local_route_cp", "") or "").strip(),
+    }
+
+
+def ensure_clientes_locales_headers(worksheet) -> list[str]:
+    """Garantiza que Clientes_Locales tenga los encabezados exactos requeridos."""
+    if worksheet is None:
+        raise Exception("No se pudo abrir la hoja Clientes_Locales.")
+    current_headers = worksheet.row_values(1)
+    if current_headers != CLIENTES_LOCALES_HEADERS:
+        worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        get_sheet_headers.clear()
+    return CLIENTES_LOCALES_HEADERS
+
+
+@st.cache_data(ttl=120)
+def load_clientes_locales_dataset(refresh_token: float | None = None) -> pd.DataFrame:
+    """Carga Clientes_Locales con metadatos normalizados para coincidencias flexibles."""
+    worksheet = get_worksheet_clientes_locales(refresh_token)
+    if worksheet is None:
+        return pd.DataFrame()
+
+    rows = worksheet.get_all_values()
+    if not rows:
+        worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        return pd.DataFrame(columns=CLIENTES_LOCALES_HEADERS + ["Sheet_Row_Number", "normalized_cliente"])
+
+    headers = [str(value).strip() for value in rows[0]]
+    if headers != CLIENTES_LOCALES_HEADERS:
+        worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        headers = CLIENTES_LOCALES_HEADERS
+
+    records = []
+    for row_number, row_values in enumerate(rows[1:], start=2):
+        padded = list(row_values[: len(CLIENTES_LOCALES_HEADERS)])
+        if len(padded) < len(CLIENTES_LOCALES_HEADERS):
+            padded.extend([""] * (len(CLIENTES_LOCALES_HEADERS) - len(padded)))
+        if not any(str(cell).strip() for cell in padded):
+            continue
+        record = dict(zip(CLIENTES_LOCALES_HEADERS, padded))
+        record["Sheet_Row_Number"] = row_number
+        record["normalized_cliente"] = normalize_client_history_text(record.get("Cliente", ""))
+        records.append(record)
+
+    return pd.DataFrame(records)
+
+
+def find_clientes_locales_matches(search_text: str, dataset: pd.DataFrame, limit: int = 8) -> list[dict]:
+    """Busca coincidencias por nombre con tolerancia a pequeñas variaciones."""
+    normalized_query = normalize_client_history_text(search_text)
+    if not normalized_query or dataset.empty:
+        return []
+
+    matches: list[dict] = []
+    for _, row in dataset.iterrows():
+        normalized_name = str(row.get("normalized_cliente", "") or "")
+        if not normalized_name:
+            continue
+        score = SequenceMatcher(None, normalized_query, normalized_name).ratio()
+        if normalized_query in normalized_name:
+            score += 0.45
+        elif normalized_name in normalized_query:
+            score += 0.30
+        query_tokens = set(normalized_query.split())
+        name_tokens = set(normalized_name.split())
+        if query_tokens and name_tokens:
+            overlap = len(query_tokens & name_tokens) / max(len(query_tokens), len(name_tokens))
+            score += overlap * 0.35
+        if score < 0.55:
+            continue
+        row_dict = row.to_dict()
+        row_dict["_match_score"] = score
+        matches.append(row_dict)
+
+    matches.sort(
+        key=lambda item: (
+            -float(item.get("_match_score", 0)),
+            len(str(item.get("Cliente", "") or "")),
+        )
+    )
+    return matches[:limit]
+
+
+def apply_cliente_local_to_session(record: dict) -> None:
+    """Rellena la hoja de ruta local con la información guardada del cliente."""
+    tipo_inmueble_options = {
+        "Consultorio",
+        "Clínica",
+        "Hospital",
+        "Casa",
+        "Departamento",
+        "Oficina",
+        "Local comercial",
+        "Otro",
+    }
+    acceso_privada_options = {
+        "No aplica",
+        "Aplica",
+        "Acceso controlado",
+        "Requiere autorización previa",
+    }
+
+    st.session_state["registro_cliente"] = str(record.get("Cliente", "") or "").strip()
+    st.session_state["local_route_recibe"] = str(record.get("Recibe", "") or "").strip()
+    st.session_state["local_route_calle_no"] = str(record.get("CalleyNumero", "") or "").strip()
+    tipo_inmueble = str(record.get("Tipo_Inmueble", "") or "").strip()
+    if tipo_inmueble in tipo_inmueble_options:
+        st.session_state["local_route_tipo_inmueble"] = tipo_inmueble
+    acceso_privada = str(record.get("Acceso_Privada", "") or "").strip()
+    if acceso_privada in acceso_privada_options:
+        st.session_state["local_route_acceso_privada"] = acceso_privada
+    st.session_state["local_route_municipio"] = str(record.get("Municipio", "") or "").strip()
+    st.session_state["local_route_telefonos"] = str(record.get("Tels", "") or "").strip()
+    st.session_state["local_route_interior"] = str(record.get("Interior", "") or "").strip()
+    st.session_state["local_route_colonia"] = str(record.get("Col", "") or "").strip()
+    st.session_state["local_route_cp"] = str(record.get("C_P.", "") or "").strip()
+
+
+def upsert_cliente_local_if_missing(record: dict[str, str]) -> tuple[bool, str]:
+    """Guarda un cliente nuevo solo si no existe ya en Clientes_Locales."""
+    client_name = record.get("Cliente", "").strip()
+    if not client_name:
+        return False, "Nombre de cliente vacío."
+
+    worksheet = get_worksheet_clientes_locales()
+    headers = ensure_clientes_locales_headers(worksheet)
+    dataset = load_clientes_locales_dataset()
+    normalized_name = normalize_client_history_text(client_name)
+    if not dataset.empty and dataset["normalized_cliente"].astype(str).eq(normalized_name).any():
+        return False, "El cliente ya existe en el historial."
+
+    values = [record.get(header, "") for header in headers]
+    worksheet.append_row(values, value_input_option="USER_ENTERED")
+    load_clientes_locales_dataset.clear()
+    return True, "Cliente agregado al historial."
+
+
+def update_existing_cliente_local(row_number: int, record: dict[str, str]) -> None:
+    """Actualiza un cliente existente en Clientes_Locales usando el renglón real."""
+    worksheet = get_worksheet_clientes_locales()
+    headers = ensure_clientes_locales_headers(worksheet)
+    start_cell = rowcol_to_a1(row_number, 1)
+    end_cell = rowcol_to_a1(row_number, len(headers))
+    values = [record.get(header, "") for header in headers]
+    worksheet.update(f"{start_cell}:{end_cell}", [values], value_input_option="USER_ENTERED")
+    load_clientes_locales_dataset.clear()
 
 @st.cache_data(ttl=300)
 def get_sheet_headers(sheet_name: str):
@@ -2277,6 +2471,51 @@ with tab1:
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
 
+        st.markdown("---")
+        st.subheader("🔎 Historial de clientes locales")
+        client_history_search = st.text_input(
+            "Buscar cliente en historial",
+            key="local_route_client_search",
+            placeholder="Escribe o pega el nombre del cliente",
+            help="Busca coincidencias flexibles en Clientes_Locales ignorando mayúsculas, acentos y pequeños errores de captura.",
+        )
+
+        clientes_locales_df = load_clientes_locales_dataset()
+        client_history_matches = find_clientes_locales_matches(client_history_search, clientes_locales_df)
+        client_history_options: dict[str, dict] = {}
+        for match in client_history_matches:
+            display_label = f"{str(match.get('Cliente', '')).strip()} | C.P. {str(match.get('C_P.', '')).strip() or 'N/A'}"
+            suffix = 2
+            base_label = display_label
+            while display_label in client_history_options:
+                display_label = f"{base_label} ({suffix})"
+                suffix += 1
+            client_history_options[display_label] = match
+
+        if client_history_options:
+            previous_history_label = st.session_state.get("local_route_selected_history_label")
+            selected_history_index = None
+            if previous_history_label in client_history_options:
+                selected_history_index = list(client_history_options.keys()).index(previous_history_label)
+
+            selected_history_label = st.radio(
+                "Coincidencias encontradas",
+                options=list(client_history_options.keys()),
+                index=selected_history_index,
+                key="local_route_selected_history_label",
+                help="Haz clic una sola vez sobre la coincidencia para cargar la información guardada.",
+            )
+            selected_history_record = client_history_options.get(selected_history_label)
+            if selected_history_record:
+                selected_row_number = parse_sheet_row_number(selected_history_record.get("Sheet_Row_Number"))
+                if st.session_state.get("local_route_selected_history_row") != selected_row_number:
+                    st.session_state["local_route_selected_history_row"] = selected_row_number
+                    apply_cliente_local_to_session(selected_history_record)
+                    st.rerun()
+        elif client_history_search.strip():
+            st.caption("No se encontraron coincidencias en Clientes_Locales para ese nombre.")
+            st.session_state["local_route_selected_history_row"] = None
+
     registrar_nota_venta = st.checkbox(
         "🧾 Registrar nota de venta",
         key="registrar_nota_venta_checkbox",
@@ -2529,10 +2768,28 @@ with tab1:
             )
 
             route_notice_placeholder = st.empty()
-            confirm_route_button = st.form_submit_button(
-                "🔄 Confirmar datos hoja de ruta",
-                help="Actualiza el resumen y adjunta la hoja de ruta con los datos capturados hasta este momento.",
-            )
+            route_action_col1, route_action_col2 = st.columns(2)
+            with route_action_col1:
+                confirm_route_button = st.form_submit_button(
+                    "🔄 Confirmar datos hoja de ruta",
+                    help="Actualiza el resumen y adjunta la hoja de ruta con los datos capturados hasta este momento.",
+                )
+            selected_history_row = parse_sheet_row_number(st.session_state.get("local_route_selected_history_row"))
+            show_update_client_button = selected_history_row is not None
+            with route_action_col2:
+                update_client_history_button = st.form_submit_button(
+                    "📝 Actualizar info del cliente",
+                    help="Actualiza el registro histórico del cliente seleccionado con los datos actuales del formulario.",
+                    disabled=not show_update_client_button,
+                )
+            if show_update_client_button:
+                st.caption(
+                    "Este botón actualiza la base histórica del cliente. "
+                    "Si solo deseas confirmar la hoja de ruta actual sin modificar el historial, usa únicamente "
+                    "'🔄 Confirmar datos hoja de ruta'."
+                )
+            else:
+                update_client_history_button = False
             if route_post_confirm_notice:
                 route_notice_filename = route_post_confirm_notice.get("filename", "")
                 with route_notice_placeholder.container():
@@ -2592,6 +2849,7 @@ with tab1:
 
         else:
             confirm_route_button = False
+            update_client_history_button = False
 
         if tipo_envio == "🚚 Pedido Foráneo":
             direccion_guia_retorno = st.text_area(
@@ -2822,6 +3080,7 @@ with tab1:
 
     if tipo_envio == "📍 Pedido Local":
         route_template_path = Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx"
+        selected_history_row = parse_sheet_row_number(st.session_state.get("local_route_selected_history_row"))
         current_folio_for_route = (
             nota_venta.strip()
             if registrar_nota_venta and isinstance(nota_venta, str)
@@ -2848,6 +3107,19 @@ with tab1:
             adeudo_anterior=local_route_adeudo_anterior,
             folio=current_folio_for_route,
         )
+        current_cliente_local_record = build_clientes_locales_record_from_form()
+
+        if update_client_history_button:
+            if selected_history_row is None:
+                st.warning("⚠️ Selecciona un cliente del historial antes de actualizar su información.")
+            elif not current_cliente_local_record["Cliente"]:
+                st.warning("⚠️ Captura el nombre del cliente antes de actualizar el historial.")
+            else:
+                try:
+                    update_existing_cliente_local(selected_history_row, current_cliente_local_record)
+                    st.success("✅ La información histórica del cliente fue actualizada correctamente.")
+                except Exception as e:
+                    st.error(f"❌ No se pudo actualizar Clientes_Locales: {e}")
 
         if confirm_route_button:
             st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload
@@ -3606,6 +3878,17 @@ with tab1:
                 )
                 rerun_with_pedido_loading()
 
+            cliente_local_history_notice = ""
+            if tipo_envio == "📍 Pedido Local":
+                try:
+                    inserted, _history_message = upsert_cliente_local_if_missing(
+                        build_clientes_locales_record_from_form()
+                    )
+                    if inserted:
+                        cliente_local_history_notice = " Se agregó el cliente al historial local."
+                except Exception as e:
+                    cliente_local_history_notice = f" No se pudo actualizar Clientes_Locales: {e}"
+
             reset_tab1_form_state()
             id_vendedor_actual = str(st.session_state.get("id_vendedor", "")).strip()
             st.session_state["last_selected_vendedor"] = VENDEDOR_NOMBRE_POR_ID.get(
@@ -3621,7 +3904,7 @@ with tab1:
             set_pedido_submission_status(
                 "success",
                 f"✅ El pedido {referencia_pedido}{id_vendedor_segment} fue subido correctamente.",
-                detail=aviso_estado_pago_auto,
+                detail=f"{aviso_estado_pago_auto}{cliente_local_history_notice}".strip(),
                 attachments=adjuntos_urls,
                 missing_attachments_warning=pedido_sin_adjuntos,
                 client_name=cliente_registrado,
