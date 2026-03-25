@@ -2596,18 +2596,24 @@ with tab1:
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
     st.header("📝 Nuevo Pedido")
+    tipo_envio_options = [
+        "🚚 Pedido Foráneo",
+        "📍 Pedido Local",
+        "🔁 Devolución",
+        "🛠 Garantía",
+        "📋 Solicitudes de Guía",
+        "🏙️ Pedido CDMX",
+        "🎓 Cursos y Eventos",
+    ]
+    current_tipo_envio = st.session_state.get("tipo_envio_selector_global", tipo_envio_options[0])
+    if current_tipo_envio not in tipo_envio_options:
+        current_tipo_envio = tipo_envio_options[0]
+        st.session_state["tipo_envio_selector_global"] = current_tipo_envio
+
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
-        [
-            "🚚 Pedido Foráneo",
-            "📍 Pedido Local",
-            "🔁 Devolución",
-            "🛠 Garantía",
-            "📋 Solicitudes de Guía",
-            "🏙️ Pedido CDMX",
-            "🎓 Cursos y Eventos",
-        ],
-        index=0,
+        tipo_envio_options,
+        index=tipo_envio_options.index(current_tipo_envio),
         key="tipo_envio_selector_global",
     )
 
@@ -2617,10 +2623,14 @@ with tab1:
         st.markdown("---")
         st.subheader("⏰ Detalle de Pedido Local")
         local_shift_options = get_local_shift_options(st.session_state.get("id_vendedor", ""))
+        current_subtipo_local = st.session_state.get("subtipo_local_selector", local_shift_options[0])
+        if current_subtipo_local not in local_shift_options:
+            current_subtipo_local = local_shift_options[0]
+            st.session_state["subtipo_local_selector"] = current_subtipo_local
         subtipo_local = st.selectbox(
             "Turno/Locales",
             local_shift_options,
-            index=0,
+            index=local_shift_options.index(current_subtipo_local),
             key="subtipo_local_selector",
             help="Selecciona el turno o tipo de entrega para pedidos locales."
         )
