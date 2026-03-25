@@ -1273,6 +1273,27 @@ def normalize_client_history_text(value: object) -> str:
     return re.sub(r"\s+", " ", ascii_text).strip()
 
 
+def normalize_phone_for_sheets(value: object) -> str:
+    """Normaliza teléfonos para que Google Sheets los trate siempre como texto plano."""
+    phone = str(value or "").strip()
+    if not phone:
+        return ""
+    if phone.startswith("'"):
+        return phone
+    if phone.startswith("+"):
+        # El prefijo "'" fuerza texto en Sheets y evita que "+" se interprete como fórmula.
+        return f"'{phone}"
+    return phone
+
+
+def display_phone_from_sheets(value: object) -> str:
+    """Convierte el valor guardado en Sheets a una representación amigable en UI."""
+    phone = str(value or "").strip()
+    if phone.startswith("'") and len(phone) > 1 and phone[1] == "+":
+        return phone[1:]
+    return phone
+
+
 def build_clientes_locales_record_from_form() -> dict[str, str]:
     """Construye un registro de Clientes_Locales usando el estado actual del formulario."""
     return {
@@ -1282,7 +1303,7 @@ def build_clientes_locales_record_from_form() -> dict[str, str]:
         "Tipo_Inmueble": str(st.session_state.get("local_route_tipo_inmueble", "") or "").strip(),
         "Acceso_Privada": str(st.session_state.get("local_route_acceso_privada", "") or "").strip(),
         "Municipio": str(st.session_state.get("local_route_municipio", "") or "").strip(),
-        "Tels": str(st.session_state.get("local_route_telefonos", "") or "").strip(),
+        "Tels": normalize_phone_for_sheets(st.session_state.get("local_route_telefonos", "")),
         "Interior": str(st.session_state.get("local_route_interior", "") or "").strip(),
         "Col": str(st.session_state.get("local_route_colonia", "") or "").strip(),
         "C_P.": str(st.session_state.get("local_route_cp", "") or "").strip(),
@@ -1297,6 +1318,12 @@ def ensure_clientes_locales_headers(worksheet) -> list[str]:
     if current_headers != CLIENTES_LOCALES_HEADERS:
         worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
         get_sheet_headers.clear()
+    try:
+        # Columna G = Tels. Formato texto plano para prevenir evaluaciones como fórmula.
+        worksheet.format("G:G", {"numberFormat": {"type": "TEXT"}})
+    except Exception:
+        # Mejor esfuerzo: si el formato falla, la normalización + RAW sigue protegiendo los teléfonos.
+        pass
     return CLIENTES_LOCALES_HEADERS
 
 
@@ -1417,7 +1444,7 @@ def apply_cliente_local_to_session(record: dict) -> None:
     if acceso_privada in acceso_privada_options:
         st.session_state["local_route_acceso_privada"] = acceso_privada
     st.session_state["local_route_municipio"] = str(record.get("Municipio", "") or "").strip()
-    st.session_state["local_route_telefonos"] = str(record.get("Tels", "") or "").strip()
+    st.session_state["local_route_telefonos"] = display_phone_from_sheets(record.get("Tels", ""))
     st.session_state["local_route_interior"] = str(record.get("Interior", "") or "").strip()
     st.session_state["local_route_colonia"] = str(record.get("Col", "") or "").strip()
     st.session_state["local_route_cp"] = str(record.get("C_P.", "") or "").strip()
@@ -1437,7 +1464,7 @@ def upsert_cliente_local_if_missing(record: dict[str, str]) -> tuple[bool, str]:
         return False, "El cliente ya existe en el historial."
 
     values = [record.get(header, "") for header in headers]
-    worksheet.append_row(values, value_input_option="USER_ENTERED")
+    worksheet.append_row(values, value_input_option="RAW")
     load_clientes_locales_dataset.clear()
     return True, "Cliente agregado al historial."
 
@@ -1449,7 +1476,7 @@ def update_existing_cliente_local(row_number: int, record: dict[str, str]) -> No
     start_cell = rowcol_to_a1(row_number, 1)
     end_cell = rowcol_to_a1(row_number, len(headers))
     values = [record.get(header, "") for header in headers]
-    worksheet.update(f"{start_cell}:{end_cell}", [values], value_input_option="USER_ENTERED")
+    worksheet.update(f"{start_cell}:{end_cell}", [values], value_input_option="RAW")
     load_clientes_locales_dataset.clear()
 
 @st.cache_data(ttl=300)
