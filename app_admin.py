@@ -1125,7 +1125,7 @@ def resolve_adjuntos_link(
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=2)
 def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0):
     # 1) Intenta leer con reintentos usando el helper
     try:
@@ -1195,7 +1195,8 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0)
             df["ID_Pedido"] = df["ID_Pedido"].apply(normalize_id_pedido)
 
         # 2) Guarda snapshot “último bueno” por si falla luego
-        st.session_state[f"_lastgood_{worksheet_name}"] = (df.copy(), list(headers))
+        # Snapshot ligero: evita duplicar memoria completa del DataFrame en cada recarga.
+        st.session_state[f"_lastgood_{worksheet_name}"] = (df.copy(deep=False), list(headers))
         return df, headers
 
     except gspread.exceptions.APIError as e:
