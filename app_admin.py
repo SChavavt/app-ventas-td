@@ -1472,16 +1472,76 @@ def get_all_files_for_pedido(s3_client_instance, parent_prefix, pedido_id) -> li
     all_files: list[dict] = []
     existing_keys: set[str] = set()
 
-    for prefix in find_pedido_prefixes(s3_client_instance, parent_prefix, pedido_id):
-        for file in get_files_in_s3_prefix(s3_client_instance, prefix):
-            if not isinstance(file, dict):
-                continue
-            key = file.get("key")
-            if key and key in existing_keys:
-                continue
-            all_files.append(file)
-            if key:
-                existing_keys.add(key)
+    folder_candidates = [str(pedido_id or "").strip()]
+    folder_candidates = [candidate for candidate in folder_candidates if candidate]
+
+    for folder_name in folder_candidates:
+        for prefix in find_pedido_prefixes(s3_client_instance, parent_prefix, folder_name):
+            for file in get_files_in_s3_prefix(s3_client_instance, prefix):
+                if not isinstance(file, dict):
+                    continue
+                key = file.get("key")
+                if key and key in existing_keys:
+                    continue
+                all_files.append(file)
+                if key:
+                    existing_keys.add(key)
+
+    return all_files
+
+
+def extract_pedido_folder_candidates(selected_pedido_data: dict | None, pedido_id: str) -> list[str]:
+    """Obtiene posibles carpetas de adjuntos a partir del ID del pedido y URLs guardadas en la hoja."""
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str | None) -> None:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            candidates.append(text)
+
+    _add(pedido_id)
+
+    if not isinstance(selected_pedido_data, dict):
+        return candidates
+
+    adjuntos_fields = ("Adjuntos", "Adjuntos_Surtido", "Adjuntos_Guia")
+    pattern = re.compile(r"/adjuntos_pedidos/([^/]+)/", re.IGNORECASE)
+
+    for field_name in adjuntos_fields:
+        raw_value = selected_pedido_data.get(field_name)
+        for url in extract_comprobante_urls_from_adjuntos(raw_value):
+            with suppress(Exception):
+                parsed = urlparse(str(url))
+                path = str(parsed.path or "")
+                match = pattern.search(path)
+                if match:
+                    _add(match.group(1))
+
+    return candidates
+
+
+def get_all_files_for_pedido_with_candidates(
+    s3_client_instance,
+    parent_prefix,
+    folder_candidates: list[str],
+) -> list[dict]:
+    """Obtiene y combina adjuntos desde todos los prefijos/carpeta detectados para el pedido."""
+    all_files: list[dict] = []
+    existing_keys: set[str] = set()
+
+    for folder_name in [str(c or "").strip() for c in (folder_candidates or []) if str(c or "").strip()]:
+        for prefix in find_pedido_prefixes(s3_client_instance, parent_prefix, folder_name):
+            for file in get_files_in_s3_prefix(s3_client_instance, prefix):
+                if not isinstance(file, dict):
+                    continue
+                key = file.get("key")
+                if key and key in existing_keys:
+                    continue
+                all_files.append(file)
+                if key:
+                    existing_keys.add(key)
 
     return all_files
 
@@ -2364,10 +2424,14 @@ with tab1:
                                     st.markdown(f"- {enlace}", unsafe_allow_html=True)
                             st.markdown("---")
                         if s3_client:
-                            files = get_all_files_for_pedido(
+                            folder_candidates = extract_pedido_folder_candidates(
+                                selected_pedido_data,
+                                selected_pedido_id_for_s3_search,
+                            )
+                            files = get_all_files_for_pedido_with_candidates(
                                 s3_client,
                                 S3_ATTACHMENT_PREFIX,
-                                selected_pedido_id_for_s3_search,
+                                folder_candidates,
                             )
 
                             if files:
@@ -2932,10 +2996,14 @@ with tab1:
                             st.markdown("---")
 
                         if s3_client:
-                            files = get_all_files_for_pedido(
+                            folder_candidates = extract_pedido_folder_candidates(
+                                selected_pedido_data,
+                                selected_pedido_id_for_s3_search,
+                            )
+                            files = get_all_files_for_pedido_with_candidates(
                                 s3_client,
                                 S3_ATTACHMENT_PREFIX,
-                                selected_pedido_id_for_s3_search,
+                                folder_candidates,
                             )
 
                             if files:
