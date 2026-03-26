@@ -1044,6 +1044,24 @@ def render_date_filter_controls(
     return selected_date, selected_date, False, True
 
 
+def build_vendor_filter_options(
+    detected_values: list[object],
+    *,
+    include_all_option: bool = True,
+) -> list[str]:
+    """Construye opciones de vendedor usando catálogo oficial + valores extra detectados."""
+    vendedores_detectados = sorted(
+        {
+            str(value).strip()
+            for value in detected_values
+            if str(value).strip() and str(value).strip().lower() not in {"none", "nan"}
+        }
+    )
+    vendedores_extra = [v for v in vendedores_detectados if v not in VENDEDORES_LIST]
+    opciones = VENDEDORES_LIST + vendedores_extra
+    return (["Todos"] + opciones) if include_all_option else opciones
+
+
 def render_lazy_tab_placeholder(tab_index: int, key_prefix: str, message: str) -> None:
     """Muestra aviso de pestaña diferida y botón para cargarla en la app."""
     st.caption(message)
@@ -4465,11 +4483,9 @@ with tab2:
 
         with col1:
             if 'Vendedor_Registro' in df_pedidos.columns:
-                unique_vendedores_mod = sorted(
-                    [v for v in df_pedidos['Vendedor_Registro'].dropna().astype(str).str.strip().unique().tolist()
-                     if v and v.lower() not in ["none", "nan"]]
+                unique_vendedores_mod = build_vendor_filter_options(
+                    df_pedidos["Vendedor_Registro"].dropna().astype(str).tolist(),
                 )
-                unique_vendedores_mod = ["Todos"] + unique_vendedores_mod
                 selected_vendedor_mod = st.selectbox(
                     "Filtrar por Vendedor:",
                     options=unique_vendedores_mod,
@@ -5949,14 +5965,9 @@ with tab4:
                 with col_vend_casos:
                     vendedores_casos = ["Todos"]
                     if "Vendedor_Registro" in df_casos.columns:
-                        unique_vendedores_casos = sorted(
-                            [
-                                v
-                                for v in df_casos["Vendedor_Registro"].dropna().astype(str).str.strip().unique().tolist()
-                                if v and v.lower() not in ["none", "nan"]
-                            ]
+                        vendedores_casos = build_vendor_filter_options(
+                            df_casos["Vendedor_Registro"].dropna().astype(str).tolist(),
                         )
-                        vendedores_casos.extend(unique_vendedores_casos)
                     selected_vendedor_casos = st.selectbox(
                         "Filtrar por Vendedor:",
                         options=vendedores_casos,
@@ -6179,7 +6190,9 @@ with tab5:
         col1_tab5, col2_tab5 = st.columns(2)
 
         with col1_tab5:
-            vendedores = ["Todos"] + sorted(df_guias["Vendedor_Registro"].dropna().unique().tolist())
+            vendedores = build_vendor_filter_options(
+                df_guias["Vendedor_Registro"].dropna().astype(str).tolist(),
+            )
             vendedor_filtrado = st.selectbox(
                 "Filtrar por Vendedor",
                 vendedores,
