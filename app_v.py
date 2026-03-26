@@ -104,6 +104,7 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_forma_pago",
     "local_route_total_factura",
     "local_route_adeudo_anterior",
+    "local_route_referencias",
     "local_route_confirmed_payload",
     "local_route_confirmed_at",
     "local_route_generated_file",
@@ -265,7 +266,7 @@ def build_local_route_sheet(template_path: Path, payload: Dict[str, object]) -> 
     worksheet["B3"] = payload.get("cliente", "")
     worksheet["F3"] = payload.get("hora_entrega", "")
     worksheet["B4"] = payload.get("recibe", "")
-    worksheet["E5"] = payload.get("comentarios", "")
+    worksheet["E5"] = payload.get("referencias", "")
     worksheet["B5"] = payload.get("calle_no", "")
     worksheet["B6"] = payload.get("tipo_inmueble", "")
     worksheet["D6"] = payload.get("interior", "")
@@ -300,7 +301,7 @@ def build_local_route_payload(
     registro_cliente: str,
     subtipo_local: str,
     recibe: str,
-    comentario: str,
+    referencias_hoja_ruta: str,
     calle_no: str,
     tipo_inmueble: str,
     interior: str,
@@ -318,7 +319,7 @@ def build_local_route_payload(
 ) -> Dict[str, str]:
     """Build the serialized payload used by the local route Excel and summary UI."""
     route_total_amount = float(total_factura or 0.0) + float(adeudo_anterior or 0.0)
-    route_comment = comentario.strip()
+    route_references = referencias_hoja_ruta.strip()
 
     return {
         "fecha": fecha_entrega.strftime('%Y-%m-%d') if isinstance(fecha_entrega, date) else "",
@@ -327,7 +328,7 @@ def build_local_route_payload(
         "subtipo_local": subtipo_local.strip(),
         "hora_entrega": get_local_delivery_slot(subtipo_local),
         "recibe": recibe.strip(),
-        "comentarios": route_comment,
+        "referencias": route_references,
         "calle_no": calle_no.strip(),
         "tipo_inmueble": tipo_inmueble.strip(),
         "interior": interior.strip(),
@@ -1159,6 +1160,7 @@ CLIENTES_LOCALES_HEADERS = [
     "Interior",
     "Col",
     "C_P.",
+    "Referencias",
 ]
 
 def build_gspread_client():
@@ -1325,6 +1327,7 @@ def build_clientes_locales_record_from_form() -> dict[str, str]:
         "Interior": str(st.session_state.get("local_route_interior", "") or "").strip(),
         "Col": str(st.session_state.get("local_route_colonia", "") or "").strip(),
         "C_P.": str(st.session_state.get("local_route_cp", "") or "").strip(),
+        "Referencias": str(st.session_state.get("local_route_referencias", "") or "").strip(),
     }
 
 
@@ -1332,9 +1335,11 @@ def ensure_clientes_locales_headers(worksheet) -> list[str]:
     """Garantiza que Clientes_Locales tenga los encabezados exactos requeridos."""
     if worksheet is None:
         raise Exception("No se pudo abrir la hoja Clientes_Locales.")
+    last_header_cell = rowcol_to_a1(1, len(CLIENTES_LOCALES_HEADERS))
+    headers_range = f"A1:{last_header_cell}"
     current_headers = worksheet.row_values(1)
     if current_headers != CLIENTES_LOCALES_HEADERS:
-        worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        worksheet.update(headers_range, [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
         get_sheet_headers.clear()
     try:
         # Columna G = Tels. Formato texto plano para prevenir evaluaciones como fórmula.
@@ -1352,14 +1357,16 @@ def load_clientes_locales_dataset(refresh_token: float | None = None) -> pd.Data
     if worksheet is None:
         return pd.DataFrame()
 
+    last_header_cell = rowcol_to_a1(1, len(CLIENTES_LOCALES_HEADERS))
+    headers_range = f"A1:{last_header_cell}"
     rows = worksheet.get_all_values()
     if not rows:
-        worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        worksheet.update(headers_range, [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
         return pd.DataFrame(columns=CLIENTES_LOCALES_HEADERS + ["Sheet_Row_Number", "normalized_cliente"])
 
     headers = [str(value).strip() for value in rows[0]]
     if headers != CLIENTES_LOCALES_HEADERS:
-        worksheet.update("A1:J1", [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        worksheet.update(headers_range, [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
         headers = CLIENTES_LOCALES_HEADERS
 
     records = []
@@ -1466,6 +1473,7 @@ def apply_cliente_local_to_session(record: dict) -> None:
     st.session_state["local_route_interior"] = str(record.get("Interior", "") or "").strip()
     st.session_state["local_route_colonia"] = str(record.get("Col", "") or "").strip()
     st.session_state["local_route_cp"] = str(record.get("C_P.", "") or "").strip()
+    st.session_state["local_route_referencias"] = str(record.get("Referencias", "") or "").strip()
 
 
 def upsert_cliente_local_if_missing(record: dict[str, str]) -> tuple[bool, str]:
@@ -2818,6 +2826,7 @@ with tab1:
     local_route_forma_pago = "TRANSFERENCIA"
     local_route_total_factura = 0.0
     local_route_adeudo_anterior = 0.0
+    local_route_referencias = ""
 
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
@@ -2987,6 +2996,11 @@ with tab1:
                         format="%.2f",
                         key="local_route_adeudo_anterior",
                     )
+                local_route_referencias = st.text_area(
+                    "📝 REFERENCIAS Y/O COMENTARIOS (solo hoja de ruta)",
+                    key="local_route_referencias",
+                    help="Este campo se usa únicamente en la hoja de ruta y en el historial de Clientes_Locales.",
+                )
 
             st.markdown("---")
             st.subheader("💰 Estado de Pago")
@@ -3330,7 +3344,7 @@ with tab1:
             registro_cliente=registro_cliente,
             subtipo_local=subtipo_local,
             recibe=local_route_recibe,
-            comentario=comentario,
+            referencias_hoja_ruta=local_route_referencias,
             calle_no=local_route_calle_no,
             tipo_inmueble=local_route_tipo_inmueble,
             interior=local_route_interior,
@@ -3408,6 +3422,7 @@ with tab1:
                 f"Dirección: {confirmed_route_payload.get('calle_no') or 'N/A'}",
                 f"Municipio: {confirmed_route_payload.get('municipio') or 'N/A'}",
                 f"Teléfonos: {confirmed_route_payload.get('telefonos') or 'N/A'}",
+                f"Referencias: {confirmed_route_payload.get('referencias') or 'N/A'}",
                 f"Forma de pago: {confirmed_route_payload.get('forma_pago') or 'N/A'}",
                 f"Total factura: {confirmed_route_payload.get('total_factura')}",
                 f"Adeudo anterior: {confirmed_route_payload.get('adeudo_anterior')}",
@@ -3673,6 +3688,7 @@ with tab1:
                 local_route_forma_pago = submission_payload_override.get("local_route_forma_pago", local_route_forma_pago)
                 local_route_total_factura = float(submission_payload_override.get("local_route_total_factura", local_route_total_factura) or 0)
                 local_route_adeudo_anterior = float(submission_payload_override.get("local_route_adeudo_anterior", local_route_adeudo_anterior) or 0)
+                local_route_referencias = submission_payload_override.get("local_route_referencias", local_route_referencias)
                 fecha_entrega_str = submission_payload_override.get("fecha_entrega")
                 if fecha_entrega_str:
                     try:
@@ -3700,7 +3716,7 @@ with tab1:
                     registro_cliente=registro_cliente,
                     subtipo_local=subtipo_local,
                     recibe=local_route_recibe,
-                    comentario=comentario,
+                    referencias_hoja_ruta=local_route_referencias,
                     calle_no=local_route_calle_no,
                     tipo_inmueble=local_route_tipo_inmueble,
                     interior=local_route_interior,
@@ -3814,6 +3830,7 @@ with tab1:
                     "local_route_forma_pago": local_route_forma_pago,
                     "local_route_total_factura": local_route_total_factura,
                     "local_route_adeudo_anterior": local_route_adeudo_anterior,
+                    "local_route_referencias": local_route_referencias,
                     "fecha_entrega": fecha_entrega.strftime('%Y-%m-%d') if fecha_entrega else "",
                     "uploaded_files": _serialize_uploaded_files(uploaded_files),
                     "comprobante_pago_files": _serialize_uploaded_files(comprobante_pago_files),
