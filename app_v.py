@@ -2648,7 +2648,7 @@ with tab1:
         tipo_envio_original = st.selectbox(
             "📦 Tipo de Envío Original",
             ["📍 Local", "🚚 Foráneo"],
-            index=1,
+            index=0,
             key="tipo_envio_original",
             help="Selecciona el tipo de envío del pedido que se va a devolver.",
         )
