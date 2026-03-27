@@ -2636,6 +2636,7 @@ with tab1:
         current_tipo_envio = tipo_envio_options[0]
         st.session_state["tipo_envio_selector_global"] = current_tipo_envio
 
+    prev_tipo_envio = st.session_state.get("_prev_tipo_envio_selector_global")
     tipo_envio = st.selectbox(
         "📦 Tipo de Envío",
         tipo_envio_options,
@@ -2645,15 +2646,23 @@ with tab1:
 
     tipo_envio_original = ""
     if tipo_envio == "🔁 Devolución":
+        tipo_envio_original_options = ["📍 Local", "🚚 Foráneo"]
+        if prev_tipo_envio != "🔁 Devolución":
+            st.session_state["tipo_envio_original"] = "🚚 Foráneo"
+        current_tipo_envio_original = st.session_state.get("tipo_envio_original", "🚚 Foráneo")
+        if current_tipo_envio_original not in tipo_envio_original_options:
+            current_tipo_envio_original = "🚚 Foráneo"
+            st.session_state["tipo_envio_original"] = current_tipo_envio_original
         tipo_envio_original = st.selectbox(
             "📦 Tipo de Envío Original",
-            ["📍 Local", "🚚 Foráneo"],
-            index=0,
+            tipo_envio_original_options,
+            index=tipo_envio_original_options.index(current_tipo_envio_original),
             key="tipo_envio_original",
             help="Selecciona el tipo de envío del pedido que se va a devolver.",
         )
     else:
         st.session_state.pop("tipo_envio_original", None)
+    st.session_state["_prev_tipo_envio_selector_global"] = tipo_envio
 
     subtipo_local = ""
     is_local_pasa_bodega = False
