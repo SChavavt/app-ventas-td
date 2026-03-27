@@ -2643,24 +2643,9 @@ with tab1:
         key="tipo_envio_selector_global",
     )
 
-    tipo_envio_original = ""
-    if tipo_envio == "🔁 Devolución":
-        tipo_envio_original = st.selectbox(
-            "📦 Tipo de Envío Original",
-            ["📍 Local", "🚚 Foráneo"],
-            index=0,
-            key="tipo_envio_original",
-            help="Selecciona el tipo de envío del pedido que se va a devolver.",
-        )
-    else:
-        st.session_state.pop("tipo_envio_original", None)
-
     subtipo_local = ""
     is_local_pasa_bodega = False
-    usa_logica_local = tipo_envio == "📍 Pedido Local" or (
-        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
-    )
-    if usa_logica_local:
+    if tipo_envio == "📍 Pedido Local":
         st.markdown("---")
         st.subheader("⏰ Detalle de Pedido Local")
         local_shift_options = get_local_shift_options(st.session_state.get("id_vendedor", ""))
@@ -2849,7 +2834,7 @@ with tab1:
     form_nonce = int(st.session_state.get(TAB1_FORM_NONCE_KEY, 0) or 0)
     route_post_confirm_notice = (
         st.session_state.get(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY)
-        if usa_logica_local
+        if tipo_envio == "📍 Pedido Local"
         else None
     )
     with st.form(key=f"new_pedido_form_{form_nonce}", clear_on_submit=False):
@@ -2878,7 +2863,7 @@ with tab1:
         if vendedor != st.session_state.get("last_selected_vendedor", None):
             st.session_state.last_selected_vendedor = vendedor
 
-        if not usa_logica_local or is_local_pasa_bodega:
+        if tipo_envio != "📍 Pedido Local" or is_local_pasa_bodega:
             registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
         else:
             registro_cliente = str(st.session_state.get("registro_cliente", "") or "").strip()
@@ -2887,8 +2872,16 @@ with tab1:
         if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
             numero_cliente_rfc = st.text_input("🆔 Número de Cliente o RFC (opcional)", key="numero_cliente_rfc")
 
-        # Datos adicionales de Devolución (tipo_envio_original se captura fuera del formulario)
+        # Tipo de Envío Original (solo Devolución)
         if tipo_envio == "🔁 Devolución":
+            tipo_envio_original = st.selectbox(
+                "📦 Tipo de Envío Original",
+                ["📍 Local", "🚚 Foráneo"],
+                index=0,
+                key="tipo_envio_original",
+                help="Selecciona el tipo de envío del pedido que se va a devolver."
+            )
+
             estatus_origen_factura = st.selectbox(
                 "📊 Estatus de Factura Origen",
                 ["Pagado", "Crédito", "Otro"],
@@ -2942,7 +2935,7 @@ with tab1:
             key="comentario_detallado",
         )
 
-        if usa_logica_local:
+        if tipo_envio == "📍 Pedido Local":
             if not is_local_pasa_bodega:
                 st.markdown("### 🗺️ Hoja de Ruta Local")
                 col_local_1, col_local_2 = st.columns(2)
@@ -3204,7 +3197,7 @@ with tab1:
         render_uploaded_files_preview("Archivos del pedido seleccionados", uploaded_files)
 
         auto_route_filename = ""
-        if usa_logica_local and not is_local_pasa_bodega:
+        if tipo_envio == "📍 Pedido Local" and not is_local_pasa_bodega:
             auto_route_filename = st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "")
             if route_post_confirm_notice and route_post_confirm_notice.get("filename"):
                 auto_route_filename = route_post_confirm_notice.get("filename", "")
@@ -3212,7 +3205,7 @@ with tab1:
         if auto_route_filename:
             st.info(f"📎 Hoja de ruta adjuntada automáticamente: {auto_route_filename}")
 
-        if usa_logica_local and not is_local_pasa_bodega:
+        if tipo_envio == "📍 Pedido Local" and not is_local_pasa_bodega:
             st.markdown("---")
             st.subheader("👀 Vista previa opcional del Excel local")
             st.caption(
@@ -3250,7 +3243,7 @@ with tab1:
             fecha_entrega_texto = fecha_entrega.strftime("%d/%m/%Y") if hasattr(fecha_entrega, "strftime") else str(fecha_entrega)
             confirmation_detail += f" | Fecha de Entrega Seleccionada: {fecha_entrega_texto}"
 
-        if usa_logica_local:
+        if tipo_envio == "📍 Pedido Local":
             turno_local = subtipo_local if subtipo_local else "Sin turno"
             confirmation_detail += f" | Turno: {turno_local}"
 
@@ -3338,7 +3331,7 @@ with tab1:
     if route_post_confirm_notice:
         st.session_state.pop(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY, None)
 
-    if usa_logica_local and not is_local_pasa_bodega:
+    if tipo_envio == "📍 Pedido Local" and not is_local_pasa_bodega:
         route_template_path = Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx"
         selected_history_row = parse_sheet_row_number(st.session_state.get("local_route_selected_history_row"))
         current_folio_for_route = (
@@ -3712,11 +3705,11 @@ with tab1:
             else:
                 auto_route_files = _deserialize_uploaded_files(
                     [st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)]
-                    if usa_logica_local and st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
+                    if tipo_envio == "📍 Pedido Local" and st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
                     else []
                 )
 
-            if usa_logica_local:
+            if tipo_envio == "📍 Pedido Local":
                 route_template_path = Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx"
                 current_route_payload_for_submission = build_local_route_payload(
                     fecha_entrega=fecha_entrega,
@@ -3860,8 +3853,6 @@ with tab1:
                 "📍 Pedido Local",
                 "🎓 Cursos y Eventos",
             ]
-            if tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local":
-                pedidos_con_estado_pago.append("🔁 Devolución")
 
             if (
                 tipo_envio in pedidos_con_estado_pago
@@ -4084,54 +4075,44 @@ with tab1:
                 elif header == "Estado":
                     values.append("🟡 Pendiente")
                 elif header == "Estado_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
-                    ):
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(estado_pago)
                     else:
                         values.append("")
                 elif header == "Aplica_Pago":
                     values.append("Sí" if aplica_pago == "Sí" else "No")
                 elif header == "Fecha_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
-                    ):
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
                     else:
                         values.append("")
                 elif header == "Forma_Pago_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
                         values.append(forma_pago)
-                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"):
+                    elif tipo_envio == "📍 Pedido Local":
                         values.append(local_route_forma_pago)
                     else:
                         values.append("")
                 elif header == "Terminal":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
-                    ):
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(terminal)
                     else:
                         values.append("")
                 elif header == "Banco_Destino_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
-                    ):
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(banco_destino)
                     else:
                         values.append("")
                 elif header == "Monto_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
                         values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
-                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"):
+                    elif tipo_envio == "📍 Pedido Local":
                         monto_comprobante_local = float(local_route_total_factura or 0) + float(local_route_adeudo_anterior or 0)
                         values.append(f"{monto_comprobante_local:.2f}" if monto_comprobante_local > 0 else "")
                     else:
                         values.append("")
                 elif header == "Referencia_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
-                    ):
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"]:
                         values.append(referencia_pago)
                     else:
                         values.append("")
@@ -4233,7 +4214,7 @@ with tab1:
 
             cliente_local_history_notice = ""
             local_route_upload_notice = ""
-            if usa_logica_local and not is_local_pasa_bodega:
+            if tipo_envio == "📍 Pedido Local" and not is_local_pasa_bodega:
                 try:
                     inserted, _history_message = upsert_cliente_local_if_missing(
                         build_clientes_locales_record_from_form()
