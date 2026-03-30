@@ -4833,13 +4833,6 @@ with tab2:
                 current_adjuntos_surtido_list = [f.strip() for f in str(current_adjuntos_surtido_str).split(',') if f.strip()]
                 tab2_route_prefix = "tab2_local_route"
                 tab2_local_order = selected_row_data.get("Tipo_Envio", "") == "📍 Pedido Local"
-                tab2_turno_selector_key = "tab2_local_shift_selector"
-                tab2_fecha_entrega_key = "tab2_local_fecha_entrega_requerida"
-                id_vendedor_tab2_shift = extract_id_vendedor(
-                    selected_row_data,
-                    str(st.session_state.get("id_vendedor", "") or ""),
-                )
-                local_shift_options_tab2 = get_local_shift_options(id_vendedor_tab2_shift)
                 if option_changed and tab2_local_order:
                     st.session_state["tab2_local_route_enabled"] = False
                     if current_estado_pago_value in ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"]:
@@ -4873,21 +4866,6 @@ with tab2:
                     except (TypeError, ValueError):
                         st.session_state[f"{tab2_route_prefix}_adeudo_anterior"] = 0.0
                     st.session_state[f"{tab2_route_prefix}_referencias"] = str(selected_row_data.get("Referencias", "") or "").strip()
-                    turno_local_default_tab2 = str(selected_row_data.get("Turno", "") or "").strip()
-                    if turno_local_default_tab2 not in local_shift_options_tab2:
-                        turno_local_default_tab2 = local_shift_options_tab2[0]
-                    st.session_state[tab2_turno_selector_key] = turno_local_default_tab2
-                    fecha_entrega_base_tab2 = pd.to_datetime(
-                        selected_row_data.get("Fecha_Entrega"),
-                        errors="coerce",
-                    )
-                    st.session_state[tab2_fecha_entrega_key] = (
-                        fecha_entrega_base_tab2.date()
-                        if pd.notna(fecha_entrega_base_tab2)
-                        else datetime.now().date()
-                    )
-                elif tab2_local_order and st.session_state.get(tab2_turno_selector_key) not in local_shift_options_tab2:
-                    st.session_state[tab2_turno_selector_key] = local_shift_options_tab2[0]
 
                 st.markdown("---")
                 st.subheader("Modificar Campos y Adjuntos (Surtido)")
@@ -5088,20 +5066,6 @@ with tab2:
                             key=f"{tab2_route_prefix}_referencias",
                         )
 
-                        tab2_fecha_entrega_requerida = st.date_input(
-                            "🗓 Fecha de Entrega Requerida",
-                            value=st.session_state.get(tab2_fecha_entrega_key, datetime.now().date()),
-                            key=tab2_fecha_entrega_key,
-                        )
-                        tab2_turno_local = st.selectbox(
-                            "⏰ Turno / Local",
-                            local_shift_options_tab2,
-                            key=tab2_turno_selector_key,
-                            help="Usa las mismas opciones de turno del Tab 1 para pedidos locales.",
-                        )
-                        if tab2_turno_local not in ["☀️ Local Mañana", "🌙 Local Tarde"]:
-                            st.warning("⚠️ La hoja de ruta asigna horario automático solo para ☀️ Local Mañana y 🌙 Local Tarde. Para otros turnos se usará el texto del turno seleccionado.")
-
                         st.subheader("💰 Estado de Pago")
                         tab2_estado_pago_options = ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"]
                         if st.session_state.get("tab2_local_estado_pago") not in tab2_estado_pago_options:
@@ -5119,12 +5083,21 @@ with tab2:
                             else:
                                 st.warning("⚠️ Estado en PAGADO: debes adjuntar al menos un comprobante para guardar la modificación.")
                         else:
-                            st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado' y no haya comprobantes registrados.")
+                            st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado'.")
 
+                        fecha_entrega_base = pd.to_datetime(
+                            selected_row_data.get("Fecha_Entrega"),
+                            errors="coerce",
+                        )
+                        fecha_entrega_payload = (
+                            fecha_entrega_base.date()
+                            if pd.notna(fecha_entrega_base)
+                            else datetime.now().date()
+                        )
                         tab2_route_payload = build_local_route_payload(
-                            fecha_entrega=tab2_fecha_entrega_requerida,
+                            fecha_entrega=fecha_entrega_payload,
                             registro_cliente=tab2_cliente,
-                            subtipo_local=str(tab2_turno_local or local_shift_options_tab2[0]),
+                            subtipo_local=str(selected_row_data.get("Turno", "") or "☀️ Local Mañana"),
                             recibe=tab2_local_route_recibe,
                             referencias_hoja_ruta=tab2_local_route_referencias,
                             calle_no=tab2_local_route_calle_no,
@@ -5141,10 +5114,6 @@ with tab2:
                             total_factura=tab2_local_route_total_factura,
                             adeudo_anterior=tab2_local_route_adeudo_anterior,
                             folio=str(selected_row_data.get("Folio_Factura", "") or ""),
-                        )
-                        st.caption(
-                            f"📅 Día de entrega: {tab2_route_payload.get('dia_entrega', 'N/A')} | "
-                            f"🕒 Horario asignado: {tab2_route_payload.get('hora_entrega', 'N/A')}"
                         )
 
                 # ----------------- Formulario de modificación -----------------
@@ -5344,21 +5313,6 @@ with tab2:
                                                 col_idx("Modificacion_Surtido"),
                                             ),
                                             "values": [[str(new_modificacion_surtido_input)]],
-                                        })
-                                        changes_made = True
-                                if tab2_local_order and apply_local_route_update and col_exists("Turno"):
-                                    nuevo_turno_tab2 = str(
-                                        st.session_state.get(tab2_turno_selector_key, "")
-                                        or local_shift_options_tab2[0]
-                                    ).strip()
-                                    turno_actual_tab2 = str(actual_row.get("Turno", "") or "").strip()
-                                    if nuevo_turno_tab2 and nuevo_turno_tab2 != turno_actual_tab2:
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(
-                                                gsheet_row_index,
-                                                col_idx("Turno"),
-                                            ),
-                                            "values": [[nuevo_turno_tab2]],
                                         })
                                         changes_made = True
 
