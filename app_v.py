@@ -5027,10 +5027,27 @@ with tab2:
                             tab2_local_route_interior = st.text_input("🚪 INTERIOR", key=f"{tab2_route_prefix}_interior")
                             tab2_local_route_colonia = st.text_input("🏘️ COL.", key=f"{tab2_route_prefix}_colonia")
                             tab2_local_route_cp = st.text_input("📮 C.P.", key=f"{tab2_route_prefix}_cp")
+                            tab2_forma_pago_key = f"{tab2_route_prefix}_forma_pago"
+                            tab2_legacy_forma_pago_map = {
+                                "TRANSFERENCIA": "Transferencia",
+                                "EFECTIVO": "Depósito en Efectivo",
+                                "TARJETA": "Tarjeta de Crédito",
+                                "PENDIENTE": "Transferencia",
+                            }
+                            tab2_current_forma_pago = str(st.session_state.get(tab2_forma_pago_key, "") or "").strip()
+                            if tab2_current_forma_pago in tab2_legacy_forma_pago_map:
+                                st.session_state[tab2_forma_pago_key] = tab2_legacy_forma_pago_map[tab2_current_forma_pago]
                             tab2_local_route_forma_pago = st.selectbox(
                                 "💳 FORMA DE PAGO",
-                                ["TRANSFERENCIA", "EFECTIVO", "TARJETA", "PENDIENTE"],
-                                key=f"{tab2_route_prefix}_forma_pago",
+                                [
+                                    "Transferencia",
+                                    "Depósito en Efectivo",
+                                    "Tarjeta de Débito",
+                                    "Tarjeta de Crédito",
+                                    "Credito TD",
+                                    "Cheque",
+                                ],
+                                key=tab2_forma_pago_key,
                             )
                             tab2_local_route_total_factura = st.number_input(
                                 "💵 TOTAL FACTURA",
@@ -5093,7 +5110,7 @@ with tab2:
                             telefonos=tab2_local_route_telefonos,
                             estado_pago=tab2_estado_pago,
                             forma_pago=tab2_local_route_forma_pago,
-                            vendedor=str(selected_row_data.get("Vendedor", "") or ""),
+                            vendedor=get_session_vendedor_name() or str(selected_row_data.get("Vendedor", "") or ""),
                             total_factura=tab2_local_route_total_factura,
                             adeudo_anterior=tab2_local_route_adeudo_anterior,
                             folio=str(selected_row_data.get("Folio_Factura", "") or ""),
