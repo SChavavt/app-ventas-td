@@ -5694,8 +5694,6 @@ with tab4:
 
     st.markdown("---")
 
-    st.info("ℹ️ La alerta y el detalle de folios post-registro (*) ahora se muestran en la pestaña 📦 Casos Especiales.")
-
     # ------- Columnas a mostrar/descargar -------
     columnas_base = [
         "ID_Pedido","Hora_Registro","Vendedor_Registro","id_vendedor","Cliente","Folio_Factura",
