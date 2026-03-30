@@ -4795,14 +4795,17 @@ with tab3, suppress(StopException):
         )
 
     st.subheader("🧾 Folios nuevos capturados post-registro")
-    st.caption("Se listan devoluciones con Folio_Factura guardado con prefijo * para identificar captura posterior al registro original.")
+    st.caption(
+        "Se listan únicamente devoluciones con Folio_Factura guardado con prefijo * "
+        "que siguen pendientes de refacturar (Seguimiento = Autorización de devolución)."
+    )
 
-    if not df_folios_post.empty:
-        df_folios_post = df_folios_post.copy()
-        df_folios_post["Folio_Nuevo"] = df_folios_post["Folio_Factura"].apply(clean_folio_for_ui)
-        if "Hora_Registro" in df_folios_post.columns:
-            _dt_post = pd.to_datetime(df_folios_post["Hora_Registro"], errors="coerce", dayfirst=True)
-            df_folios_post = df_folios_post.assign(_dt_sort=_dt_post).sort_values(
+    if not df_folios_post_pendientes.empty:
+        df_folios_post_pendientes = df_folios_post_pendientes.copy()
+        df_folios_post_pendientes["Folio_Nuevo"] = df_folios_post_pendientes["Folio_Factura"].apply(clean_folio_for_ui)
+        if "Hora_Registro" in df_folios_post_pendientes.columns:
+            _dt_post = pd.to_datetime(df_folios_post_pendientes["Hora_Registro"], errors="coerce", dayfirst=True)
+            df_folios_post_pendientes = df_folios_post_pendientes.assign(_dt_sort=_dt_post).sort_values(
                 "_dt_sort", ascending=False, na_position="last"
             ).drop(columns=["_dt_sort"])
 
@@ -4814,9 +4817,9 @@ with tab3, suppress(StopException):
             "Seguimiento",
             "Hora_Registro",
         ]
-        columnas_post_existentes = [c for c in columnas_post if c in df_folios_post.columns]
+        columnas_post_existentes = [c for c in columnas_post if c in df_folios_post_pendientes.columns]
         st.dataframe(
-            df_folios_post[columnas_post_existentes],
+            df_folios_post_pendientes[columnas_post_existentes],
             use_container_width=True,
             hide_index=True,
         )
