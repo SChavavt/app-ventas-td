@@ -1125,7 +1125,7 @@ def resolve_adjuntos_link(
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=2)
 def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0):
     # 1) Intenta leer con reintentos usando el helper
     try:
@@ -1195,7 +1195,8 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0)
             df["ID_Pedido"] = df["ID_Pedido"].apply(normalize_id_pedido)
 
         # 2) Guarda snapshot “último bueno” por si falla luego
-        st.session_state[f"_lastgood_{worksheet_name}"] = (df.copy(), list(headers))
+        # Snapshot ligero: evita duplicar memoria completa del DataFrame en cada recarga.
+        st.session_state[f"_lastgood_{worksheet_name}"] = (df.copy(deep=False), list(headers))
         return df, headers
 
     except gspread.exceptions.APIError as e:
@@ -1574,11 +1575,11 @@ def get_files_in_s3_prefix(s3_client_instance, prefix): # Acepta s3_client_insta
                 if not item['Key'].endswith('/'):
                     file_name = item['Key'].split('/')[-1]
                     if file_name:
+                        # Conservamos solo los campos utilizados en UI para reducir huella en memoria.
                         files.append({
                             'title': file_name,
                             'key': item['Key'],
                             'size': item['Size'],
-                            'last_modified': item['LastModified']
                         })
 
             if response.get('IsTruncated'):
@@ -4145,17 +4146,19 @@ with tab2:
         df_excel = df_excel.reindex(columns=columnas_excel_orden, fill_value="")
         df_excel = df_excel.fillna("")
 
-        output_confirmados = BytesIO()
-        with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-            df_excel.to_excel(writer, index=False, sheet_name='Confirmados')
-        data_xlsx = output_confirmados.getvalue()
+        if st.button("🧮 Preparar Excel Confirmados", key="prep_excel_confirmados"):
+            output_confirmados = BytesIO()
+            with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
+                df_excel.to_excel(writer, index=False, sheet_name='Confirmados')
+            data_xlsx = output_confirmados.getvalue()
 
-        st.download_button(
-            label="📥 Descargar Excel Confirmados (últimos primero)",
-            data=data_xlsx,
-            file_name=f"confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            st.download_button(
+                label="📥 Descargar Excel Confirmados (últimos primero)",
+                data=data_xlsx,
+                file_name=f"confirmados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_excel_confirmados_ready",
+            )
 
         st.markdown("---")
         st.subheader("🚚 Actualizar estado de entrega de pedidos locales")
@@ -5749,18 +5752,20 @@ with tab4:
         column_config=column_config or None,
     )
 
-    # ------- Descargar Excel -------
-    output_casos = BytesIO()
-    with pd.ExcelWriter(output_casos, engine="xlsxwriter") as writer:
-        # Exporta exactamente lo que se muestra en la previsualización de la tabla
-        # (incluyendo normalización de fechas y links procesados).
-        df_view_table[columnas_existentes].to_excel(writer, index=False, sheet_name="casos_especiales")
-        # (opcional) se podría formatear celdas/hipervínculos aquí
-    data_xlsx = output_casos.getvalue()
+    # ------- Descargar Excel (on-demand para evitar picos de memoria) -------
+    if st.button("🧮 Preparar Excel Casos Especiales", key="prep_excel_casos"):
+        output_casos = BytesIO()
+        with pd.ExcelWriter(output_casos, engine="xlsxwriter") as writer:
+            # Exporta exactamente lo que se muestra en la previsualización de la tabla
+            # (incluyendo normalización de fechas y links procesados).
+            df_view_table[columnas_existentes].to_excel(writer, index=False, sheet_name="casos_especiales")
+            # (opcional) se podría formatear celdas/hipervínculos aquí
+        data_xlsx = output_casos.getvalue()
 
-    st.download_button(
-        label="📥 Descargar Excel Casos Especiales (últimos primero)",
-        data=data_xlsx,
-        file_name=f"casos_especiales_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        st.download_button(
+            label="📥 Descargar Excel Casos Especiales (últimos primero)",
+            data=data_xlsx,
+            file_name=f"casos_especiales_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_excel_casos_ready",
+        )
