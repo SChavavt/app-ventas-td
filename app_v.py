@@ -44,7 +44,6 @@ S3_UPLOAD_MAX_RETRIES = 4
 S3_UPLOAD_BASE_DELAY_SECONDS = 1.2
 CONNECTION_STATUS_TTL_SECONDS = 20
 PEDIDO_STATUS_MAX_AGE_SECONDS = 180
-PEDIDO_ATTEMPT_LOG_TTL_SECONDS = 300
 
 
 TAB1_PRESERVED_STATE_KEYS: set[str] = {
@@ -1956,14 +1955,6 @@ def set_pedido_submission_status(
     }
 
 
-def set_pedido_attempt_log(message: str) -> None:
-    """Registra un log corto visible en UI cuando inicia un intento de registro."""
-    st.session_state["pedido_attempt_log"] = {
-        "message": message,
-        "created_at": time.time(),
-    }
-
-
 def rerun_with_pedido_loading(message: str = "⏳ Actualizando el estado del pedido...") -> None:
     """Muestra aviso de carga para tab1 y relanza la app sin forzar cambio de pestaña."""
     st.session_state["pedido_submission_loading_message"] = message
@@ -3608,14 +3599,6 @@ with tab1:
         if loading_message:
             st.info(loading_message)
 
-        attempt_log = st.session_state.get("pedido_attempt_log")
-        if attempt_log:
-            log_age_seconds = time.time() - float(attempt_log.get("created_at", 0) or 0)
-            if log_age_seconds <= PEDIDO_ATTEMPT_LOG_TTL_SECONDS:
-                st.caption(f"🧪 {attempt_log.get('message', '')}")
-            else:
-                st.session_state.pop("pedido_attempt_log", None)
-
         status_data = st.session_state.get("pedido_submission_status")
         if status_data:
             if status_data.get("status") == "success" and has_new_capture_signal:
@@ -3705,8 +3688,6 @@ with tab1:
     # Registro del Pedido
     # -------------------------------
     if should_process_submission:
-        start_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        set_pedido_attempt_log(f"Intento de registro iniciado: {start_stamp}")
         st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
         st.info("⏳ Registrando pedido, espera la confirmación final...")
         try:
