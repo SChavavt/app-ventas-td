@@ -43,8 +43,6 @@ PENDING_SUBMISSIONS_DIR = Path(".pedido_retry_cache")
 S3_UPLOAD_MAX_RETRIES = 4
 S3_UPLOAD_BASE_DELAY_SECONDS = 1.2
 CONNECTION_STATUS_TTL_SECONDS = 20
-PEDIDO_STATUS_MAX_AGE_SECONDS = 180
-PEDIDO_ATTEMPT_LOG_TTL_SECONDS = 300
 
 
 TAB1_PRESERVED_STATE_KEYS: set[str] = {
@@ -1946,21 +1944,12 @@ def set_pedido_submission_status(
     """Guarda el resultado del registro de un pedido para mostrarlo en la UI."""
     st.session_state["pedido_submission_status"] = {
         "event_id": uuid.uuid4().hex,
-        "created_at": time.time(),
         "status": status,
         "message": message,
         "detail": detail or "",
         "attachments": attachments or [],
         "missing_attachments_warning": missing_attachments_warning,
         "client_name": client_name,
-    }
-
-
-def set_pedido_attempt_log(message: str) -> None:
-    """Registra un log corto visible en UI cuando inicia un intento de registro."""
-    st.session_state["pedido_attempt_log"] = {
-        "message": message,
-        "created_at": time.time(),
     }
 
 
@@ -2639,15 +2628,6 @@ with tab1:
     pending_submission_record = load_pending_submission(pending_cache_key)
     has_pending_submission = bool(pending_submission_record and pending_submission_record.get("payload"))
     submission_payload_override = None
-    existing_tab1_status = st.session_state.get("pedido_submission_status") or {}
-    if (
-        existing_tab1_status.get("status") in {"success", "warning", "error"}
-        and st.session_state.get("pedido_submit_disabled")
-    ):
-        # Evita que un estado previo deje bloqueado el botón de registro
-        # en un nuevo intento real de captura.
-        st.session_state["pedido_submit_disabled"] = False
-        st.session_state.pop("pedido_submit_disabled_at", None)
 
     tab1_is_active = default_tab == 0
     if tab1_is_active:
@@ -3519,10 +3499,6 @@ with tab1:
         st.session_state.pop(LOCAL_ROUTE_GENERATED_AT_KEY, None)
 
     if submit_button:
-        # Si el usuario envía un nuevo pedido, limpia feedback anterior para
-        # evitar confusión visual con mensajes de un envío pasado.
-        st.session_state.pop("pedido_submission_status", None)
-        st.session_state.pop("pedido_status_toast_event_id", None)
         st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
         st.session_state["current_tab_index"] = 0
         st.query_params.update({"tab": "0"})
@@ -3588,16 +3564,6 @@ with tab1:
         if registrar_nota_venta and isinstance(motivo_nota_venta, str)
         else ""
     )
-    has_new_capture_signal = any(
-        [
-            bool(str(registro_cliente or "").strip()),
-            bool(str(folio_factura_input_value or "").strip()),
-            bool(str(comentario or "").strip()),
-            bool(uploaded_files),
-            bool(comprobante_pago_files),
-            bool(comprobante_cliente),
-        ]
-    )
 
     st.markdown(f"<div id='{TAB1_FEEDBACK_ANCHOR_ID}'></div>", unsafe_allow_html=True)
 
@@ -3608,26 +3574,7 @@ with tab1:
         if loading_message:
             st.info(loading_message)
 
-        attempt_log = st.session_state.get("pedido_attempt_log")
-        if attempt_log:
-            log_age_seconds = time.time() - float(attempt_log.get("created_at", 0) or 0)
-            if log_age_seconds <= PEDIDO_ATTEMPT_LOG_TTL_SECONDS:
-                st.caption(f"🧪 {attempt_log.get('message', '')}")
-            else:
-                st.session_state.pop("pedido_attempt_log", None)
-
         status_data = st.session_state.get("pedido_submission_status")
-        if status_data:
-            if status_data.get("status") == "success" and has_new_capture_signal:
-                st.session_state.pop("pedido_submission_status", None)
-                st.session_state.pop("pedido_status_toast_event_id", None)
-                status_data = None
-            if status_data:
-                status_age_seconds = time.time() - float(status_data.get("created_at", 0) or 0)
-                if status_age_seconds > PEDIDO_STATUS_MAX_AGE_SECONDS:
-                    st.session_state.pop("pedido_submission_status", None)
-                    st.session_state.pop("pedido_status_toast_event_id", None)
-                    status_data = None
         if st.session_state.get(TAB1_SCROLL_RESTORE_FLAG_KEY, False) and (loading_message or status_data):
             scroll_to_tab1_feedback_section()
             st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = False
@@ -3695,7 +3642,7 @@ with tab1:
 
             if status == "success":
                 st.button(
-                    "Limpiar mensaje de éxito",
+                    "Registrar otro pedido",
                     key="acknowledge_pedido_status",
                     on_click=clear_pedido_status_message,
                 )
@@ -3705,9 +3652,6 @@ with tab1:
     # Registro del Pedido
     # -------------------------------
     if should_process_submission:
-        start_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        set_pedido_attempt_log(f"Intento de registro iniciado: {start_stamp}")
-        st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
         st.info("⏳ Registrando pedido, espera la confirmación final...")
         try:
             pedido_id = ""
