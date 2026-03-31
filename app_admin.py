@@ -5710,22 +5710,18 @@ with tab4:
     st.markdown("---")
 
     # ------- Columnas a mostrar/descargar -------
-    columnas_objetivo = [
-        "Hora_Registro",
-        "Vendedor_Registro",
-        "Cliente",
-        "Folio_Factura",
-        "Tipo_Envio",
-        "Seguimiento",
-        "Tipo_Envio_Original",
-        "Resultado_Esperado",
-        "Material_Devuelto",
-        "Motivo_Detallado",
-        "Area_Responsable",
-        "Nombre_Responsable",
+    columnas_base = [
+        "ID_Pedido","Hora_Registro","Vendedor_Registro","id_vendedor","Cliente","Folio_Factura",
+        "Numero_Serie","Fecha_Compra",
+        "Tipo_Envio","Estado","Estado_Caso","Aplica_Pago","Estado_Recepcion","Seguimiento",
+        "Tipo_Envio_Original","Estatus_OrigenF","Turno","Fecha_Entrega",
+        "Resultado_Esperado","Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
+        "Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
+        GUIAS_DEVOLUCION_COL
     ]
+    columnas_links = ["Links_Adjuntos","Link_Guia","Link_Dictamen_o_Nota","Link_Doc_Adicional"]
 
-    columnas_existentes = [c for c in columnas_objetivo if c in df_view.columns]
+    columnas_existentes = [c for c in columnas_base + columnas_links if c in df_view.columns]
     if not columnas_existentes:
         columnas_existentes = df_view.columns.tolist()
 
