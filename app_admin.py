@@ -5081,11 +5081,18 @@ with tab3, suppress(StopException):
         st.warning(f"📋 Hay {len(df_pendientes)} casos pendientes por confirmar.")
 
         columns_to_show = [
-            "Tipo_Envio","Aplica_Pago","Folio_Factura","Cliente","Vendedor_Registro","id_vendedor",
-            "Hora_Registro","Resultado_Esperado","Numero_Cliente_RFC",
-            "Area_Responsable","Nombre_Responsable",
-            "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta",
-            "Tipo_Envio_Original","Estatus_OrigenF","Estado_Caso","Estado_Recepcion","Seguimiento"
+            "Hora_Registro",
+            "Vendedor_Registro",
+            "Cliente",
+            "Folio_Factura",
+            "Tipo_Envio",
+            "Seguimiento",
+            "Tipo_Envio_Original",
+            "Resultado_Esperado",
+            "Material_Devuelto",
+            "Motivo_Detallado",
+            "Area_Responsable",
+            "Nombre_Responsable",
         ]
         existing_columns = [c for c in columns_to_show if c in df_pendientes.columns]
 
