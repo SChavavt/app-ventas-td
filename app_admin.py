@@ -615,6 +615,16 @@ def safe_open_worksheet(sheet_id: str, worksheet_name: str, retries: int = 3):
         try:
             if ss is None:
                 ss = get_spreadsheet(sheet_id)  # usa instancia cacheada del spreadsheet
+                if ss is None:
+                    class _FakeResp:
+                        def __init__(self, text):
+                            self.text = text
+
+                    raise gspread.exceptions.APIError(
+                        _FakeResp(
+                            "No se pudo abrir el spreadsheet (credenciales inválidas o sin acceso)."
+                        )
+                    )
             ws = ss.worksheet(worksheet_name)
             st.session_state["_quota_hits"] = 0
             st.session_state.pop("_quota_locked_until", None)
