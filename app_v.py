@@ -926,7 +926,6 @@ def clear_app_caches() -> None:
         get_worksheet_operativa,
         get_worksheet_historico,
         get_worksheet_clientes_locales,
-        get_worksheet_zonas_remotas,
         get_s3_client,
     ):
         clear_fn = getattr(cached_fn, "clear", None)
@@ -1151,7 +1150,6 @@ GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 SHEET_PEDIDOS_OPERATIVOS = "data_pedidos"
 SHEET_PEDIDOS_HISTORICOS = "datos_pedidos"
 SHEET_CLIENTES_LOCALES = "Clientes_Locales"
-SHEET_ZONAS_REMOTAS = "Zonas_Remotas"
 CLIENTES_LOCALES_HEADERS = [
     "Cliente",
     "Recibe",
@@ -1282,41 +1280,10 @@ def get_worksheet_clientes_locales(refresh_token: float | None = None):
         return None
     return spreadsheet.worksheet(SHEET_CLIENTES_LOCALES)
 
-
-@st.cache_resource
-def get_worksheet_zonas_remotas(refresh_token: float | None = None):
-    client = get_google_sheets_client(refresh_token)
-    if client is None:
-        return None
-    spreadsheet = open_google_sheet(client)
-    if spreadsheet is None:
-        return None
-    return spreadsheet.worksheet(SHEET_ZONAS_REMOTAS)
-
 def get_worksheet_casos_especiales():
     client = build_gspread_client()
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
     return spreadsheet.worksheet("casos_especiales")
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def get_remote_postal_codes() -> set[str]:
-    """Obtiene los códigos postales de la hoja Zonas_Remotas como strings normalizados."""
-    worksheet = get_worksheet_zonas_remotas(st.session_state.get("remote_zones_refresh_token"))
-    if worksheet is None:
-        return set()
-
-    try:
-        valores = worksheet.col_values(1)[1:]  # omite encabezado
-    except Exception:
-        return set()
-
-    codigos: set[str] = set()
-    for value in valores:
-        digits = re.sub(r"\D", "", str(value or "").strip())
-        if digits:
-            codigos.add(digits.zfill(5) if len(digits) <= 5 else digits)
-    return codigos
 
 
 def normalize_client_history_text(value: object) -> str:
@@ -2074,28 +2041,6 @@ if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo n
 
 st.title("🛒 App de Vendedores TD")
 st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
-
-remote_postal_codes = get_remote_postal_codes()
-with st.container(border=True):
-    st.markdown("#### ⚡ Validador rápido de zona remota")
-    cp_input = st.text_input(
-        "Código postal",
-        key="remote_zone_cp_input",
-        placeholder="Ej. 97302",
-        max_chars=10,
-        help="Escribe un código postal y te diremos si está en la hoja Zonas_Remotas.",
-    )
-
-    cp_digits = re.sub(r"\D", "", str(cp_input or "").strip())
-    cp_normalized = cp_digits.zfill(5) if cp_digits and len(cp_digits) <= 5 else cp_digits
-
-    if cp_normalized:
-        if cp_normalized in remote_postal_codes:
-            st.error(f"🔴 {cp_normalized}: Zona remota")
-        else:
-            st.success(f"🟢 {cp_normalized}: No es zona remota")
-    else:
-        st.caption("Ingresa un código postal para validarlo al instante.")
 
 id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
 if id_vendedor_sesion_global:
