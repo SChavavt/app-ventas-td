@@ -2066,14 +2066,38 @@ if s3_status and not s3_status.get("ok", False):
 
 st.markdown(f"### 👋 Bienvenido, {usuario_activo}")
 
-if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
-    if allow_refresh("main_last_refresh"):
-        clear_app_caches()
-        get_cached_connection_statuses.clear()
-        st.rerun()
-
-st.title("🛒 App de Vendedores TD")
-st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
+st.markdown(
+    """
+    <style>
+    .remote-zone-status {
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-weight: 800;
+        color: var(--text-color);
+    }
+    .remote-zone-status--remote {
+        background: rgba(239, 68, 68, 0.18);
+        border: 1px solid rgba(239, 68, 68, 0.48);
+    }
+    .remote-zone-status--ok {
+        background: rgba(34, 197, 94, 0.2);
+        border: 1px solid rgba(34, 197, 94, 0.5);
+    }
+    div[data-testid="stTextInput"] input {
+        color: var(--text-color);
+        caret-color: var(--text-color);
+    }
+    div[data-testid="stTextInput"] div[data-baseweb="input"] {
+        border-color: rgba(100, 116, 139, 0.45);
+    }
+    div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within {
+        border-color: #22c55e;
+        box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.7);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 remote_postal_codes = get_remote_postal_codes()
 _home_col_left, home_col_validator, _home_col_right = st.columns([1, 1.2, 1])
@@ -2095,10 +2119,7 @@ with home_col_validator:
         if cp_normalized in remote_postal_codes:
             st.markdown(
                 (
-                    "<div style='background:rgba(239,68,68,0.20);"
-                    "border:1px solid rgba(239,68,68,0.45);"
-                    "border-radius:10px;padding:10px 12px;"
-                    "color:#fecaca;font-weight:800;'>"
+                    "<div class='remote-zone-status remote-zone-status--remote'>"
                     f"🔴 {cp_normalized} · Zona remota"
                     "</div>"
                 ),
@@ -2107,10 +2128,7 @@ with home_col_validator:
         else:
             st.markdown(
                 (
-                    "<div style='background:rgba(34,197,94,0.20);"
-                    "border:1px solid rgba(34,197,94,0.45);"
-                    "border-radius:10px;padding:10px 12px;"
-                    "color:#bbf7d0;font-weight:800;'>"
+                    "<div class='remote-zone-status remote-zone-status--ok'>"
                     f"🟢 {cp_normalized} · No es zona remota"
                     "</div>"
                 ),
@@ -2118,6 +2136,15 @@ with home_col_validator:
             )
     else:
         st.caption("Revisa rápido si un CP es zona remota.")
+
+if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo no carga o da error de Google Sheets."):
+    if allow_refresh("main_last_refresh"):
+        clear_app_caches()
+        get_cached_connection_statuses.clear()
+        st.rerun()
+
+st.title("🛒 App de Vendedores TD")
+st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
 
 id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
 if id_vendedor_sesion_global:
