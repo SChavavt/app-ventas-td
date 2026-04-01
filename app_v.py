@@ -2078,7 +2078,7 @@ st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
 remote_postal_codes = get_remote_postal_codes()
 _home_col_left, home_col_validator, _home_col_right = st.columns([1, 1.2, 1])
 with home_col_validator:
-    st.markdown("##### ⚡ Zona remota")
+    st.markdown("##### ⚡ Verificador de Zonas Remotas")
     cp_input = st.text_input(
         "Código postal",
         key="remote_zone_cp_input",
