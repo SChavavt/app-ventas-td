@@ -5072,10 +5072,27 @@ with tab3, suppress(StopException):
     mask_seguimiento_activo = (seguimiento_norm != "cerrado")
 
     df_pendientes = df_casos[mask_tipo_valido & mask_estado_caso_ok & mask_seguimiento_activo].copy()
+    seguimiento_disponibles = sorted(
+        {
+            str(val).strip()
+            for val in df_casos.get("Seguimiento", [])
+            if str(val).strip() and str(val).strip().lower() not in {"nan", "none"}
+        }
+    )
+    filtro_seguimiento_tab3 = st.selectbox(
+        "🔎 Filtrar por seguimiento",
+        options=["Todos"] + seguimiento_disponibles,
+        index=0,
+        key="tab3_filtro_seguimiento",
+    )
+    if filtro_seguimiento_tab3 != "Todos":
+        df_pendientes = df_pendientes[
+            df_pendientes["Seguimiento"].astype(str).str.strip() == filtro_seguimiento_tab3
+        ]
 
     # ====== TABLA (se mantiene) ======
     if df_pendientes.empty:
-        st.success("🎉 ¡No hay casos pendientes de confirmación!")
+        st.success("🎉 ¡No hay casos pendientes de confirmación para el seguimiento seleccionado!")
         st.stop()
     else:
         st.warning(f"📋 Hay {len(df_pendientes)} casos pendientes por confirmar.")
