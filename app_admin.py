@@ -5618,7 +5618,7 @@ with tab4:
         "Estado", "Estado_Caso", "Estado_Recepcion", "Tipo_Envio_Original", "Estatus_OrigenF",
         "Resultado_Esperado", "Material_Devuelto", "Monto_Devuelto", "Motivo_Detallado",
         "Numero_Serie", "Fecha_Compra", "Numero_Cliente_RFC", "Area_Responsable", "Nombre_Responsable", "Turno", "Fecha_Entrega",
-        "Seguimiento", "Comentario_Gerente",
+        "Seguimiento",
         GUIAS_DEVOLUCION_COL
     ]:
         if c not in df_ce.columns:
@@ -5680,25 +5680,9 @@ with tab4:
         ]
 
     if "Seguimiento" in df_view.columns and filtro_seguimiento != "Todos":
-        if filtro_seguimiento.strip().lower() == "comentado":
-            seguimiento_comentado = (
-                df_view["Seguimiento"].astype(str).str.strip().str.lower() == "comentado"
-            )
-            comentario_gerente_col = (
-                df_view["Comentario_Gerente"]
-                if "Comentario_Gerente" in df_view.columns
-                else pd.Series([""] * len(df_view), index=df_view.index)
-            )
-            comentario_gerente = (
-                ~comentario_gerente_col.astype(str).str.strip().str.lower().isin(
-                    ["", "nan", "none"]
-                )
-            )
-            df_view = df_view[seguimiento_comentado | comentario_gerente]
-        else:
-            df_view = df_view[
-                df_view["Seguimiento"].astype(str).str.strip() == filtro_seguimiento
-            ]
+        df_view = df_view[
+            df_view["Seguimiento"].astype(str).str.strip() == filtro_seguimiento
+        ]
 
     if term.strip():
         t = term.strip().lower()
@@ -5760,7 +5744,6 @@ with tab4:
         "ID_Pedido","Hora_Registro","Vendedor_Registro","id_vendedor","Cliente","Folio_Factura",
         "Numero_Serie","Fecha_Compra",
         "Tipo_Envio","Estado","Estado_Caso","Aplica_Pago","Estado_Recepcion","Seguimiento",
-        "Comentario_Gerente",
         "Tipo_Envio_Original","Estatus_OrigenF","Turno","Fecha_Entrega",
         "Resultado_Esperado","Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
         "Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
