@@ -5639,16 +5639,14 @@ with tab4:
     )
     df_ce["Link_Doc_Adicional"] = df_ce["Documento_Adicional_URL"].astype(str).fillna("")
 
-    # ------- Filtros rápidos (aplicar bajo demanda) -------
-    tipo_envio_options = sorted(
-        {
-            str(val).strip()
-            for val in df_ce.get("Tipo_Envio", [])
-            if str(val).strip() and str(val).strip().lower() not in {"nan", "none"}
-        }
-    )
-    tipo_envio_options = ["📦 Todos"] + tipo_envio_options
-
+    # ------- Filtros rápidos -------
+    colf1, colf2, colf3, colf4 = st.columns([1.2, 1.4, 1.6, 2.4])
+    with colf1:
+        filtro_tipo = st.selectbox(
+            "Tipo de caso",
+            options=["Todos", "🔁 Devolución", "🛠 Garantía"],
+            index=0
+        )
     seguimiento_options = sorted(
         {
             str(val).strip()
@@ -5657,82 +5655,22 @@ with tab4:
         }
     )
     seguimiento_options = ["Todos"] + seguimiento_options
-
-    filtros_default = {
-        "filtro_tipo_envio": "📦 Todos",
-        "filtro_tipo": "Todos",
-        "filtro_seguimiento": "Todos",
-        "filtro_aplica_pago": "Todos",
-        "filtro_term": "",
-    }
-    filtros_state_key = "tab4_filtros_aplicados"
-    if filtros_state_key not in st.session_state:
-        st.session_state[filtros_state_key] = filtros_default.copy()
-
-    with st.container(border=True):
-        st.markdown("### 🎛️ Filtros de casos especiales")
-        with st.form("tab4_filtros_form"):
-            colf1, colf2, colf3, colf4, colf5 = st.columns([1.3, 1.1, 1.4, 1.6, 2.1])
-            with colf1:
-                filtro_tipo_envio_tmp = st.selectbox(
-                    "Filtrar por tipo de envío",
-                    options=tipo_envio_options,
-                    index=tipo_envio_options.index(
-                        st.session_state[filtros_state_key].get("filtro_tipo_envio", "📦 Todos")
-                    ) if st.session_state[filtros_state_key].get("filtro_tipo_envio", "📦 Todos") in tipo_envio_options else 0,
-                )
-            with colf2:
-                filtro_tipo_tmp = st.selectbox(
-                    "Tipo de caso",
-                    options=["Todos", "🔁 Devolución", "🛠 Garantía"],
-                    index=["Todos", "🔁 Devolución", "🛠 Garantía"].index(
-                        st.session_state[filtros_state_key].get("filtro_tipo", "Todos")
-                    ) if st.session_state[filtros_state_key].get("filtro_tipo", "Todos") in ["Todos", "🔁 Devolución", "🛠 Garantía"] else 0
-                )
-            with colf3:
-                filtro_seguimiento_tmp = st.selectbox(
-                    "Seguimiento",
-                    options=seguimiento_options,
-                    index=seguimiento_options.index(
-                        st.session_state[filtros_state_key].get("filtro_seguimiento", "Todos")
-                    ) if st.session_state[filtros_state_key].get("filtro_seguimiento", "Todos") in seguimiento_options else 0,
-                )
-            with colf4:
-                filtro_aplica_pago_tmp = st.selectbox(
-                    "Aplica pago",
-                    options=["Todos", "Solo devoluciones con aplica pago"],
-                    index=["Todos", "Solo devoluciones con aplica pago"].index(
-                        st.session_state[filtros_state_key].get("filtro_aplica_pago", "Todos")
-                    ) if st.session_state[filtros_state_key].get("filtro_aplica_pago", "Todos") in ["Todos", "Solo devoluciones con aplica pago"] else 0,
-                )
-            with colf5:
-                term_tmp = st.text_input(
-                    "Buscar (Cliente / Folio )",
-                    value=st.session_state[filtros_state_key].get("filtro_term", ""),
-                )
-
-            aplicar_filtros = st.form_submit_button("✅ Aplicar filtros", use_container_width=True)
-
-        if aplicar_filtros:
-            st.session_state[filtros_state_key] = {
-                "filtro_tipo_envio": filtro_tipo_envio_tmp,
-                "filtro_tipo": filtro_tipo_tmp,
-                "filtro_seguimiento": filtro_seguimiento_tmp,
-                "filtro_aplica_pago": filtro_aplica_pago_tmp,
-                "filtro_term": term_tmp,
-            }
-
-    filtros_aplicados = st.session_state[filtros_state_key]
-    filtro_tipo_envio = filtros_aplicados.get("filtro_tipo_envio", "📦 Todos")
-    filtro_tipo = filtros_aplicados.get("filtro_tipo", "Todos")
-    filtro_seguimiento = filtros_aplicados.get("filtro_seguimiento", "Todos")
-    filtro_aplica_pago = filtros_aplicados.get("filtro_aplica_pago", "Todos")
-    term = filtros_aplicados.get("filtro_term", "")
+    with colf2:
+        filtro_seguimiento = st.selectbox(
+            "Seguimiento",
+            options=seguimiento_options,
+            index=0,
+        )
+    with colf3:
+        filtro_aplica_pago = st.selectbox(
+            "Aplica pago",
+            options=["Todos", "Solo devoluciones con aplica pago"],
+            index=0,
+        )
+    with colf4:
+        term = st.text_input("Buscar (Cliente / Folio )", "")
 
     df_view = df_ce.copy()
-
-    if filtro_tipo_envio != "📦 Todos" and "Tipo_Envio" in df_view.columns:
-        df_view = df_view[df_view["Tipo_Envio"].astype(str).str.strip() == filtro_tipo_envio]
 
     if filtro_tipo != "Todos":
         # soporta tanto Tipo_Envio como Tipo_Caso
