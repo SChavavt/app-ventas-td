@@ -5069,14 +5069,12 @@ with tab3, suppress(StopException):
 
         st.markdown("---")
 
-    # PENDIENTES (ambos tipos)
-    mask_tipo_valido = df_casos["Tipo_Envio"].astype(str).str.strip().isin(["🔁 Devolución","🛠 Garantía"])
-    estado_caso_norm = df_casos["Estado_Caso"].astype(str).apply(_norm).str.lower()
-    mask_estado_caso_ok = (estado_caso_norm == "aprobado") | (estado_caso_norm == "")
+    # PENDIENTES
     seguimiento_norm = df_casos["Seguimiento"].astype(str).apply(_norm).str.lower()
     mask_seguimiento_activo = (seguimiento_norm != "cerrado")
 
-    df_pendientes = df_casos[mask_tipo_valido & mask_estado_caso_ok & mask_seguimiento_activo].copy()
+    # Mostrar todos los casos de la hoja, excepto los que estén cerrados en Seguimiento.
+    df_pendientes = df_casos[mask_seguimiento_activo].copy()
     seguimiento_disponibles = sorted(
         {
             str(val).strip()
