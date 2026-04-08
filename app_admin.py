@@ -5639,14 +5639,16 @@ with tab4:
     )
     df_ce["Link_Doc_Adicional"] = df_ce["Documento_Adicional_URL"].astype(str).fillna("")
 
-    # ------- Filtros rápidos -------
-    colf1, colf2, colf3, colf4 = st.columns([1.2, 1.4, 1.6, 2.4])
-    with colf1:
-        filtro_tipo = st.selectbox(
-            "Tipo de caso",
-            options=["Todos", "🔁 Devolución", "🛠 Garantía"],
-            index=0
-        )
+    # ------- Filtros rápidos (aplicar bajo demanda) -------
+    tipo_envio_options = sorted(
+        {
+            str(val).strip()
+            for val in df_ce.get("Tipo_Envio", [])
+            if str(val).strip() and str(val).strip().lower() not in {"nan", "none"}
+        }
+    )
+    tipo_envio_options = ["📦 Todos"] + tipo_envio_options
+
     seguimiento_options = sorted(
         {
             str(val).strip()
@@ -5655,55 +5657,91 @@ with tab4:
         }
     )
     seguimiento_options = ["Todos"] + seguimiento_options
-    with colf2:
-        filtro_seguimiento = st.selectbox(
-            "Seguimiento",
-            options=seguimiento_options,
-            index=0,
-        )
-    with colf3:
-        filtro_aplica_pago = st.selectbox(
-            "Aplica pago",
-            options=["Todos", "Solo devoluciones con aplica pago"],
-            index=0,
-        )
-    with colf4:
-        term = st.text_input("Buscar (Cliente / Folio )", "")
+
+    filtros_default = {
+        "filtro_tipo_envio": "📦 Todos",
+        "filtro_seguimiento": ["Todos"],
+        "filtro_term": "",
+    }
+    filtros_state_key = "tab4_filtros_aplicados"
+    if filtros_state_key not in st.session_state:
+        st.session_state[filtros_state_key] = filtros_default.copy()
+
+    # Controles visibles fuera del recuadro (no aplican hasta presionar botón)
+    ui_tipo_key = "tab4_ui_tipo_envio"
+    ui_term_key = "tab4_ui_term"
+    if ui_tipo_key not in st.session_state:
+        st.session_state[ui_tipo_key] = st.session_state[filtros_state_key].get("filtro_tipo_envio", "📦 Todos")
+    if ui_term_key not in st.session_state:
+        st.session_state[ui_term_key] = st.session_state[filtros_state_key].get("filtro_term", "")
+
+    st.session_state[ui_tipo_key] = st.selectbox(
+        "Filtrar por tipo de envío",
+        options=tipo_envio_options,
+        index=tipo_envio_options.index(st.session_state.get(ui_tipo_key, "📦 Todos"))
+        if st.session_state.get(ui_tipo_key, "📦 Todos") in tipo_envio_options else 0,
+    )
+    st.session_state[ui_term_key] = st.text_input(
+        "Buscar (Cliente / Folio )",
+        value=st.session_state.get(ui_term_key, ""),
+    )
+
+    with st.container(border=True):
+        st.markdown("### 🎛️ Filtrar por seguimiento")
+        with st.form("tab4_filtros_form"):
+            filtro_seguimiento_tmp = st.multiselect(
+                "Seguimiento",
+                options=seguimiento_options,
+                default=[
+                    v for v in st.session_state[filtros_state_key].get("filtro_seguimiento", ["Todos"])
+                    if v in seguimiento_options
+                ] or ["Todos"],
+                placeholder="Selecciona uno o más seguimientos",
+            )
+
+            aplicar_filtros = st.form_submit_button("✅ Aplicar filtros", use_container_width=True)
+
+        if aplicar_filtros:
+            st.session_state[filtros_state_key] = {
+                "filtro_tipo_envio": st.session_state.get(ui_tipo_key, "📦 Todos"),
+                "filtro_seguimiento": filtro_seguimiento_tmp or ["Todos"],
+                "filtro_term": st.session_state.get(ui_term_key, ""),
+            }
+
+    filtros_aplicados = st.session_state[filtros_state_key]
+    filtro_tipo_envio = filtros_aplicados.get("filtro_tipo_envio", "📦 Todos")
+    filtro_seguimiento = filtros_aplicados.get("filtro_seguimiento", ["Todos"])
+    term = filtros_aplicados.get("filtro_term", "")
 
     df_view = df_ce.copy()
 
-    if filtro_tipo != "Todos":
-        # soporta tanto Tipo_Envio como Tipo_Caso
-        tipo_col = "Tipo_Envio" if "Tipo_Envio" in df_view.columns else ("Tipo_Caso" if "Tipo_Caso" in df_view.columns else None)
-        if tipo_col:
-            df_view = df_view[df_view[tipo_col].astype(str).str.strip() == filtro_tipo]
+    if filtro_tipo_envio != "📦 Todos" and "Tipo_Envio" in df_view.columns:
+        df_view = df_view[df_view["Tipo_Envio"].astype(str).str.strip() == filtro_tipo_envio]
 
-    if filtro_aplica_pago == "Solo devoluciones con aplica pago":
-        df_view = df_view[
-            df_view["Tipo_Envio"].astype(str).str.contains("Devolución", case=False, na=False)
-            & df_view["Aplica_Pago"].astype(str).str.strip().str.lower().isin(["si", "sí", "true", "1"])
-        ]
-
-    if "Seguimiento" in df_view.columns and filtro_seguimiento != "Todos":
-        if filtro_seguimiento.strip().lower() == "comentado":
-            seguimiento_comentado = (
-                df_view["Seguimiento"].astype(str).str.strip().str.lower() == "comentado"
+    seguimiento_sel = [s for s in filtro_seguimiento if str(s).strip()]
+    if "Seguimiento" in df_view.columns and seguimiento_sel and "Todos" not in seguimiento_sel:
+        mask_multi = pd.Series(False, index=df_view.index)
+        comentario_gerente_col = (
+            df_view["Comentario_Gerente"]
+            if "Comentario_Gerente" in df_view.columns
+            else pd.Series([""] * len(df_view), index=df_view.index)
+        )
+        comentario_gerente = (
+            ~comentario_gerente_col.astype(str).str.strip().str.lower().isin(
+                ["", "nan", "none"]
             )
-            comentario_gerente_col = (
-                df_view["Comentario_Gerente"]
-                if "Comentario_Gerente" in df_view.columns
-                else pd.Series([""] * len(df_view), index=df_view.index)
-            )
-            comentario_gerente = (
-                ~comentario_gerente_col.astype(str).str.strip().str.lower().isin(
-                    ["", "nan", "none"]
+        )
+        for seg in seguimiento_sel:
+            if str(seg).strip().lower() == "comentado":
+                seguimiento_comentado = (
+                    df_view["Seguimiento"].astype(str).str.strip().str.lower() == "comentado"
                 )
-            )
-            df_view = df_view[seguimiento_comentado | comentario_gerente]
-        else:
-            df_view = df_view[
-                df_view["Seguimiento"].astype(str).str.strip() == filtro_seguimiento
-            ]
+                mask_multi = mask_multi | seguimiento_comentado | comentario_gerente
+            else:
+                mask_multi = mask_multi | (
+                    df_view["Seguimiento"].astype(str).str.strip() == seg
+                )
+        df_view = df_view[mask_multi]
 
     if term.strip():
         t = term.strip().lower()
