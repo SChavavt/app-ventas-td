@@ -5685,7 +5685,7 @@ with tab4:
         ]
 
     if "Seguimiento" in df_view.columns and filtro_seguimiento != "Todos":
-        if filtro_seguimiento.strip().lower() == "comentado":
+        if filtro_seguimiento.strip().lower() in {"comentado", "comentados"}:
             seguimiento_comentado = (
                 df_view["Seguimiento"].astype(str).str.strip().str.lower() == "comentado"
             )
@@ -5762,14 +5762,34 @@ with tab4:
 
     # ------- Columnas a mostrar/descargar -------
     columnas_base = [
-        "ID_Pedido","Hora_Registro","Vendedor_Registro","id_vendedor","Cliente","Folio_Factura",
-        "Numero_Serie","Fecha_Compra",
-        "Tipo_Envio","Estado","Estado_Caso","Aplica_Pago","Estado_Recepcion","Seguimiento",
+        "Hora_Registro",
+        "Cliente",
+        "Folio_Factura",
+        "Tipo_Envio",
         "Comentario_Gerente",
-        "Tipo_Envio_Original","Estatus_OrigenF","Turno","Fecha_Entrega",
-        "Resultado_Esperado","Material_Devuelto","Monto_Devuelto","Motivo_Detallado",
-        "Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
-        GUIAS_DEVOLUCION_COL
+        "Tipo_Envio_Original",
+        "Resultado_Esperado",
+        "Material_Devuelto",
+        "Motivo_Detallado",
+        "Seguimiento",
+        "Area_Responsable",
+        "Nombre_Responsable",
+        "Vendedor_Registtro",
+        "Vendedor_Registro",
+        "ID_Pedido",
+        "id_vendedor",
+        "Numero_Serie",
+        "Fecha_Compra",
+        "Estado",
+        "Estado_Caso",
+        "Aplica_Pago",
+        "Estado_Recepcion",
+        "Estatus_OrigenF",
+        "Turno",
+        "Fecha_Entrega",
+        "Monto_Devuelto",
+        "Numero_Cliente_RFC",
+        GUIAS_DEVOLUCION_COL,
     ]
     columnas_links = ["Links_Adjuntos","Link_Guia","Link_Dictamen_o_Nota","Link_Doc_Adicional"]
 
