@@ -4794,8 +4794,10 @@ if tab_ventas_reportes is not None:
                 "Cliente",
                 "Folio_Factura",
                 "Monto_Comprobante",
+                "Banco_Destino_Pago",
                 "Comentario",
             ]
+            st.caption("Solo se muestran pedidos marcados con forma de pago 'Depósito en Efectivo'.")
             for col in columnas_reporte_diario + ["Forma_Pago_Comprobante"]:
                 if col not in df_ventas_base.columns:
                     df_ventas_base[col] = ""
