@@ -235,9 +235,11 @@ LOCAL_TURNO_CDMX_IDS = {"RUBEN67", "JUAN24", "FRANKO95"}
 
 def get_local_shift_options(id_vendedor: str | None = None) -> list[str]:
     """Return local shift options, enabling CDMX only for approved users."""
+    id_vendedor_normalizado = normalize_vendedor_id(id_vendedor or "")
+    if id_vendedor_normalizado in LOCAL_TURNO_CDMX_IDS:
+        return ["🏙️ Local Mty", "🌆 Local CDMX", "🎓 Recoge en Aula"]
+
     opciones = ["☀️ Local Mañana", "🌙 Local Tarde", "🌵 Saltillo", "📦 Pasa a Bodega"]
-    if normalize_vendedor_id(id_vendedor or "") in LOCAL_TURNO_CDMX_IDS:
-        opciones.append("🏙️ Local CDMX")
     return opciones
 
 
@@ -2748,26 +2750,50 @@ with tab1:
     if tab1_is_active:
         st.session_state["current_tab_index"] = 0
     st.header("📝 Nuevo Pedido")
-    tipo_envio_options = [
-        "🚚 Pedido Foráneo",
-        "📍 Pedido Local",
-        "🔁 Devolución",
-        "🛠 Garantía",
-        "📋 Solicitudes de Guía",
-        "🏙️ Pedido CDMX",
-        "🎓 Cursos y Eventos",
-    ]
+    id_vendedor_tab1 = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
+    tab1_special_shipping = id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS
+    if tab1_special_shipping:
+        tipo_envio_options = [
+            "🚚 Foráneo CDMX",
+            "📍 Local CDMX",
+            "🔁 Devolución",
+            "🛠 Garantía",
+            "📋 Solicitudes de Guía",
+            "🎓 Cursos y Eventos",
+        ]
+    else:
+        tipo_envio_options = [
+            "🚚 Pedido Foráneo",
+            "📍 Pedido Local",
+            "🔁 Devolución",
+            "🛠 Garantía",
+            "📋 Solicitudes de Guía",
+            "🏙️ Pedido CDMX",
+            "🎓 Cursos y Eventos",
+        ]
+
     current_tipo_envio = st.session_state.get("tipo_envio_selector_global", tipo_envio_options[0])
+    if tab1_special_shipping:
+        if current_tipo_envio == "🚚 Pedido Foráneo":
+            current_tipo_envio = "🚚 Foráneo CDMX"
+        elif current_tipo_envio in {"📍 Pedido Local", "🏙️ Pedido CDMX"}:
+            current_tipo_envio = "📍 Local CDMX"
     if current_tipo_envio not in tipo_envio_options:
         current_tipo_envio = tipo_envio_options[0]
         st.session_state["tipo_envio_selector_global"] = current_tipo_envio
 
-    tipo_envio = st.selectbox(
+    tipo_envio_ui = st.selectbox(
         "📦 Tipo de Envío",
         tipo_envio_options,
         index=tipo_envio_options.index(current_tipo_envio),
         key="tipo_envio_selector_global",
     )
+    tipo_envio = tipo_envio_ui
+    tipo_envio_excel = tipo_envio_ui
+    if tipo_envio_ui == "🚚 Foráneo CDMX":
+        tipo_envio = "🚚 Pedido Foráneo"
+    elif tipo_envio_ui == "📍 Local CDMX":
+        tipo_envio = "📍 Pedido Local"
 
     tipo_envio_original = ""
     if tipo_envio == "🔁 Devolución":
@@ -3806,6 +3832,7 @@ with tab1:
                 folio_factura_error = submission_payload_override.get("folio_factura_error", folio_factura_error)
                 motivo_nota_venta = submission_payload_override.get("motivo_nota_venta", motivo_nota_venta)
                 tipo_envio = submission_payload_override.get("tipo_envio", tipo_envio)
+                tipo_envio_excel = submission_payload_override.get("tipo_envio_excel", tipo_envio_excel)
                 tipo_envio_original = submission_payload_override.get("tipo_envio_original", tipo_envio_original)
                 estatus_origen_factura = submission_payload_override.get("estatus_origen_factura", estatus_origen_factura)
                 aplica_pago = submission_payload_override.get("aplica_pago", aplica_pago)
@@ -3947,6 +3974,7 @@ with tab1:
                     "hora_registro": hora_registro,
                     "s3_prefix": s3_prefix,
                     "tipo_envio": tipo_envio,
+                    "tipo_envio_excel": tipo_envio_excel,
                     "vendedor": vendedor,
                     "registro_cliente": registro_cliente,
                     "numero_cliente_rfc": numero_cliente_rfc,
@@ -4219,7 +4247,7 @@ with tab1:
                 elif header == "Motivo_NotaVenta":
                     values.append(motivo_nota_venta)
                 elif header == "Tipo_Envio":
-                    values.append(tipo_envio)
+                    values.append(tipo_envio_excel)
                 elif header == "Tipo_Envio_Original":
                     values.append(tipo_envio_original if tipo_envio == "🔁 Devolución" else "")
                 elif header == "Estatus_OrigenF":
