@@ -177,6 +177,12 @@ VENDEDOR_NOMBRE_POR_ID = {
     "FRANKO95": "FRANKO",
 }
 
+TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS = {
+    "JUAN24",
+    "RUBEN67",
+    "FRANKO95",
+}
+
 
 
 def normalize_case_text(value, placeholder: str = "N/A") -> str:
@@ -2880,6 +2886,12 @@ with tab1:
     is_local_pasa_bodega = False
     is_devolucion_local = tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
     usa_logica_local = tipo_envio == "📍 Pedido Local" or is_devolucion_local
+    is_tab1_local_cdmx_target_user = (
+        tab1_special_shipping
+        and tipo_envio_ui == "📍 Local CDMX"
+        and id_vendedor_tab1 in TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS
+    )
+    usa_hoja_ruta_local = usa_logica_local
     if usa_logica_local:
         if tipo_envio == "📍 Pedido Local":
             st.markdown("---")
@@ -2905,7 +2917,16 @@ with tab1:
             subtipo_local = "☀️ Local Mañana"
             st.session_state["subtipo_local_selector"] = subtipo_local
 
-        if is_local_pasa_bodega:
+        if is_tab1_local_cdmx_target_user:
+            usa_hoja_ruta_local = subtipo_local == "🏙️ Local Mty"
+
+        if not usa_hoja_ruta_local:
+            st.session_state["local_route_selected_history_label"] = None
+            st.session_state["local_route_selected_history_row"] = None
+            st.caption(
+                "ℹ️ Para este usuario en **📍 Local CDMX** la hoja de ruta en Tab 1 solo aplica en turno **🏙️ Local Mty**."
+            )
+        elif is_local_pasa_bodega:
             st.session_state["local_route_selected_history_label"] = None
             st.session_state["local_route_selected_history_row"] = None
             st.caption(
@@ -3077,7 +3098,7 @@ with tab1:
     form_nonce = int(st.session_state.get(TAB1_FORM_NONCE_KEY, 0) or 0)
     route_post_confirm_notice = (
         st.session_state.get(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY)
-        if usa_logica_local
+        if usa_hoja_ruta_local
         else None
     )
     with st.form(key=f"new_pedido_form_{form_nonce}", clear_on_submit=False):
@@ -3106,7 +3127,7 @@ with tab1:
         if vendedor != st.session_state.get("last_selected_vendedor", None):
             st.session_state.last_selected_vendedor = vendedor
 
-        if not usa_logica_local or is_local_pasa_bodega:
+        if not usa_logica_local or is_local_pasa_bodega or not usa_hoja_ruta_local:
             registro_cliente = st.text_input("🤝 Cliente", key="registro_cliente")
         else:
             registro_cliente = str(st.session_state.get("registro_cliente", "") or "").strip()
@@ -3171,7 +3192,7 @@ with tab1:
         )
 
         if usa_logica_local:
-            if not is_local_pasa_bodega:
+            if usa_hoja_ruta_local and not is_local_pasa_bodega:
                 st.markdown("### 🗺️ Hoja de Ruta Local")
                 col_local_1, col_local_2 = st.columns(2)
                 with col_local_1:
@@ -3255,7 +3276,11 @@ with tab1:
             )
 
             selected_history_row = parse_sheet_row_number(st.session_state.get("local_route_selected_history_row"))
-            show_update_client_button = (not is_local_pasa_bodega) and (selected_history_row is not None)
+            show_update_client_button = (
+                usa_hoja_ruta_local
+                and (not is_local_pasa_bodega)
+                and (selected_history_row is not None)
+            )
             if show_update_client_button:
                 update_client_history_button = st.form_submit_button(
                     "📝 Actualizar info del cliente",
@@ -3283,7 +3308,10 @@ with tab1:
             else:
                 st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado'.")
 
-            with st.expander("🧾 Detalles del Pago (opcional)"):
+            with st.expander(
+                "🧾 Detalles del Pago (opcional)",
+                expanded=id_vendedor_tab1 in TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS,
+            ):
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
@@ -3432,7 +3460,7 @@ with tab1:
         render_uploaded_files_preview("Archivos del pedido seleccionados", uploaded_files)
 
         auto_route_filename = ""
-        if usa_logica_local and not is_local_pasa_bodega:
+        if usa_hoja_ruta_local and not is_local_pasa_bodega:
             auto_route_filename = st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "")
             if route_post_confirm_notice and route_post_confirm_notice.get("filename"):
                 auto_route_filename = route_post_confirm_notice.get("filename", "")
@@ -3440,7 +3468,7 @@ with tab1:
         if auto_route_filename:
             st.info(f"📎 Hoja de ruta adjuntada automáticamente: {auto_route_filename}")
 
-        if usa_logica_local and not is_local_pasa_bodega:
+        if usa_hoja_ruta_local and not is_local_pasa_bodega:
             st.markdown("---")
             st.subheader("👀 Vista previa opcional del Excel local")
             st.caption(
@@ -3520,7 +3548,10 @@ with tab1:
             else:
                 st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado'.")
 
-            with st.expander("🧾 Detalles del Pago (opcional)"):
+            with st.expander(
+                "🧾 Detalles del Pago (opcional)",
+                expanded=id_vendedor_tab1 in TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS,
+            ):
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
@@ -3566,7 +3597,7 @@ with tab1:
     if route_post_confirm_notice:
         st.session_state.pop(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY, None)
 
-    if usa_logica_local and not is_local_pasa_bodega:
+    if usa_hoja_ruta_local and not is_local_pasa_bodega:
         route_template_path = Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx"
         selected_history_row = parse_sheet_row_number(st.session_state.get("local_route_selected_history_row"))
         current_folio_for_route = (
@@ -3967,11 +3998,11 @@ with tab1:
             else:
                 auto_route_files = _deserialize_uploaded_files(
                     [st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)]
-                    if usa_logica_local and st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
+                    if usa_hoja_ruta_local and st.session_state.get(LOCAL_ROUTE_GENERATED_FILE_KEY)
                     else []
                 )
 
-            if usa_logica_local:
+            if usa_hoja_ruta_local:
                 route_template_path = Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx"
                 current_route_payload_for_submission = build_local_route_payload(
                     fecha_entrega=fecha_entrega,
@@ -4489,7 +4520,7 @@ with tab1:
 
             cliente_local_history_notice = ""
             local_route_upload_notice = ""
-            if usa_logica_local and not is_local_pasa_bodega:
+            if usa_hoja_ruta_local and not is_local_pasa_bodega:
                 try:
                     inserted, _history_message = upsert_cliente_local_if_missing(
                         build_clientes_locales_record_from_form()
