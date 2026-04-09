@@ -96,6 +96,13 @@ COLUMNAS_OBJETIVO_CONFIRMADOS = [
 ESTADO_ENTREGA_OPCIONES = ["📦 Entregado", "⏳ No Entregado"]
 ESTADO_ENTREGA_DEFAULT = ESTADO_ENTREGA_OPCIONES[1]
 
+TIPOS_ENVIO_LOCAL = {"📍 Pedido Local", "📍 Local CDMX"}
+
+
+def es_local(tipo) -> bool:
+    """Devuelve True cuando el tipo de envío corresponde a un pedido local."""
+    return str(tipo or "").strip() in TIPOS_ENVIO_LOCAL
+
 
 def obtener_fecha_confirmado_cdmx() -> str:
     """Devuelve la fecha-hora actual en CDMX con formato legible para la hoja."""
@@ -2211,7 +2218,7 @@ with tab1:
                 if has_turno_data:
                     def _format_turno_display(row: pd.Series) -> str:
                         tipo_envio = str(row.get("Tipo_Envio", "")).strip()
-                        if tipo_envio != "📍 Pedido Local":
+                        if not es_local(tipo_envio):
                             return ""
 
                         turno_raw = str(row.get("Turno", "") or "").strip()
@@ -2288,8 +2295,7 @@ with tab1:
 
             # 🔴 Locales No Pagados (sub-sección)
             df_local_no_pagados = pedidos_pagados_no_confirmados[
-                pedidos_pagados_no_confirmados["Tipo_Envio"].astype(str).str.strip()
-                == "📍 Pedido Local"
+                pedidos_pagados_no_confirmados["Tipo_Envio"].apply(es_local)
             ].copy()
 
             df_local_no_pagados = df_local_no_pagados[
@@ -2373,8 +2379,7 @@ with tab1:
                 )
 
                 is_pedido_local = (
-                    str(selected_pedido_data.get("Tipo_Envio", "")).strip()
-                    == "📍 Pedido Local"
+                    es_local(selected_pedido_data.get("Tipo_Envio", ""))
                 )
                 estado_entrega_stored = normalize_estado_entrega(
                     selected_pedido_data.get(ESTADO_ENTREGA_COL, "")
@@ -2611,7 +2616,7 @@ with tab1:
                         st.markdown("---")
                     if (
                         selected_pedido_data.get("Estado_Pago", "").strip() == "🔴 No Pagado" and
-                        selected_pedido_data.get("Tipo_Envio", "").strip() == "📍 Pedido Local"
+                        es_local(selected_pedido_data.get("Tipo_Envio", ""))
                     ):
                         st.subheader("🧾 Subir Comprobante de Pago")
 
@@ -4175,8 +4180,7 @@ with tab2:
 
         if "Tipo_Envio" in df_confirmados_guardados.columns:
             df_local_confirmados = df_confirmados_guardados[
-                df_confirmados_guardados["Tipo_Envio"].astype(str).str.strip()
-                == "📍 Pedido Local"
+                df_confirmados_guardados["Tipo_Envio"].apply(es_local)
             ].copy()
         else:
             df_local_confirmados = pd.DataFrame()
@@ -4351,7 +4355,7 @@ with tab2:
 
         if "Tipo_Envio" in df_pedidos.columns:
             df_local_no_pagados = df_pedidos[
-                df_pedidos["Tipo_Envio"].astype(str).str.strip() == "📍 Pedido Local"
+                df_pedidos["Tipo_Envio"].apply(es_local)
             ].copy()
         else:
             df_local_no_pagados = pd.DataFrame()
