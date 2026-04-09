@@ -2603,16 +2603,20 @@ s3_client = get_s3_client()  # Initialize S3 client
 # Removed the old try-except block for client initialization
 
 # --- Tab Definition ---
-tabs_labels = [
-    "🛒 Registrar Nuevo Pedido",
+id_vendedor_tabs = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
+show_tab_ventas_reportes = id_vendedor_tabs in LOCAL_TURNO_CDMX_IDS
+tabs_labels = ["🛒 Registrar Nuevo Pedido"]
+if show_tab_ventas_reportes:
+    tabs_labels.append("📊 Ventas y Reportes")
+tabs_labels.extend([
     "✏️ Modificar Pedido Existente",
     "📦 Guías Cargadas",
     "🧾 Pedidos Pendientes de Comprobante",
     "📁 Casos Especiales",
     "⏳ Pedidos No Entregados",
     "⬇️ Descargar Datos",
-    "🔍 Buscar Pedido"
-]
+    "🔍 Buscar Pedido",
+])
 
 # Leer índice de pestaña desde los parámetros de la URL.
 # Si falta o viene inválido, usar la pestaña actual de sesión para evitar rebotes en reruns.
@@ -2695,7 +2699,25 @@ components.html(
     """,
     height=0,
 )
-tab1, tab2, tab5, tab3, tab4, tab6, tab7, tab8 = tabs
+tab1 = tabs[0]
+tab_ventas_reportes = tabs[1] if show_tab_ventas_reportes else None
+tab_offset = 1 if show_tab_ventas_reportes else 0
+tab2 = tabs[1 + tab_offset]
+tab5 = tabs[2 + tab_offset]
+tab3 = tabs[3 + tab_offset]
+tab4 = tabs[4 + tab_offset]
+tab6 = tabs[5 + tab_offset]
+tab7 = tabs[6 + tab_offset]
+tab8 = tabs[7 + tab_offset]
+TAB_INDEX_TAB1 = 0
+TAB_INDEX_REPORTES = 1 if show_tab_ventas_reportes else None
+TAB_INDEX_TAB2 = 1 + tab_offset
+TAB_INDEX_TAB5 = 2 + tab_offset
+TAB_INDEX_TAB3 = 3 + tab_offset
+TAB_INDEX_TAB4 = 4 + tab_offset
+TAB_INDEX_TAB6 = 5 + tab_offset
+TAB_INDEX_TAB7 = 6 + tab_offset
+TAB_INDEX_TAB8 = 7 + tab_offset
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
@@ -2747,9 +2769,9 @@ with tab1:
         st.session_state["pedido_submit_disabled"] = False
         st.session_state.pop("pedido_submit_disabled_at", None)
 
-    tab1_is_active = default_tab == 0
+    tab1_is_active = default_tab == TAB_INDEX_TAB1
     if tab1_is_active:
-        st.session_state["current_tab_index"] = 0
+        st.session_state["current_tab_index"] = TAB_INDEX_TAB1
     st.header("📝 Nuevo Pedido")
     id_vendedor_tab1 = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
     tab1_is_dual_view_user = id_vendedor_tab1 in TAB1_DUAL_VIEW_IDS
@@ -3669,7 +3691,7 @@ with tab1:
         st.session_state.pop("pedido_submission_status", None)
         st.session_state.pop("pedido_status_toast_event_id", None)
         st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
-        st.session_state["current_tab_index"] = 0
+        st.session_state["current_tab_index"] = TAB_INDEX_TAB1
         st.query_params.update({"tab": "0"})
         st.session_state["pedido_submit_disabled"] = True
         st.session_state["pedido_submit_disabled_at"] = time.time()
@@ -4486,7 +4508,7 @@ with tab1:
                 client_name=cliente_registrado,
             )
             clear_pending_submission(pending_cache_key)
-            if tab1_is_active and st.session_state.get("current_tab_index") == 0:
+            if tab1_is_active and st.session_state.get("current_tab_index") == TAB_INDEX_TAB1:
                 st.query_params.update({"tab": "0"})
             rerun_with_pedido_loading("⏳ Pedido registrado. Actualizando vista...")
 
@@ -4657,7 +4679,57 @@ def cargar_pedidos_combinados():
     df_all = pd.concat([df_datos, df_casos], ignore_index=True)
     return df_all
 
-            
+# --- TAB VENTAS Y REPORTES (solo RUBEN67/JUAN24/FRANKO95) ---
+if tab_ventas_reportes is not None:
+    with tab_ventas_reportes:
+        if TAB_INDEX_REPORTES is not None and default_tab == TAB_INDEX_REPORTES:
+            st.session_state["current_tab_index"] = TAB_INDEX_REPORTES
+
+        st.header("📊 Ventas y Reportes")
+        st.caption("Pedidos registrados por RUBEN67, JUAN24 y FRANKO95.")
+
+        try:
+            df_ventas = cargar_pedidos()
+        except Exception as e:
+            st.error(f"❌ No se pudieron cargar los pedidos: {e}")
+            df_ventas = pd.DataFrame()
+
+        if df_ventas.empty:
+            st.info("No hay pedidos para mostrar.")
+        else:
+            if "id_vendedor" not in df_ventas.columns:
+                df_ventas["id_vendedor"] = ""
+
+            df_ventas["id_vendedor_norm"] = df_ventas["id_vendedor"].apply(normalize_vendedor_id)
+            df_ventas = df_ventas[df_ventas["id_vendedor_norm"].isin(LOCAL_TURNO_CDMX_IDS)].copy()
+
+            columnas_reporte = [
+                "Folio_Factura",
+                "Cliente",
+                "Monto_Comprobante",
+                "Forma_Pago_Comprobante",
+                "Vendedor_Registro",
+                "Hora_Registro",
+            ]
+            for col in columnas_reporte:
+                if col not in df_ventas.columns:
+                    df_ventas[col] = ""
+
+            if "Hora_Registro" in df_ventas.columns:
+                df_ventas = df_ventas.sort_values(
+                    by="Hora_Registro",
+                    key=lambda s: pd.to_datetime(s, errors="coerce"),
+                    ascending=False,
+                )
+
+            st.dataframe(
+                df_ventas[columnas_reporte].reset_index(drop=True),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(f"Total de pedidos encontrados: {len(df_ventas)}")
+
+
 # --- TAB 2: MODIFY EXISTING ORDER ---
 reset_inputs_tab2_flag = st.session_state.pop("reset_inputs_tab2", False)
 if reset_inputs_tab2_flag:
@@ -4675,9 +4747,9 @@ if reset_inputs_tab2_flag:
         st.session_state.pop(key, None)
 
 with tab2:
-    tab2_is_active = default_tab == 1
+    tab2_is_active = default_tab == TAB_INDEX_TAB2
     if tab2_is_active:
-        st.session_state["current_tab_index"] = 1
+        st.session_state["current_tab_index"] = TAB_INDEX_TAB2
     st.header("✏️ Modificar Pedido Existente")
     st.caption("ℹ️ En esta sección solo saldrán los pedidos que no han viajado.")
     if st.button("🔄 Actualizar pedidos"):
@@ -5763,8 +5835,8 @@ with tab2:
                                     st.session_state["last_updated_cliente"] = str(
                                         selected_row_data.get("Cliente", "")
                                     ).strip()
-                                    if tab2_is_active and st.session_state.get("current_tab_index") == 1:
-                                        st.query_params.update({"tab": "1"})  # mantener UX actual
+                                    if tab2_is_active and st.session_state.get("current_tab_index") == TAB_INDEX_TAB2:
+                                        st.query_params.update({"tab": str(TAB_INDEX_TAB2)})  # mantener UX actual
                                     rerun_with_tab2_loading("⏳ Guardando cambios del pedido...")
                                 else:
                                     feedback_slot.empty()
@@ -5802,9 +5874,9 @@ with tab2:
 
 # --- TAB 3: PENDING PROOF OF PAYMENT ---
 with tab3:
-    tab3_is_active = default_tab == 3
+    tab3_is_active = default_tab == TAB_INDEX_TAB3
     if tab3_is_active:
-        st.session_state["current_tab_index"] = 3
+        st.session_state["current_tab_index"] = TAB_INDEX_TAB3
     st.header("🧾 Pedidos Pendientes de Comprobante")
 
     df_pedidos_comprobante = pd.DataFrame()
@@ -6327,9 +6399,9 @@ def cargar_casos_especiales():
 
 # --- TAB 4: CASOS ESPECIALES ---
 with tab4:
-    tab4_is_active = default_tab == 4
+    tab4_is_active = default_tab == TAB_INDEX_TAB4
     if tab4_is_active:
-        st.session_state["current_tab_index"] = 4
+        st.session_state["current_tab_index"] = TAB_INDEX_TAB4
     st.header("📁 Casos Especiales")
 
     df_casos_ref = pd.DataFrame()
@@ -6693,7 +6765,7 @@ with tab4:
 # --- TAB 5: GUIAS CARGADAS ---
 def fijar_tab5_activa():
     """Mantiene referencia de pestaña activa sin tocar query params en render."""
-    st.session_state["current_tab_index"] = 2
+    st.session_state["current_tab_index"] = TAB_INDEX_TAB5
 
 @st.cache_data(ttl=60)
 def cargar_datos_guias_unificadas(refresh_token: float | None = None):
@@ -6810,9 +6882,9 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
     return df
 
 with tab5:
-    tab5_is_active = default_tab == 2
+    tab5_is_active = default_tab == TAB_INDEX_TAB5
     if tab5_is_active:
-        st.session_state["current_tab_index"] = 2
+        st.session_state["current_tab_index"] = TAB_INDEX_TAB5
     st.header("📦 Pedidos con Guías Subidas desde Almacén y Casos Especiales")
 
     id_vendedor_sesion = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
@@ -7027,9 +7099,9 @@ with tab5:
 
 # --- TAB 6: PEDIDOS NO ENTREGADOS ---
 with tab6:
-    tab6_is_active = default_tab == 5
+    tab6_is_active = default_tab == TAB_INDEX_TAB6
     if tab6_is_active:
-        st.session_state["current_tab_index"] = 5
+        st.session_state["current_tab_index"] = TAB_INDEX_TAB6
     st.header("⏳ Pedidos No Entregados")
 
     if st.button("🔄 Actualizar listado", key="refresh_no_entregados"):
@@ -7287,9 +7359,9 @@ with tab6:
 
 # --- TAB 7: DOWNLOAD DATA ---
 with tab7:
-    tab7_is_active = default_tab == 6
+    tab7_is_active = default_tab == TAB_INDEX_TAB7
     if tab7_is_active:
-        st.session_state["current_tab_index"] = 6
+        st.session_state["current_tab_index"] = TAB_INDEX_TAB7
     st.header("⬇️ Descargar Datos de Pedidos")
 
     @st.cache_data(ttl=60)
@@ -7823,9 +7895,9 @@ def cargar_casos_especiales_busqueda():
 
 # --- TAB 8: SEARCH ORDER ---
 with tab8:
-    tab8_is_active = default_tab == 7
+    tab8_is_active = default_tab == TAB_INDEX_TAB8
     if tab8_is_active:
-        st.session_state["current_tab_index"] = 7
+        st.session_state["current_tab_index"] = TAB_INDEX_TAB8
     st.subheader("🔍 Buscador de Pedidos por Guía o Cliente")
     if not tab8_is_active:
         st.caption("ℹ️ La búsqueda se habilita al abrir esta pestaña. Si falla la conexión, usa '🔄 Recargar Página y Conexión' arriba.")
