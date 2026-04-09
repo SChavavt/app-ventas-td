@@ -5075,6 +5075,15 @@ with tab3, suppress(StopException):
 
     # Mostrar todos los casos de la hoja, excepto los que estén cerrados en Seguimiento.
     df_pendientes = df_casos[mask_seguimiento_activo].copy()
+    tipo_envio_options_tab3 = sorted(
+        {
+            str(val).strip()
+            for val in df_pendientes.get("Tipo_Envio", [])
+            if str(val).strip() and str(val).strip().lower() not in {"nan", "none"}
+        }
+    )
+    tipo_envio_options_tab3 = ["📦 Todos"] + tipo_envio_options_tab3
+
     seguimiento_disponibles = sorted(
         {
             str(val).strip()
@@ -5082,26 +5091,58 @@ with tab3, suppress(StopException):
             if str(val).strip() and str(val).strip().lower() not in {"nan", "none", "cerrado"}
         }
     )
-    opcion_sin_seguimiento = "Sin seguimiento"
-    filtro_seguimiento_tab3 = st.selectbox(
-        "🔎 Filtrar por seguimiento",
-        options=["Todos", opcion_sin_seguimiento] + seguimiento_disponibles,
-        index=0,
-        key="tab3_filtro_seguimiento",
-    )
-    if filtro_seguimiento_tab3 == opcion_sin_seguimiento:
-        seguimiento_limpio = df_pendientes["Seguimiento"].astype(str).str.strip().str.lower()
+    seguimiento_options_tab3 = ["Todos"] + seguimiento_disponibles
+
+    col_tab3_f1, col_tab3_f2, col_tab3_f3 = st.columns([1.1, 1.5, 1.6])
+    with col_tab3_f1:
+        filtro_tipo_envio_tab3 = st.selectbox(
+            "Filtrar por tipo de envío",
+            options=tipo_envio_options_tab3,
+            index=0,
+            key="tab3_filtro_tipo_envio",
+        )
+    with col_tab3_f2:
+        filtro_term_tab3 = st.text_input(
+            "Buscar (Cliente / Folio )",
+            value="",
+            key="tab3_filtro_term",
+        )
+    with col_tab3_f3:
+        st.markdown("###### 🎛️ Filtrar por seguimiento")
+        filtro_seguimiento_tab3 = st.multiselect(
+            "Seguimiento",
+            options=seguimiento_options_tab3,
+            default=["Todos"],
+            key="tab3_filtro_seguimiento_multi",
+            placeholder="Selecciona uno o más seguimientos",
+            label_visibility="collapsed",
+        )
+
+    if filtro_tipo_envio_tab3 != "📦 Todos" and "Tipo_Envio" in df_pendientes.columns:
         df_pendientes = df_pendientes[
-            seguimiento_limpio.isin(["", "nan", "none"])
+            df_pendientes["Tipo_Envio"].astype(str).str.strip() == filtro_tipo_envio_tab3
         ]
-    elif filtro_seguimiento_tab3 != "Todos":
+
+    seguimiento_sel_tab3 = [s for s in (filtro_seguimiento_tab3 or ["Todos"]) if str(s).strip()]
+    if "Seguimiento" in df_pendientes.columns and seguimiento_sel_tab3 and "Todos" not in seguimiento_sel_tab3:
+        mask_multi_tab3 = pd.Series(False, index=df_pendientes.index)
+        for seg in seguimiento_sel_tab3:
+            mask_multi_tab3 = mask_multi_tab3 | (
+                df_pendientes["Seguimiento"].astype(str).str.strip() == seg
+            )
+        df_pendientes = df_pendientes[mask_multi_tab3]
+
+    term_tab3 = (filtro_term_tab3 or "").strip().lower()
+    if term_tab3:
         df_pendientes = df_pendientes[
-            df_pendientes["Seguimiento"].astype(str).str.strip() == filtro_seguimiento_tab3
+            df_pendientes["Cliente"].astype(str).str.lower().str.contains(term_tab3, na=False)
+            | df_pendientes["Folio_Factura"].astype(str).str.lower().str.contains(term_tab3, na=False)
+            | df_pendientes["ID_Pedido"].astype(str).str.lower().str.contains(term_tab3, na=False)
         ]
 
     # ====== TABLA (se mantiene) ======
     if df_pendientes.empty:
-        st.success("🎉 ¡No hay casos pendientes de confirmación para el seguimiento seleccionado!")
+        st.success("🎉 ¡No hay casos pendientes de confirmación para los filtros seleccionados!")
         st.stop()
     else:
         st.warning(f"📋 Hay {len(df_pendientes)} casos pendientes por confirmar.")
@@ -5639,117 +5680,7 @@ with tab4:
     )
     df_ce["Link_Doc_Adicional"] = df_ce["Documento_Adicional_URL"].astype(str).fillna("")
 
-    # ------- Filtros rápidos (aplicar bajo demanda) -------
-    tipo_envio_options = sorted(
-        {
-            str(val).strip()
-            for val in df_ce.get("Tipo_Envio", [])
-            if str(val).strip() and str(val).strip().lower() not in {"nan", "none"}
-        }
-    )
-    tipo_envio_options = ["📦 Todos"] + tipo_envio_options
-
-    seguimiento_options = sorted(
-        {
-            str(val).strip()
-            for val in df_ce.get("Seguimiento", [])
-            if str(val).strip() and str(val).strip().lower() not in {"nan", "none"}
-        }
-    )
-    seguimiento_options = ["Todos"] + seguimiento_options
-
-    filtros_default = {
-        "filtro_tipo_envio": "📦 Todos",
-        "filtro_seguimiento": ["Todos"],
-        "filtro_term": "",
-    }
-    filtros_state_key = "tab4_filtros_aplicados"
-    if filtros_state_key not in st.session_state:
-        st.session_state[filtros_state_key] = filtros_default.copy()
-
-    # Controles visibles fuera del recuadro (no aplican hasta presionar botón)
-    ui_tipo_key = "tab4_ui_tipo_envio"
-    ui_term_key = "tab4_ui_term"
-    if ui_tipo_key not in st.session_state:
-        st.session_state[ui_tipo_key] = st.session_state[filtros_state_key].get("filtro_tipo_envio", "📦 Todos")
-    if ui_term_key not in st.session_state:
-        st.session_state[ui_term_key] = st.session_state[filtros_state_key].get("filtro_term", "")
-
-    st.session_state[ui_tipo_key] = st.selectbox(
-        "Filtrar por tipo de envío",
-        options=tipo_envio_options,
-        index=tipo_envio_options.index(st.session_state.get(ui_tipo_key, "📦 Todos"))
-        if st.session_state.get(ui_tipo_key, "📦 Todos") in tipo_envio_options else 0,
-    )
-    st.session_state[ui_term_key] = st.text_input(
-        "Buscar (Cliente / Folio )",
-        value=st.session_state.get(ui_term_key, ""),
-    )
-
-    with st.container(border=True):
-        st.markdown("### 🎛️ Filtrar por seguimiento")
-        with st.form("tab4_filtros_form"):
-            filtro_seguimiento_tmp = st.multiselect(
-                "Seguimiento",
-                options=seguimiento_options,
-                default=[
-                    v for v in st.session_state[filtros_state_key].get("filtro_seguimiento", ["Todos"])
-                    if v in seguimiento_options
-                ] or ["Todos"],
-                placeholder="Selecciona uno o más seguimientos",
-            )
-
-            aplicar_filtros = st.form_submit_button("✅ Aplicar filtros", use_container_width=True)
-
-        if aplicar_filtros:
-            st.session_state[filtros_state_key] = {
-                "filtro_tipo_envio": st.session_state.get(ui_tipo_key, "📦 Todos"),
-                "filtro_seguimiento": filtro_seguimiento_tmp or ["Todos"],
-                "filtro_term": st.session_state.get(ui_term_key, ""),
-            }
-
-    filtros_aplicados = st.session_state[filtros_state_key]
-    filtro_tipo_envio = filtros_aplicados.get("filtro_tipo_envio", "📦 Todos")
-    filtro_seguimiento = filtros_aplicados.get("filtro_seguimiento", ["Todos"])
-    term = filtros_aplicados.get("filtro_term", "")
-
     df_view = df_ce.copy()
-
-    if filtro_tipo_envio != "📦 Todos" and "Tipo_Envio" in df_view.columns:
-        df_view = df_view[df_view["Tipo_Envio"].astype(str).str.strip() == filtro_tipo_envio]
-
-    seguimiento_sel = [s for s in filtro_seguimiento if str(s).strip()]
-    if "Seguimiento" in df_view.columns and seguimiento_sel and "Todos" not in seguimiento_sel:
-        mask_multi = pd.Series(False, index=df_view.index)
-        comentario_gerente_col = (
-            df_view["Comentario_Gerente"]
-            if "Comentario_Gerente" in df_view.columns
-            else pd.Series([""] * len(df_view), index=df_view.index)
-        )
-        comentario_gerente = (
-            ~comentario_gerente_col.astype(str).str.strip().str.lower().isin(
-                ["", "nan", "none"]
-            )
-        )
-        for seg in seguimiento_sel:
-            if str(seg).strip().lower() == "comentado":
-                seguimiento_comentado = (
-                    df_view["Seguimiento"].astype(str).str.strip().str.lower() == "comentado"
-                )
-                mask_multi = mask_multi | seguimiento_comentado | comentario_gerente
-            else:
-                mask_multi = mask_multi | (
-                    df_view["Seguimiento"].astype(str).str.strip() == seg
-                )
-        df_view = df_view[mask_multi]
-
-    if term.strip():
-        t = term.strip().lower()
-        df_view = df_view[
-            df_view["Cliente"].astype(str).str.lower().str.contains(t, na=False) |
-            df_view["Folio_Factura"].astype(str).str.lower().str.contains(t, na=False) |
-            df_view["ID_Pedido"].astype(str).str.lower().str.contains(t, na=False)
-        ]
 
     # ------- Ordenar: últimos primero por Hora_Registro si existe -------
     def _to_dt(s):
