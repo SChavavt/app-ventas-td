@@ -5084,6 +5084,7 @@ with tab3, suppress(StopException):
     )
     tipo_envio_options_tab3 = ["📦 Todos"] + tipo_envio_options_tab3
 
+    seguimiento_sin_valor_label = "Sin Seguimiento"
     seguimiento_disponibles = sorted(
         {
             str(val).strip()
@@ -5091,7 +5092,13 @@ with tab3, suppress(StopException):
             if str(val).strip() and str(val).strip().lower() not in {"nan", "none", "cerrado"}
         }
     )
+    has_seguimiento_vacio = any(
+        (not str(val).strip()) or (str(val).strip().lower() in {"nan", "none"})
+        for val in df_pendientes.get("Seguimiento", [])
+    )
     seguimiento_options_tab3 = ["Todos"] + seguimiento_disponibles
+    if has_seguimiento_vacio:
+        seguimiento_options_tab3.append(seguimiento_sin_valor_label)
 
     col_tab3_f1, col_tab3_f2, col_tab3_f3 = st.columns([1.1, 1.5, 1.6])
     with col_tab3_f1:
@@ -5127,9 +5134,15 @@ with tab3, suppress(StopException):
     if "Seguimiento" in df_pendientes.columns and seguimiento_sel_tab3 and "Todos" not in seguimiento_sel_tab3:
         mask_multi_tab3 = pd.Series(False, index=df_pendientes.index)
         for seg in seguimiento_sel_tab3:
-            mask_multi_tab3 = mask_multi_tab3 | (
-                df_pendientes["Seguimiento"].astype(str).str.strip() == seg
-            )
+            if seg == seguimiento_sin_valor_label:
+                mask_multi_tab3 = mask_multi_tab3 | (
+                    df_pendientes["Seguimiento"].isna()
+                    | df_pendientes["Seguimiento"].astype(str).str.strip().str.lower().isin(["", "nan", "none"])
+                )
+            else:
+                mask_multi_tab3 = mask_multi_tab3 | (
+                    df_pendientes["Seguimiento"].astype(str).str.strip() == seg
+                )
         df_pendientes = df_pendientes[mask_multi_tab3]
 
     term_tab3 = (filtro_term_tab3 or "").strip().lower()
@@ -5153,11 +5166,11 @@ with tab3, suppress(StopException):
             "Folio_Factura",
             "Tipo_Envio",
             "Comentario_Gerente",
+            "Seguimiento",
             "Tipo_Envio_Original",
             "Resultado_Esperado",
             "Material_Devuelto",
             "Motivo_Detallado",
-            "Seguimiento",
             "Area_Responsable",
             "Nombre_Responsable",
             "Vendedor_Registtro",
