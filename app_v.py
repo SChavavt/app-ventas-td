@@ -2007,6 +2007,7 @@ def clear_order_related_caches() -> None:
     """Limpia cachés de lectura para reflejar pedidos recién registrados sin recargar la app."""
     for fn_name in (
         "cargar_pedidos",
+        "cargar_pedidos_ventas_reportes",
         "cargar_pedidos_combinados",
         "cargar_pedidos_busqueda",
         "obtener_resumen_guias_vendedor",
@@ -2034,6 +2035,27 @@ def cargar_pedidos():
     sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet(SHEET_PEDIDOS_OPERATIVOS)
     data = sheet.get_all_records()
     return pd.DataFrame(data)
+
+
+@st.cache_data(ttl=300)
+def cargar_pedidos_ventas_reportes():
+    """Carga pedidos de data_pedidos + datos_pedidos para la vista de reportes."""
+    spreadsheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")
+    frames: list[pd.DataFrame] = []
+    for nombre_hoja in (SHEET_PEDIDOS_OPERATIVOS, SHEET_PEDIDOS_HISTORICOS):
+        try:
+            sheet = spreadsheet.worksheet(nombre_hoja)
+            frame = pd.DataFrame(sheet.get_all_records())
+            if not frame.empty:
+                frame["Fuente"] = nombre_hoja
+            frames.append(frame)
+        except Exception:
+            continue
+
+    if not frames:
+        return pd.DataFrame()
+
+    return pd.concat(frames, ignore_index=True, sort=False)
 
 
 usuario_activo = ensure_user_logged_in()
@@ -4693,7 +4715,7 @@ if tab_ventas_reportes is not None:
         st.caption("Pedidos registrados por RUBEN67, JUAN24 y FRANKO95.")
 
         try:
-            df_ventas = cargar_pedidos()
+            df_ventas = cargar_pedidos_ventas_reportes()
         except Exception as e:
             st.error(f"❌ No se pudieron cargar los pedidos: {e}")
             df_ventas = pd.DataFrame()
@@ -4719,10 +4741,30 @@ if tab_ventas_reportes is not None:
                 if col not in df_ventas.columns:
                     df_ventas[col] = ""
 
+            df_ventas_base = df_ventas.copy()
+
             if "Hora_Registro" in df_ventas.columns:
+                fecha_hora_registro = pd.to_datetime(df_ventas["Hora_Registro"], errors="coerce")
+                df_ventas["fecha_hora_registro"] = fecha_hora_registro
+                df_ventas["mes_registro"] = fecha_hora_registro.dt.to_period("M").astype("string")
+
+                meses_disponibles = (
+                    df_ventas.loc[df_ventas["mes_registro"].notna(), "mes_registro"]
+                    .drop_duplicates()
+                    .sort_values(ascending=False)
+                    .tolist()
+                )
+                filtro_mes = st.selectbox(
+                    "🗓️ Filtrar por mes",
+                    ["Todos"] + meses_disponibles,
+                    index=0,
+                    help="Formato AAAA-MM (ejemplo: 2026-04).",
+                )
+                if filtro_mes != "Todos":
+                    df_ventas = df_ventas[df_ventas["mes_registro"] == filtro_mes].copy()
+
                 df_ventas = df_ventas.sort_values(
-                    by="Hora_Registro",
-                    key=lambda s: pd.to_datetime(s, errors="coerce"),
+                    by="fecha_hora_registro",
                     ascending=False,
                 )
 
@@ -4732,6 +4774,83 @@ if tab_ventas_reportes is not None:
                 hide_index=True,
             )
             st.caption(f"Total de pedidos encontrados: {len(df_ventas)}")
+
+            ventas_excel_buffer = BytesIO()
+            with pd.ExcelWriter(ventas_excel_buffer, engine="openpyxl") as writer:
+                df_ventas[columnas_reporte].to_excel(writer, index=False, sheet_name="Ventas_Reportes")
+            st.download_button(
+                label="📥 Descargar ventas (Excel)",
+                data=ventas_excel_buffer.getvalue(),
+                file_name=f"ventas_reportes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="tab_reportes_descargar_ventas_excel",
+            )
+
+            st.markdown("---")
+            st.subheader("📅 Reporte Diario")
+
+            columnas_reporte_diario = [
+                "Fecha_Pago_Comprobante",
+                "Cliente",
+                "Folio_Factura",
+                "Monto_Comprobante",
+                "Comentario",
+            ]
+            for col in columnas_reporte_diario + ["Forma_Pago_Comprobante"]:
+                if col not in df_ventas_base.columns:
+                    df_ventas_base[col] = ""
+
+            forma_pago_normalizada = (
+                df_ventas_base["Forma_Pago_Comprobante"]
+                .astype(str)
+                .apply(normalizar)
+                .str.strip()
+                .str.lower()
+            )
+            df_reporte_diario = df_ventas_base[
+                forma_pago_normalizada.eq(normalizar("Depósito en Efectivo").lower())
+            ].copy()
+
+            df_reporte_diario["Fecha_Pago_Comprobante_dt"] = pd.to_datetime(
+                df_reporte_diario["Fecha_Pago_Comprobante"], errors="coerce"
+            )
+
+            fechas_pago_validas = df_reporte_diario["Fecha_Pago_Comprobante_dt"].dropna()
+            if fechas_pago_validas.empty:
+                st.info("No hay registros de 'Depósito en Efectivo' con fecha de pago válida.")
+            else:
+                fecha_diaria_default = fechas_pago_validas.max().date()
+                fecha_reporte_diario = st.date_input(
+                    "📆 Filtrar por día",
+                    value=fecha_diaria_default,
+                    key="tab_reportes_filtro_fecha_diaria",
+                )
+
+                df_reporte_diario = df_reporte_diario[
+                    df_reporte_diario["Fecha_Pago_Comprobante_dt"].dt.date == fecha_reporte_diario
+                ].copy()
+
+                st.dataframe(
+                    df_reporte_diario[columnas_reporte_diario].reset_index(drop=True),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.caption(
+                    f"Total de registros (Depósito en Efectivo) para {fecha_reporte_diario}: {len(df_reporte_diario)}"
+                )
+
+                reporte_diario_excel_buffer = BytesIO()
+                with pd.ExcelWriter(reporte_diario_excel_buffer, engine="openpyxl") as writer:
+                    df_reporte_diario[columnas_reporte_diario].to_excel(
+                        writer, index=False, sheet_name="Reporte_Diario"
+                    )
+                st.download_button(
+                    label="📥 Descargar reporte diario (Excel)",
+                    data=reporte_diario_excel_buffer.getvalue(),
+                    file_name=f"reporte_diario_{fecha_reporte_diario}_{datetime.now().strftime('%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="tab_reportes_descargar_reporte_diario_excel",
+                )
 
 
 # --- TAB 2: MODIFY EXISTING ORDER ---
