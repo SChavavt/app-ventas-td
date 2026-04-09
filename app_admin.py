@@ -5075,6 +5075,15 @@ with tab3, suppress(StopException):
 
     # Mostrar todos los casos de la hoja, excepto los que estén cerrados en Seguimiento.
     df_pendientes = df_casos[mask_seguimiento_activo].copy()
+    tipo_envio_options_tab3 = sorted(
+        {
+            str(val).strip()
+            for val in df_pendientes.get("Tipo_Envio", [])
+            if str(val).strip() and str(val).strip().lower() not in {"nan", "none"}
+        }
+    )
+    tipo_envio_options_tab3 = ["📦 Todos"] + tipo_envio_options_tab3
+
     seguimiento_disponibles = sorted(
         {
             str(val).strip()
@@ -5082,26 +5091,54 @@ with tab3, suppress(StopException):
             if str(val).strip() and str(val).strip().lower() not in {"nan", "none", "cerrado"}
         }
     )
-    opcion_sin_seguimiento = "Sin seguimiento"
-    filtro_seguimiento_tab3 = st.selectbox(
-        "🔎 Filtrar por seguimiento",
-        options=["Todos", opcion_sin_seguimiento] + seguimiento_disponibles,
+    seguimiento_options_tab3 = ["Todos"] + seguimiento_disponibles
+
+    filtro_tipo_envio_tab3 = st.selectbox(
+        "Filtrar por tipo de envío",
+        options=tipo_envio_options_tab3,
         index=0,
-        key="tab3_filtro_seguimiento",
+        key="tab3_filtro_tipo_envio",
     )
-    if filtro_seguimiento_tab3 == opcion_sin_seguimiento:
-        seguimiento_limpio = df_pendientes["Seguimiento"].astype(str).str.strip().str.lower()
+    filtro_term_tab3 = st.text_input(
+        "Buscar (Cliente / Folio )",
+        value="",
+        key="tab3_filtro_term",
+    )
+
+    st.markdown("### 🎛️ Filtrar por seguimiento")
+    filtro_seguimiento_tab3 = st.multiselect(
+        "Seguimiento",
+        options=seguimiento_options_tab3,
+        default=["Todos"],
+        key="tab3_filtro_seguimiento_multi",
+        placeholder="Selecciona uno o más seguimientos",
+    )
+
+    if filtro_tipo_envio_tab3 != "📦 Todos" and "Tipo_Envio" in df_pendientes.columns:
         df_pendientes = df_pendientes[
-            seguimiento_limpio.isin(["", "nan", "none"])
+            df_pendientes["Tipo_Envio"].astype(str).str.strip() == filtro_tipo_envio_tab3
         ]
-    elif filtro_seguimiento_tab3 != "Todos":
+
+    seguimiento_sel_tab3 = [s for s in (filtro_seguimiento_tab3 or ["Todos"]) if str(s).strip()]
+    if "Seguimiento" in df_pendientes.columns and seguimiento_sel_tab3 and "Todos" not in seguimiento_sel_tab3:
+        mask_multi_tab3 = pd.Series(False, index=df_pendientes.index)
+        for seg in seguimiento_sel_tab3:
+            mask_multi_tab3 = mask_multi_tab3 | (
+                df_pendientes["Seguimiento"].astype(str).str.strip() == seg
+            )
+        df_pendientes = df_pendientes[mask_multi_tab3]
+
+    term_tab3 = (filtro_term_tab3 or "").strip().lower()
+    if term_tab3:
         df_pendientes = df_pendientes[
-            df_pendientes["Seguimiento"].astype(str).str.strip() == filtro_seguimiento_tab3
+            df_pendientes["Cliente"].astype(str).str.lower().str.contains(term_tab3, na=False)
+            | df_pendientes["Folio_Factura"].astype(str).str.lower().str.contains(term_tab3, na=False)
+            | df_pendientes["ID_Pedido"].astype(str).str.lower().str.contains(term_tab3, na=False)
         ]
 
     # ====== TABLA (se mantiene) ======
     if df_pendientes.empty:
-        st.success("🎉 ¡No hay casos pendientes de confirmación para el seguimiento seleccionado!")
+        st.success("🎉 ¡No hay casos pendientes de confirmación para los filtros seleccionados!")
         st.stop()
     else:
         st.warning(f"📋 Hay {len(df_pendientes)} casos pendientes por confirmar.")
