@@ -106,6 +106,7 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_total_factura",
     "local_route_adeudo_anterior",
     "local_route_referencias",
+    "local_route_hora_entrega_manual",
     "local_route_confirmed_payload",
     "local_route_confirmed_at",
     "local_route_generated_file",
@@ -236,6 +237,16 @@ def get_local_delivery_slot(turno_local: str) -> str:
     return turno_normalizado or "POR DEFINIR"
 
 
+def resolve_local_delivery_slot(turno_local: str, hora_entrega_manual: str = "") -> str:
+    """Resolve delivery slot using manual text first, then fallback to automatic mapping."""
+    hora_manual_limpia = str(hora_entrega_manual or "").strip()
+    if hora_manual_limpia:
+        return hora_manual_limpia
+    if str(turno_local or "").strip() == "🏙️ Local Mty":
+        return "POR DEFINIR"
+    return get_local_delivery_slot(turno_local)
+
+
 LOCAL_TURNO_CDMX_IDS = {"RUBEN67", "JUAN24", "FRANKO95"}
 TAB1_DUAL_VIEW_IDS = {"ALEJANDRO38", "CECILIA94"}
 
@@ -326,6 +337,7 @@ def build_local_route_payload(
     total_factura,
     adeudo_anterior,
     folio: str,
+    hora_entrega_manual: str = "",
 ) -> Dict[str, str]:
     """Build the serialized payload used by the local route Excel and summary UI."""
     route_total_amount = float(total_factura or 0.0) + float(adeudo_anterior or 0.0)
@@ -336,7 +348,7 @@ def build_local_route_payload(
         "dia_entrega": get_weekday_name_es(fecha_entrega),
         "cliente": registro_cliente.strip(),
         "subtipo_local": subtipo_local.strip(),
-        "hora_entrega": get_local_delivery_slot(subtipo_local),
+        "hora_entrega": resolve_local_delivery_slot(subtipo_local, hora_entrega_manual),
         "recibe": recibe.strip(),
         "referencias": route_references,
         "calle_no": calle_no.strip(),
@@ -2918,6 +2930,15 @@ with tab1:
                 key="subtipo_local_selector",
                 help="Selecciona el turno o tipo de entrega para pedidos locales."
             )
+            local_route_hora_entrega = st.text_input(
+                "HORA DE ENTREGA (opcional)",
+                key="local_route_hora_entrega_manual",
+                placeholder="Ej. 9 am a 2pm, 3pm a 7pm, 10am a 7pm u otro horario",
+                help=(
+                    "Captura manualmente la hora de entrega. Si lo dejas vacío, se aplica la lógica automática por turno. "
+                    "Para 🏙️ Local Mty se recomienda capturarlo manualmente."
+                ),
+            )
             is_local_pasa_bodega = subtipo_local == "📦 Pasa a Bodega"
         else:
             # Para devolución local no se muestra selector de turno/locales.
@@ -3098,6 +3119,7 @@ with tab1:
     local_route_total_factura = 0.0
     local_route_adeudo_anterior = 0.0
     local_route_referencias = ""
+    local_route_hora_entrega = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
 
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
@@ -3616,6 +3638,7 @@ with tab1:
             fecha_entrega=fecha_entrega,
             registro_cliente=registro_cliente,
             subtipo_local=subtipo_local,
+            hora_entrega_manual=local_route_hora_entrega,
             recibe=local_route_recibe,
             referencias_hoja_ruta=local_route_referencias,
             calle_no=local_route_calle_no,
@@ -3678,8 +3701,11 @@ with tab1:
         confirmed_route_timestamp = st.session_state.get(LOCAL_ROUTE_CONFIRMED_AT_KEY, "")
         route_missing_fields = get_local_route_missing_fields(current_route_payload)
 
-        if subtipo_local not in ["☀️ Local Mañana", "🌙 Local Tarde"]:
-            st.warning("⚠️ La hoja de ruta asigna horario automático solo para ☀️ Local Mañana y 🌙 Local Tarde. Para otros turnos se usará el texto del turno seleccionado.")
+        if subtipo_local not in ["☀️ Local Mañana", "🌙 Local Tarde"] and not str(local_route_hora_entrega or "").strip():
+            st.warning(
+                "⚠️ Captura `HORA DE ENTREGA` manualmente para personalizar este turno. "
+                "Si lo dejas vacío, se aplica la lógica automática por turno (en 🏙️ Local Mty quedará como `POR DEFINIR`)."
+            )
 
         st.markdown("---")
         st.subheader("📄 Vista previa de hoja de ruta local")
@@ -3976,6 +4002,7 @@ with tab1:
                 referencia_pago = submission_payload_override.get("referencia_pago", referencia_pago)
                 comentario = submission_payload_override.get("comentario", comentario)
                 subtipo_local = submission_payload_override.get("subtipo_local", subtipo_local)
+                local_route_hora_entrega = submission_payload_override.get("local_route_hora_entrega", local_route_hora_entrega)
                 local_route_recibe = submission_payload_override.get("local_route_recibe", local_route_recibe)
                 local_route_calle_no = submission_payload_override.get("local_route_calle_no", local_route_calle_no)
                 local_route_tipo_inmueble = submission_payload_override.get("local_route_tipo_inmueble", local_route_tipo_inmueble)
@@ -4015,6 +4042,7 @@ with tab1:
                     fecha_entrega=fecha_entrega,
                     registro_cliente=registro_cliente,
                     subtipo_local=subtipo_local,
+                    hora_entrega_manual=local_route_hora_entrega,
                     recibe=local_route_recibe,
                     referencias_hoja_ruta=local_route_referencias,
                     calle_no=local_route_calle_no,
@@ -4119,6 +4147,7 @@ with tab1:
                     "referencia_pago": referencia_pago,
                     "comentario": comentario,
                     "subtipo_local": subtipo_local,
+                    "local_route_hora_entrega": local_route_hora_entrega,
                     "local_route_recibe": local_route_recibe,
                     "local_route_calle_no": local_route_calle_no,
                     "local_route_tipo_inmueble": local_route_tipo_inmueble,
