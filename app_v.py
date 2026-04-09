@@ -231,12 +231,13 @@ def get_local_delivery_slot(turno_local: str) -> str:
 
 
 LOCAL_TURNO_CDMX_IDS = {"RUBEN67", "JUAN24", "FRANKO95"}
+TAB1_DUAL_VIEW_IDS = {"ALEJANDRO38", "CECILIA94"}
 
 
-def get_local_shift_options(id_vendedor: str | None = None) -> list[str]:
+def get_local_shift_options(id_vendedor: str | None = None, force_cdmx_view: bool = False) -> list[str]:
     """Return local shift options, enabling CDMX only for approved users."""
     id_vendedor_normalizado = normalize_vendedor_id(id_vendedor or "")
-    if id_vendedor_normalizado in LOCAL_TURNO_CDMX_IDS:
+    if force_cdmx_view or id_vendedor_normalizado in LOCAL_TURNO_CDMX_IDS:
         return ["🏙️ Local Mty", "🌆 Local CDMX", "🎓 Recoge en Aula"]
 
     opciones = ["☀️ Local Mañana", "🌙 Local Tarde", "🌵 Saltillo", "📦 Pasa a Bodega"]
@@ -2751,7 +2752,28 @@ with tab1:
         st.session_state["current_tab_index"] = 0
     st.header("📝 Nuevo Pedido")
     id_vendedor_tab1 = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
-    tab1_special_shipping = id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS
+    tab1_is_dual_view_user = id_vendedor_tab1 in TAB1_DUAL_VIEW_IDS
+    tab1_view_mode_key = "tab1_shipping_view_mode"
+    if tab1_is_dual_view_user:
+        current_view_mode = st.session_state.get(tab1_view_mode_key, "mty")
+        if current_view_mode not in {"mty", "cdmx"}:
+            current_view_mode = "mty"
+            st.session_state[tab1_view_mode_key] = current_view_mode
+        st.caption("Vista de captura para vendedores:")
+        col_view_mty, col_view_cdmx = st.columns(2)
+        with col_view_mty:
+            if st.button("Vista vendedores MTY", use_container_width=True):
+                st.session_state[tab1_view_mode_key] = "mty"
+                current_view_mode = "mty"
+        with col_view_cdmx:
+            if st.button("Vista vendedores CDMX", use_container_width=True):
+                st.session_state[tab1_view_mode_key] = "cdmx"
+                current_view_mode = "cdmx"
+    else:
+        st.session_state.pop(tab1_view_mode_key, None)
+        current_view_mode = "cdmx" if id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS else "mty"
+
+    tab1_special_shipping = current_view_mode == "cdmx"
     if tab1_special_shipping:
         tipo_envio_options = [
             "🚚 Foráneo CDMX",
@@ -2768,7 +2790,6 @@ with tab1:
             "🔁 Devolución",
             "🛠 Garantía",
             "📋 Solicitudes de Guía",
-            "🏙️ Pedido CDMX",
             "🎓 Cursos y Eventos",
         ]
 
@@ -2815,7 +2836,10 @@ with tab1:
         if tipo_envio == "📍 Pedido Local":
             st.markdown("---")
             st.subheader("⏰ Detalle de Pedido Local")
-            local_shift_options = get_local_shift_options(st.session_state.get("id_vendedor", ""))
+            local_shift_options = get_local_shift_options(
+                st.session_state.get("id_vendedor", ""),
+                force_cdmx_view=tab1_special_shipping,
+            )
             current_subtipo_local = st.session_state.get("subtipo_local_selector", local_shift_options[0])
             if current_subtipo_local not in local_shift_options:
                 current_subtipo_local = local_shift_options[0]
