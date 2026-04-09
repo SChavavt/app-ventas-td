@@ -2007,7 +2007,6 @@ def clear_order_related_caches() -> None:
     """Limpia cachés de lectura para reflejar pedidos recién registrados sin recargar la app."""
     for fn_name in (
         "cargar_pedidos",
-        "cargar_pedidos_ventas_reportes",
         "cargar_pedidos_combinados",
         "cargar_pedidos_busqueda",
         "obtener_resumen_guias_vendedor",
@@ -2035,27 +2034,6 @@ def cargar_pedidos():
     sheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY").worksheet(SHEET_PEDIDOS_OPERATIVOS)
     data = sheet.get_all_records()
     return pd.DataFrame(data)
-
-
-@st.cache_data(ttl=300)
-def cargar_pedidos_ventas_reportes():
-    """Carga pedidos de data_pedidos + datos_pedidos para la vista de reportes."""
-    spreadsheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")
-    frames: list[pd.DataFrame] = []
-    for nombre_hoja in (SHEET_PEDIDOS_OPERATIVOS, SHEET_PEDIDOS_HISTORICOS):
-        try:
-            sheet = spreadsheet.worksheet(nombre_hoja)
-            frame = pd.DataFrame(sheet.get_all_records())
-            if not frame.empty:
-                frame["Fuente"] = nombre_hoja
-            frames.append(frame)
-        except Exception:
-            continue
-
-    if not frames:
-        return pd.DataFrame()
-
-    return pd.concat(frames, ignore_index=True, sort=False)
 
 
 usuario_activo = ensure_user_logged_in()
@@ -4715,7 +4693,7 @@ if tab_ventas_reportes is not None:
         st.caption("Pedidos registrados por RUBEN67, JUAN24 y FRANKO95.")
 
         try:
-            df_ventas = cargar_pedidos_ventas_reportes()
+            df_ventas = cargar_pedidos()
         except Exception as e:
             st.error(f"❌ No se pudieron cargar los pedidos: {e}")
             df_ventas = pd.DataFrame()
@@ -4742,27 +4720,9 @@ if tab_ventas_reportes is not None:
                     df_ventas[col] = ""
 
             if "Hora_Registro" in df_ventas.columns:
-                fecha_hora_registro = pd.to_datetime(df_ventas["Hora_Registro"], errors="coerce")
-                df_ventas["fecha_hora_registro"] = fecha_hora_registro
-                df_ventas["mes_registro"] = fecha_hora_registro.dt.to_period("M").astype("string")
-
-                meses_disponibles = (
-                    df_ventas.loc[df_ventas["mes_registro"].notna(), "mes_registro"]
-                    .drop_duplicates()
-                    .sort_values(ascending=False)
-                    .tolist()
-                )
-                filtro_mes = st.selectbox(
-                    "🗓️ Filtrar por mes",
-                    ["Todos"] + meses_disponibles,
-                    index=0,
-                    help="Formato AAAA-MM (ejemplo: 2026-04).",
-                )
-                if filtro_mes != "Todos":
-                    df_ventas = df_ventas[df_ventas["mes_registro"] == filtro_mes].copy()
-
                 df_ventas = df_ventas.sort_values(
-                    by="fecha_hora_registro",
+                    by="Hora_Registro",
+                    key=lambda s: pd.to_datetime(s, errors="coerce"),
                     ascending=False,
                 )
 
