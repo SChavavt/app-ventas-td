@@ -2898,6 +2898,14 @@ with tab1:
     is_local_pasa_bodega = False
     is_devolucion_local = tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
     usa_logica_local = tipo_envio == "📍 Pedido Local" or is_devolucion_local
+    apply_tab1_local_cdmx_route_rule = (
+        tab1_special_shipping
+        and tipo_envio_ui == "📍 Local CDMX"
+        and (
+            id_vendedor_tab1 in TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS
+            or tab1_is_dual_view_user
+        )
+    )
     expand_payment_details_default = (
         id_vendedor_tab1 in TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS
         or (tab1_is_dual_view_user and tab1_special_shipping)
@@ -2937,9 +2945,15 @@ with tab1:
             subtipo_local = "☀️ Local Mañana"
             st.session_state["subtipo_local_selector"] = subtipo_local
 
+        if apply_tab1_local_cdmx_route_rule:
+            usa_hoja_ruta_local = subtipo_local == "🏙️ Local Mty"
+
         if not usa_hoja_ruta_local:
             st.session_state["local_route_selected_history_label"] = None
             st.session_state["local_route_selected_history_row"] = None
+            st.caption(
+                "ℹ️ Para este usuario en **📍 Local CDMX** la hoja de ruta en Tab 1 solo aplica en turno **🏙️ Local Mty**."
+            )
         elif is_local_pasa_bodega:
             st.session_state["local_route_selected_history_label"] = None
             st.session_state["local_route_selected_history_row"] = None
