@@ -2821,6 +2821,7 @@ with tab1:
         st.session_state["current_tab_index"] = TAB_INDEX_TAB1
     st.header("📝 Nuevo Pedido")
     id_vendedor_tab1 = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
+    tab1_allow_pedidos_cdmx_option = id_vendedor_tab1 not in LOCAL_TURNO_CDMX_IDS
     tab1_is_dual_view_user = id_vendedor_tab1 in TAB1_DUAL_VIEW_IDS
     tab1_view_mode_key = "tab1_shipping_view_mode"
     if tab1_is_dual_view_user:
@@ -2840,7 +2841,7 @@ with tab1:
                 current_view_mode = "cdmx"
     else:
         st.session_state.pop(tab1_view_mode_key, None)
-        current_view_mode = "cdmx" if id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS else "mty"
+        current_view_mode = "mty"
 
     tab1_special_shipping = current_view_mode == "cdmx"
     if tab1_special_shipping:
@@ -2854,20 +2855,31 @@ with tab1:
         ]
     else:
         tipo_envio_options = [
-            "🚚 Pedido Foráneo",
-            "📍 Pedido Local",
+            "🚚 Foráneo",
+            "📍 Local",
             "🔁 Devolución",
             "🛠 Garantía",
             "📋 Solicitudes de Guía",
             "🎓 Cursos y Eventos",
         ]
+    if tab1_allow_pedidos_cdmx_option:
+        tipo_envio_options.insert(1, "🏙️ Pedidos CDMX")
 
     current_tipo_envio = st.session_state.get("tipo_envio_selector_global", tipo_envio_options[0])
     if tab1_special_shipping:
-        if current_tipo_envio == "🚚 Pedido Foráneo":
+        if current_tipo_envio in {"🚚 Pedido Foráneo", "🚚 Foráneo"}:
             current_tipo_envio = "🚚 Foráneo CDMX"
-        elif current_tipo_envio in {"📍 Pedido Local", "🏙️ Pedido CDMX"}:
+        elif current_tipo_envio in {"📍 Pedido Local", "📍 Local"}:
             current_tipo_envio = "📍 Local CDMX"
+        elif current_tipo_envio in {"🏙️ Pedido CDMX", "🏙️ Pedidos CDMX"} and tab1_allow_pedidos_cdmx_option:
+            current_tipo_envio = "🏙️ Pedidos CDMX"
+    else:
+        if current_tipo_envio in {"🚚 Pedido Foráneo", "🚚 Foráneo CDMX"}:
+            current_tipo_envio = "🚚 Foráneo"
+        elif current_tipo_envio in {"📍 Pedido Local", "📍 Local CDMX"}:
+            current_tipo_envio = "📍 Local"
+        elif current_tipo_envio in {"🏙️ Pedido CDMX", "🏙️ Pedidos CDMX"} and tab1_allow_pedidos_cdmx_option:
+            current_tipo_envio = "🏙️ Pedidos CDMX"
     if current_tipo_envio not in tipo_envio_options:
         current_tipo_envio = tipo_envio_options[0]
         st.session_state["tipo_envio_selector_global"] = current_tipo_envio
@@ -2880,11 +2892,12 @@ with tab1:
     )
     tipo_envio = tipo_envio_ui
     tipo_envio_excel = tipo_envio_ui
-    if tipo_envio_ui == "🚚 Foráneo CDMX":
+    if tipo_envio_ui in {"🚚 Foráneo CDMX", "🚚 Foráneo", "🏙️ Pedidos CDMX"}:
         tipo_envio = "🚚 Pedido Foráneo"
-        tipo_envio_excel = "🚚 Pedido Foráneo"
-    elif tipo_envio_ui == "📍 Local CDMX":
+        tipo_envio_excel = "🏙️ Pedidos CDMX" if tipo_envio_ui == "🏙️ Pedidos CDMX" else "🚚 Pedido Foráneo"
+    elif tipo_envio_ui in {"📍 Local CDMX", "📍 Local"}:
         tipo_envio = "📍 Pedido Local"
+        tipo_envio_excel = "📍 Pedido Local"
 
     tipo_envio_original = ""
     if tipo_envio == "🔁 Devolución":
@@ -2913,7 +2926,7 @@ with tab1:
             st.markdown("---")
             st.subheader("⏰ Detalle de Pedido Local")
             local_shift_options = get_local_shift_options(
-                st.session_state.get("id_vendedor", ""),
+                st.session_state.get("id_vendedor", "") if tab1_special_shipping else None,
                 force_cdmx_view=tab1_special_shipping,
             )
             current_subtipo_local = st.session_state.get("subtipo_local_selector", local_shift_options[0])
