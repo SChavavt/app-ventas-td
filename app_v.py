@@ -250,6 +250,14 @@ def resolve_local_delivery_slot(turno_local: str, hora_entrega_manual: str = "")
     return get_local_delivery_slot(turno_local)
 
 
+def get_subtipo_local_excel_value(subtipo_local: str) -> str:
+    """Normalize local shift label for Excel persistence."""
+    turno_normalizado = str(subtipo_local or "").strip()
+    if turno_normalizado == "🏙️ Local Mty":
+        return "🌤️ Local Día"
+    return turno_normalizado
+
+
 LOCAL_TURNO_CDMX_IDS = {"RUBEN67", "JUAN24", "FRANKO95"}
 TAB1_DUAL_VIEW_IDS = {"ALEJANDRO38", "CECILIA94"}
 
@@ -4436,7 +4444,7 @@ with tab1:
                 elif header == "Estatus_OrigenF":
                     values.append(estatus_origen_factura if tipo_envio == "🔁 Devolución" else "")
                 elif header == "Turno":
-                    values.append(subtipo_local)
+                    values.append(get_subtipo_local_excel_value(subtipo_local))
                 elif header == "Fecha_Entrega":
                     if tipo_envio in ["🔁 Devolución", "🛠 Garantía"]:
                         values.append("")
