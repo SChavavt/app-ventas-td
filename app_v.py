@@ -234,9 +234,11 @@ def format_currency_for_route_sheet(value) -> str:
 def get_local_delivery_slot(turno_local: str) -> str:
     """Map local shift names to route sheet delivery time windows."""
     turno_normalizado = str(turno_local or "").strip()
-    if turno_normalizado in {"🌤️ Local Día", "🏙️ Local Mty"}:
+    if turno_normalizado == "🌵 Saltillo":
+        return "Saltillo"
+    if turno_normalizado:
         return "10:00 AM a 7:00 PM"
-    return turno_normalizado or "POR DEFINIR"
+    return "POR DEFINIR"
 
 
 def resolve_local_delivery_slot(turno_local: str, hora_entrega_manual: str = "") -> str:
@@ -244,8 +246,6 @@ def resolve_local_delivery_slot(turno_local: str, hora_entrega_manual: str = "")
     hora_manual_limpia = str(hora_entrega_manual or "").strip()
     if hora_manual_limpia:
         return hora_manual_limpia
-    if str(turno_local or "").strip() == "🏙️ Local Mty":
-        return "POR DEFINIR"
     return get_local_delivery_slot(turno_local)
 
 
@@ -3253,53 +3253,36 @@ with tab1:
             )
             if usa_logica_local and not is_local_pasa_bodega and not is_local_recoge_aula:
                 local_route_hour_options = [
+                    LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION,
                     "9:00 AM a 2:00 PM",
                     "3:00 PM a 7:00 PM",
-                    "10:00 AM a 7:00 PM",
                 ]
-                if not tab1_special_shipping:
-                    local_route_hour_options = [
-                        LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION,
-                        LOCAL_ROUTE_HOUR_CUSTOM_OPTION,
-                        *local_route_hour_options,
-                    ]
-
                 hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
-                if hora_entrega_actual in local_route_hour_options:
-                    default_hora_selector = hora_entrega_actual
-                elif hora_entrega_actual and not tab1_special_shipping:
-                    default_hora_selector = LOCAL_ROUTE_HOUR_CUSTOM_OPTION
-                elif tab1_special_shipping:
-                    default_hora_selector = local_route_hour_options[0]
-                else:
-                    default_hora_selector = LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION
+                opciones_hora_selector = list(local_route_hour_options)
+                if hora_entrega_actual and hora_entrega_actual not in opciones_hora_selector:
+                    opciones_hora_selector.append(hora_entrega_actual)
+
+                default_hora_selector = (
+                    hora_entrega_actual if hora_entrega_actual else LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION
+                )
 
                 if st.session_state.get("local_route_hora_entrega_selector") != default_hora_selector:
                     st.session_state["local_route_hora_entrega_selector"] = default_hora_selector
 
                 hora_entrega_selector = st.selectbox(
                     "🕒 HORA DE ENTREGA",
-                    local_route_hour_options,
+                    opciones_hora_selector,
                     key="local_route_hora_entrega_selector",
-                    help="Puedes usar una opción sugerida o elegir ✍️ Escribir manualmente para capturarla/editarla.",
+                    accept_new_options=True,
+                    help="Por defecto usa 🧠 Automático por turno. También puedes seleccionar o escribir/editar cualquier horario.",
                 )
 
                 if hora_entrega_selector == LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION:
-                    st.session_state["local_route_hora_entrega_manual"] = ""
                     local_route_hora_entrega = ""
-                    st.info("ℹ️ En 🧠 Automático por turno, la hoja de ruta escribirá: `10:00 AM a 7:00 PM`.")
-                elif hora_entrega_selector == LOCAL_ROUTE_HOUR_CUSTOM_OPTION:
-                    hora_manual_capturada = st.text_input(
-                        "✍️ Hora de entrega personalizada",
-                        value=hora_entrega_actual,
-                        key="local_route_hora_entrega_custom_input",
-                        placeholder="Ej. 11:30 AM a 4:00 PM",
-                        help="Puedes borrar, escribir o modificar libremente este texto.",
-                    ).strip()
-                    local_route_hora_entrega = hora_manual_capturada
-                    st.session_state["local_route_hora_entrega_manual"] = hora_manual_capturada
+                    st.session_state["local_route_hora_entrega_manual"] = ""
+                    st.info("ℹ️ Automático por turno: **Saltillo** para turno 🌵 Saltillo; en cualquier otro turno será **10:00 AM a 7:00 PM**.")
                 else:
-                    local_route_hora_entrega = hora_entrega_selector
+                    local_route_hora_entrega = str(hora_entrega_selector or "").strip()
                     st.session_state["local_route_hora_entrega_manual"] = local_route_hora_entrega
                 st.session_state.pop("local_route_hora_entrega_custom", None)
 
