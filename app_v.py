@@ -4891,7 +4891,7 @@ if tab_ventas_reportes is not None:
                 "Cliente",
                 "Folio_Factura",
                 "Monto_Comprobante",
-                "Banco_Destino_Pago",
+                "Forma_Pago_Comprobante",
                 "Comentario",
             ]
             st.caption("Solo se muestran pedidos marcados con forma de pago 'Depósito en Efectivo'.")
