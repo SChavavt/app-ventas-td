@@ -108,6 +108,7 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_referencias",
     "local_route_hora_entrega_manual",
     "local_route_hora_entrega_selector",
+    "local_route_hora_entrega_selector_prev",
     "local_route_hora_entrega_custom",
     "local_route_confirmed_payload",
     "local_route_confirmed_at",
@@ -139,11 +140,6 @@ LOCAL_ROUTE_GENERATED_FILE_KEY = "local_route_generated_file"
 LOCAL_ROUTE_GENERATED_FILENAME_KEY = "local_route_generated_filename"
 LOCAL_ROUTE_GENERATED_AT_KEY = "local_route_generated_at"
 LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY = "local_route_post_confirm_notice"
-LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION = "🧠 Automático por turno"
-LOCAL_ROUTE_HOUR_CUSTOM_OPTION = "✍️ Escribir manualmente"
-
-
-
 USUARIOS_VALIDOS = [
     "DIANASOFIA47",
     "ALEJANDRO38",
@@ -2987,6 +2983,7 @@ with tab1:
             if is_local_recoge_aula:
                 st.session_state["local_route_hora_entrega_manual"] = ""
                 st.session_state.pop("local_route_hora_entrega_selector", None)
+                st.session_state.pop("local_route_hora_entrega_selector_prev", None)
                 st.session_state.pop("local_route_hora_entrega_custom", None)
                 st.caption(
                     "ℹ️ Para **🎓 Recoge en Aula** no se usa hoja de ruta ni actualización de `Clientes_Locales`."
@@ -3253,54 +3250,40 @@ with tab1:
             )
             if usa_logica_local and not is_local_pasa_bodega and not is_local_recoge_aula:
                 local_route_hour_options = [
+                    "",
                     "9:00 AM a 2:00 PM",
                     "3:00 PM a 7:00 PM",
-                    "10:00 AM a 7:00 PM",
                 ]
-                if not tab1_special_shipping:
-                    local_route_hour_options = [
-                        LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION,
-                        LOCAL_ROUTE_HOUR_CUSTOM_OPTION,
-                        *local_route_hour_options,
-                    ]
 
                 hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
                 if hora_entrega_actual in local_route_hour_options:
                     default_hora_selector = hora_entrega_actual
-                elif hora_entrega_actual and not tab1_special_shipping:
-                    default_hora_selector = LOCAL_ROUTE_HOUR_CUSTOM_OPTION
-                elif tab1_special_shipping:
-                    default_hora_selector = local_route_hour_options[0]
                 else:
-                    default_hora_selector = LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION
+                    default_hora_selector = local_route_hour_options[0]
 
                 if st.session_state.get("local_route_hora_entrega_selector") != default_hora_selector:
                     st.session_state["local_route_hora_entrega_selector"] = default_hora_selector
 
                 hora_entrega_selector = st.selectbox(
-                    "🕒 HORA DE ENTREGA",
+                    "🕒 Sugerencias de hora (opcional)",
                     local_route_hour_options,
                     key="local_route_hora_entrega_selector",
-                    help="Puedes usar una opción sugerida o elegir ✍️ Escribir manualmente para capturarla/editarla.",
+                    format_func=lambda x: "Seleccionar sugerencia..." if x == "" else x,
+                    help="Selecciona una sugerencia para autocompletar. Después puedes editar libremente el texto.",
                 )
+                hora_selector_prev = st.session_state.get("local_route_hora_entrega_selector_prev")
+                if hora_entrega_selector != hora_selector_prev:
+                    if hora_entrega_selector:
+                        st.session_state["local_route_hora_entrega_manual"] = hora_entrega_selector
+                    st.session_state["local_route_hora_entrega_selector_prev"] = hora_entrega_selector
 
-                if hora_entrega_selector == LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION:
-                    st.session_state["local_route_hora_entrega_manual"] = ""
-                    local_route_hora_entrega = ""
-                    st.info("ℹ️ En 🧠 Automático por turno, la hoja de ruta escribirá: `10:00 AM a 7:00 PM`.")
-                elif hora_entrega_selector == LOCAL_ROUTE_HOUR_CUSTOM_OPTION:
-                    hora_manual_capturada = st.text_input(
-                        "✍️ Hora de entrega personalizada",
-                        value=hora_entrega_actual,
-                        key="local_route_hora_entrega_custom_input",
-                        placeholder="Ej. 11:30 AM a 4:00 PM",
-                        help="Puedes borrar, escribir o modificar libremente este texto.",
-                    ).strip()
-                    local_route_hora_entrega = hora_manual_capturada
-                    st.session_state["local_route_hora_entrega_manual"] = hora_manual_capturada
-                else:
-                    local_route_hora_entrega = hora_entrega_selector
-                    st.session_state["local_route_hora_entrega_manual"] = local_route_hora_entrega
+                local_route_hora_entrega = st.text_input(
+                    "🕒 HORA DE ENTREGA",
+                    key="local_route_hora_entrega_manual",
+                    placeholder="Ej. 11:30 AM a 4:00 PM",
+                    help="Puedes elegir una sugerencia y luego borrar, editar o escribir cualquier horario.",
+                ).strip()
+                st.session_state["local_route_hora_entrega_manual"] = local_route_hora_entrega
                 st.session_state.pop("local_route_hora_entrega_custom", None)
 
         comentario = st.text_area(
