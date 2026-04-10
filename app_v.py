@@ -2882,6 +2882,7 @@ with tab1:
     tipo_envio_excel = tipo_envio_ui
     if tipo_envio_ui == "🚚 Foráneo CDMX":
         tipo_envio = "🚚 Pedido Foráneo"
+        tipo_envio_excel = "🚚 Pedido Foráneo"
     elif tipo_envio_ui == "📍 Local CDMX":
         tipo_envio = "📍 Pedido Local"
 
