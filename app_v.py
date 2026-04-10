@@ -3278,7 +3278,7 @@ with tab1:
                     st.session_state["local_route_hora_entrega_selector_prev"] = hora_entrega_selector
 
                 local_route_hora_entrega = st.text_input(
-                    "🕒 HORA DE ENTREGA",
+                    "🕒 Hora de Entrega",
                     key="local_route_hora_entrega_manual",
                     placeholder="Ej. 11:30 AM a 4:00 PM",
                     help="Puedes elegir una sugerencia y luego borrar, editar o escribir cualquier horario.",
