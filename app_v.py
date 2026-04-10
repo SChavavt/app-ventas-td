@@ -140,6 +140,7 @@ LOCAL_ROUTE_GENERATED_FILENAME_KEY = "local_route_generated_filename"
 LOCAL_ROUTE_GENERATED_AT_KEY = "local_route_generated_at"
 LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY = "local_route_post_confirm_notice"
 LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION = "🧠 Automático por turno"
+LOCAL_ROUTE_HOUR_CUSTOM_OPTION = "✍️ Escribir manualmente"
 
 
 
@@ -233,10 +234,8 @@ def format_currency_for_route_sheet(value) -> str:
 def get_local_delivery_slot(turno_local: str) -> str:
     """Map local shift names to route sheet delivery time windows."""
     turno_normalizado = str(turno_local or "").strip()
-    if turno_normalizado == "☀️ Local Mañana":
-        return "9:00 AM a 2:00 PM"
-    if turno_normalizado == "🌙 Local Tarde":
-        return "3:00 PM a 7:00 PM"
+    if turno_normalizado in {"🌤️ Local Día", "🏙️ Local Mty"}:
+        return "10:00 AM a 7:00 PM"
     return turno_normalizado or "POR DEFINIR"
 
 
@@ -268,7 +267,7 @@ def get_local_shift_options(id_vendedor: str | None = None, force_cdmx_view: boo
     if force_cdmx_view or id_vendedor_normalizado in LOCAL_TURNO_CDMX_IDS:
         return ["🏙️ Local Mty", "🌆 Local CDMX", "🎓 Recoge en Aula"]
 
-    opciones = ["☀️ Local Mañana", "🌙 Local Tarde", "🌵 Saltillo", "📦 Pasa a Bodega"]
+    opciones = ["🌤️ Local Día", "🌵 Saltillo", "📦 Pasa a Bodega"]
     return opciones
 
 
@@ -2976,7 +2975,7 @@ with tab1:
             is_local_recoge_aula = subtipo_local == "🎓 Recoge en Aula"
         else:
             # Para devolución local no se muestra selector de turno/locales.
-            subtipo_local = "☀️ Local Mañana"
+            subtipo_local = "🌤️ Local Día"
             st.session_state["subtipo_local_selector"] = subtipo_local
 
         if is_local_recoge_aula:
@@ -3259,11 +3258,17 @@ with tab1:
                     "10:00 AM a 7:00 PM",
                 ]
                 if not tab1_special_shipping:
-                    local_route_hour_options = [LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION, *local_route_hour_options]
+                    local_route_hour_options = [
+                        LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION,
+                        LOCAL_ROUTE_HOUR_CUSTOM_OPTION,
+                        *local_route_hour_options,
+                    ]
 
                 hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
                 if hora_entrega_actual in local_route_hour_options:
                     default_hora_selector = hora_entrega_actual
+                elif hora_entrega_actual and not tab1_special_shipping:
+                    default_hora_selector = LOCAL_ROUTE_HOUR_CUSTOM_OPTION
                 elif tab1_special_shipping:
                     default_hora_selector = local_route_hour_options[0]
                 else:
@@ -3276,12 +3281,23 @@ with tab1:
                     "🕒 HORA DE ENTREGA",
                     local_route_hour_options,
                     key="local_route_hora_entrega_selector",
-                    help="Selecciona el horario de entrega para el pedido local.",
+                    help="Puedes usar una opción sugerida o elegir ✍️ Escribir manualmente para capturarla/editarla.",
                 )
 
                 if hora_entrega_selector == LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION:
                     st.session_state["local_route_hora_entrega_manual"] = ""
                     local_route_hora_entrega = ""
+                    st.info("ℹ️ En 🧠 Automático por turno, la hoja de ruta escribirá: `10:00 AM a 7:00 PM`.")
+                elif hora_entrega_selector == LOCAL_ROUTE_HOUR_CUSTOM_OPTION:
+                    hora_manual_capturada = st.text_input(
+                        "✍️ Hora de entrega personalizada",
+                        value=hora_entrega_actual,
+                        key="local_route_hora_entrega_custom_input",
+                        placeholder="Ej. 11:30 AM a 4:00 PM",
+                        help="Puedes borrar, escribir o modificar libremente este texto.",
+                    ).strip()
+                    local_route_hora_entrega = hora_manual_capturada
+                    st.session_state["local_route_hora_entrega_manual"] = hora_manual_capturada
                 else:
                     local_route_hora_entrega = hora_entrega_selector
                     st.session_state["local_route_hora_entrega_manual"] = local_route_hora_entrega
@@ -3775,12 +3791,12 @@ with tab1:
 
         if (
             not tab1_special_shipping
-            and subtipo_local not in ["☀️ Local Mañana", "🌙 Local Tarde"]
+            and subtipo_local not in ["🌤️ Local Día", "🏙️ Local Mty"]
             and not str(local_route_hora_entrega or "").strip()
         ):
             st.warning(
                 "⚠️ Selecciona `HORA DE ENTREGA` para personalizar este turno. "
-                "Si lo dejas vacío, se aplica la lógica automática por turno (en 🏙️ Local Mty quedará como `POR DEFINIR`)."
+                "Si lo dejas vacío, se aplica la lógica automática por turno (`10:00 AM a 7:00 PM`)."
             )
 
         st.markdown("---")
@@ -5610,8 +5626,8 @@ with tab2:
                             key=tab2_turno_selector_key,
                             help="Usa las mismas opciones de turno del Tab 1 para pedidos locales.",
                         )
-                        if tab2_turno_local not in ["☀️ Local Mañana", "🌙 Local Tarde"]:
-                            st.warning("⚠️ La hoja de ruta asigna horario automático solo para ☀️ Local Mañana y 🌙 Local Tarde. Para otros turnos se usará el texto del turno seleccionado.")
+                        if tab2_turno_local not in ["🌤️ Local Día", "🏙️ Local Mty"]:
+                            st.warning("⚠️ La hoja de ruta asigna horario automático para 🌤️ Local Día (10:00 AM a 7:00 PM). Para otros turnos se usará el texto del turno seleccionado.")
 
                         st.subheader("💰 Estado de Pago")
                         if st.session_state.get("tab2_local_estado_pago") not in tab2_estado_pago_options:
@@ -7479,18 +7495,23 @@ with tab6:
                 else:
                     turno_options = [
                         "",
-                        "🌙 Local Tarde",
-                        "☀️ Local Mañana",
+                        "🌤️ Local Día",
                         "📦 Pasa a Bodega",
                         "🌵 Saltillo",
                     ]
                     turno_normalization_map = {
-                        "🌙 local tarde": "🌙 Local Tarde",
-                        "local tarde": "🌙 Local Tarde",
-                        "tarde": "🌙 Local Tarde",
-                        "☀️ local mañana": "☀️ Local Mañana",
-                        "local mañana": "☀️ Local Mañana",
-                        "mañana": "☀️ Local Mañana",
+                        "🌤️ local día": "🌤️ Local Día",
+                        "🌤️ local dia": "🌤️ Local Día",
+                        "local día": "🌤️ Local Día",
+                        "local dia": "🌤️ Local Día",
+                        "día": "🌤️ Local Día",
+                        "dia": "🌤️ Local Día",
+                        "🌙 local tarde": "🌤️ Local Día",
+                        "local tarde": "🌤️ Local Día",
+                        "tarde": "🌤️ Local Día",
+                        "☀️ local mañana": "🌤️ Local Día",
+                        "local mañana": "🌤️ Local Día",
+                        "mañana": "🌤️ Local Día",
                         "📦 pasa a bodega": "📦 Pasa a Bodega",
                         "pasa a bodega": "📦 Pasa a Bodega",
                         "en bodega": "📦 Pasa a Bodega",
