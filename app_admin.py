@@ -128,94 +128,6 @@ def normalize_estado_entrega(value) -> str:
     return raw
 
 
-MATERIAL_ROW_PATTERN = re.compile(
-    r"^\s*(?P<codigo>[A-Za-z0-9\-]+)\s+(?P<resto>.+?)\s*$"
-)
-MATERIAL_QTY_PATTERN = re.compile(r"\((?P<cantidad>\d+)\s*unidad(?:es)?\)", re.IGNORECASE)
-MATERIAL_AMOUNT_PATTERN = re.compile(r"\$\s*(?P<monto>[\d,]+(?:\.\d{1,2})?)\s*$")
-
-
-def parse_material_lines(raw_text: str) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    for raw_line in str(raw_text or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if "|" in line:
-            parts = [part.strip() for part in line.split("|")]
-            if len(parts) >= 4:
-                header_tokens = [p.lower() for p in parts[:4]]
-                if (
-                    "código" in header_tokens[0]
-                    and "descrip" in header_tokens[1]
-                    and "cantidad" in header_tokens[2]
-                    and "monto" in header_tokens[3]
-                ):
-                    continue
-                codigo_pipe, descripcion_pipe, cantidad_pipe, monto_pipe = parts[:4]
-                rows.append(
-                    {
-                        "Código": (codigo_pipe or "N/A").upper(),
-                        "Descripción": descripcion_pipe or "N/A",
-                        "Cantidad": cantidad_pipe or "N/A",
-                        "Monto IVA": monto_pipe or "N/A",
-                    }
-                )
-                continue
-
-        codigo = ""
-        descripcion = line
-        cantidad = ""
-        monto = ""
-
-        amount_match = MATERIAL_AMOUNT_PATTERN.search(line)
-        if amount_match:
-            monto = amount_match.group("monto").replace(",", "")
-            line = line[:amount_match.start()].strip()
-
-        qty_match = MATERIAL_QTY_PATTERN.search(line)
-        if qty_match:
-            cantidad = qty_match.group("cantidad")
-            line = (line[:qty_match.start()] + line[qty_match.end():]).strip()
-
-        row_match = MATERIAL_ROW_PATTERN.match(line)
-        if row_match:
-            codigo_candidate = row_match.group("codigo").strip().upper()
-            descripcion_candidate = row_match.group("resto").strip()
-            # Compatibilidad con formato legado: cuando viene solo un token
-            # (ej. "P106-06"), debe mostrarse como descripción.
-            if descripcion_candidate:
-                codigo = codigo_candidate
-                descripcion = descripcion_candidate
-            else:
-                codigo = ""
-                descripcion = codigo_candidate
-        else:
-            descripcion = line
-
-        rows.append(
-            {
-                "Código": codigo or "N/A",
-                "Descripción": descripcion or "N/A",
-                "Cantidad": cantidad or "N/A",
-                "Monto IVA": (f"${float(monto):,.2f}" if monto else "N/A"),
-            }
-        )
-    return rows
-
-
-def format_material_for_word(raw_text: str) -> str:
-    rows = parse_material_lines(raw_text)
-    if not rows:
-        return str(raw_text or "").strip() or "Sin registro"
-    lines = ["Código | Descripción | Cantidad | Monto IVA"]
-    for row in rows:
-        lines.append(
-            f"{row['Código']} | {row['Descripción']} | {row['Cantidad']} | {row['Monto IVA']}"
-        )
-    return "\n".join(lines)
-
-
 def normalize_user_field(value: str | None) -> str:
     """Normaliza campos de usuario para mostrarlos solo si traen información."""
     raw = str(value or "").strip()
@@ -5091,11 +5003,7 @@ with tab3, suppress(StopException):
             st.info(__s(row.get("Motivo_Detallado","")))
         if __has(row.get("Material_Devuelto","")):
             st.markdown("**📦 Piezas / Material:**")
-            material_txt = __s(row.get("Material_Devuelto",""))
-            st.info(material_txt)
-            material_rows = parse_material_lines(material_txt)
-            if material_rows:
-                st.dataframe(pd.DataFrame(material_rows), use_container_width=True, hide_index=True)
+            st.info(__s(row.get("Material_Devuelto","")))
         if __has(row.get("Monto_Devuelto","")):
             st.markdown(f"**💵 Monto (dev./estimado):** {row.get('Monto_Devuelto')}")
 
@@ -5564,9 +5472,8 @@ with tab3, suppress(StopException):
                     doc = Document(template_path)
 
                     # Mapping exacto a placeholders del .docx
-                    material_devuelto_word = format_material_for_word(row.get("Material_Devuelto"))
                     mapping = {
-                        "Material_Devuelto": material_devuelto_word,
+                        "Material_Devuelto": _safe_value(row.get("Material_Devuelto")),
                         "Cliente": _safe_value(row.get("Cliente")),
                         "Vendedor_Registro": _safe_value(row.get("Vendedor_Registro")),
                         "Folio_Factura": _safe_value(row.get("Folio_Factura")),
