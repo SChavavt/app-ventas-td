@@ -11,6 +11,7 @@ import uuid
 import pandas as pd
 import pdfplumber
 from openpyxl import load_workbook
+from openpyxl.styles import Font, PatternFill
 import unicodedata
 from io import BytesIO
 import time
@@ -4880,7 +4881,9 @@ if tab_ventas_reportes is not None:
                 "Folio_Factura",
                 "Cliente",
                 "Monto_Comprobante",
+                "Comprobante_Confirmado",
                 "Forma_Pago_Comprobante",
+                "Tipo_Envio",
                 "Vendedor_Registro",
                 "Hora_Registro",
             ]
@@ -4925,6 +4928,77 @@ if tab_ventas_reportes is not None:
             ventas_excel_buffer = BytesIO()
             with pd.ExcelWriter(ventas_excel_buffer, engine="openpyxl") as writer:
                 df_ventas[columnas_reporte].to_excel(writer, index=False, sheet_name="Ventas_Reportes")
+                ws = writer.sheets["Ventas_Reportes"]
+
+                def _monto_columna(serie: pd.Series) -> pd.Series:
+                    return pd.to_numeric(serie.astype(str).str.replace(",", "", regex=False), errors="coerce").fillna(0.0)
+
+                def _col_texto(df_base: pd.DataFrame, col: str) -> pd.Series:
+                    if col not in df_base.columns:
+                        return pd.Series("", index=df_base.index, dtype="object")
+                    return df_base[col].astype(str).fillna("")
+
+                def _norm_texto(valor: object) -> str:
+                    return normalizar(str(valor)).strip().lower()
+
+                montos = _monto_columna(df_ventas["Monto_Comprobante"])
+                tipo_envio_norm = _col_texto(df_ventas, "Tipo_Envio").apply(_norm_texto)
+                forma_pago_norm = _col_texto(df_ventas, "Forma_Pago_Comprobante").apply(_norm_texto)
+                vendedor_col = _col_texto(df_ventas, "Vendedor_Registro")
+                vendedor_norm = vendedor_col.apply(_norm_texto)
+
+                resumen_filas = [
+                    ("Venta total CDMX", float(montos.sum())),
+                    ("Venta total regulares", ""),
+                    (
+                        "Ventas Cursos CDMX",
+                        float(montos[tipo_envio_norm.eq(_norm_texto("🎓 Cursos y Eventos"))].sum()),
+                    ),
+                ]
+
+                vendedores_en_lista = (
+                    vendedor_col[vendedor_norm.ne("")]
+                    .drop_duplicates()
+                    .sort_values(key=lambda s: s.str.lower())
+                    .tolist()
+                )
+                for vendedor in vendedores_en_lista:
+                    monto_vendedor = float(montos[vendedor_norm.eq(_norm_texto(vendedor))].sum())
+                    resumen_filas.append((f"Ventas {vendedor}", monto_vendedor))
+
+                mapa_forma_pago = [
+                    ("Pagos Transferencia", "Transferencia"),
+                    ("Pagos TC", "Tarjeta de Crédito"),
+                    ("Pagos TD", "Tarjeta de Débito"),
+                    ("Deposito Efectivo", "Depósito en Efectivo"),
+                    ("Efectivo", "Efectivo"),
+                    ("Link de Pago", "Link de Pago"),
+                ]
+                for etiqueta, valor_forma_pago in mapa_forma_pago:
+                    monto_forma_pago = float(montos[forma_pago_norm.eq(_norm_texto(valor_forma_pago))].sum())
+                    resumen_filas.append((etiqueta, monto_forma_pago))
+
+                fila_inicio_resumen = len(df_ventas) + 4  # encabezado + datos + 2 filas vacías
+                col_inicio_resumen = 3  # columna C = una columna de espacio respecto a la tabla (A-B)
+                color_header = PatternFill(fill_type="solid", fgColor="1F4E78")
+                color_label = PatternFill(fill_type="solid", fgColor="D9E1F2")
+                font_blanca_negrita = Font(color="FFFFFF", bold=True)
+                font_negrita = Font(bold=True)
+
+                ws.cell(row=fila_inicio_resumen, column=col_inicio_resumen, value="Resumen")
+                ws.cell(row=fila_inicio_resumen, column=col_inicio_resumen).fill = color_header
+                ws.cell(row=fila_inicio_resumen, column=col_inicio_resumen).font = font_blanca_negrita
+                ws.cell(row=fila_inicio_resumen, column=col_inicio_resumen + 1, value="Monto")
+                ws.cell(row=fila_inicio_resumen, column=col_inicio_resumen + 1).fill = color_header
+                ws.cell(row=fila_inicio_resumen, column=col_inicio_resumen + 1).font = font_blanca_negrita
+
+                for i, (etiqueta, monto) in enumerate(resumen_filas, start=1):
+                    celda_label = ws.cell(row=fila_inicio_resumen + i, column=col_inicio_resumen, value=etiqueta)
+                    celda_label.fill = color_label
+                    celda_label.font = font_negrita
+                    celda_monto = ws.cell(row=fila_inicio_resumen + i, column=col_inicio_resumen + 1, value=monto)
+                    if monto != "":
+                        celda_monto.number_format = '"$"#,##0.00'
             st.download_button(
                 label="📥 Descargar ventas (Excel)",
                 data=ventas_excel_buffer.getvalue(),
