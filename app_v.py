@@ -3278,32 +3278,39 @@ with tab1:
         if usa_logica_local:
             if usa_hoja_ruta_local and not is_local_pasa_bodega:
                 st.markdown("### 🗺️ Hoja de Ruta Local")
-                opciones_dia_entrega = get_weekday_options_es()
-                indice_dia_actual = datetime.now().date().weekday()
-                if not st.session_state.get("local_route_dia_entrega"):
-                    st.session_state["local_route_dia_entrega"] = opciones_dia_entrega[indice_dia_actual]
+                if is_devolucion_local:
+                    opciones_dia_entrega = get_weekday_options_es()
+                    indice_dia_actual = datetime.now().date().weekday()
+                    if not st.session_state.get("local_route_dia_entrega"):
+                        st.session_state["local_route_dia_entrega"] = opciones_dia_entrega[indice_dia_actual]
 
-                hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
-                if "local_route_hora_entrega_input" not in st.session_state:
-                    st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or "10:00 AM a 7:00 PM"
+                    hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
+                    if "local_route_hora_entrega_input" not in st.session_state:
+                        st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or "10:00 AM a 7:00 PM"
 
-                col_entrega_1, col_entrega_2 = st.columns(2)
-                with col_entrega_1:
-                    local_route_dia_entrega = st.selectbox(
-                        "📅 DIA DE ENTREGA",
-                        opciones_dia_entrega,
-                        key="local_route_dia_entrega",
-                    )
-                with col_entrega_2:
-                    hora_capturada = st.text_input(
-                        "🕒 HORA DE ENTREGA",
-                        key="local_route_hora_entrega_input",
-                        placeholder="Ej. 10:00 AM a 7:00 PM",
-                        help="Campo editable: se enviará tal como lo escriba el usuario.",
-                    ).strip()
-                    local_route_hora_entrega = hora_capturada or "10:00 AM a 7:00 PM"
-                    st.session_state["local_route_hora_entrega_manual"] = hora_capturada
-                    st.session_state.pop("local_route_hora_entrega_custom", None)
+                    col_entrega_1, col_entrega_2 = st.columns(2)
+                    with col_entrega_1:
+                        local_route_dia_entrega = st.selectbox(
+                            "📅 DIA DE ENTREGA",
+                            opciones_dia_entrega,
+                            key="local_route_dia_entrega",
+                        )
+                    with col_entrega_2:
+                        hora_capturada = st.text_input(
+                            "🕒 HORA DE ENTREGA",
+                            key="local_route_hora_entrega_input",
+                            placeholder="Ej. 10:00 AM a 7:00 PM",
+                            help="Campo editable: se enviará tal como lo escriba el usuario.",
+                        ).strip()
+                        local_route_hora_entrega = hora_capturada or "10:00 AM a 7:00 PM"
+                        st.session_state["local_route_hora_entrega_manual"] = hora_capturada
+                        st.session_state.pop("local_route_hora_entrega_custom", None)
+                else:
+                    local_route_dia_entrega = ""
+                    local_route_hora_entrega = resolve_local_delivery_slot(subtipo_local, "")
+                    st.session_state["local_route_dia_entrega"] = ""
+                    st.session_state["local_route_hora_entrega_manual"] = ""
+                    st.session_state.pop("local_route_hora_entrega_input", None)
 
                 col_local_1, col_local_2 = st.columns(2)
                 with col_local_1:
