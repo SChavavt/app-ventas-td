@@ -5069,7 +5069,7 @@ if tab_ventas_reportes is not None:
                     ("Deposito", forma_pago_norm.eq(_norm_texto("Depósito en Efectivo"))),
                     ("Ruben", vendedor_norm.str.startswith(_norm_texto("RUBEN"))),
                     ("Juan", vendedor_norm.str.startswith(_norm_texto("JUAN"))),
-                    ("Cursos", tipo_envio_norm.eq(_norm_texto("🎓 Cursos y Eventos"))),
+                    ("Cursos", tipo_envio_norm.str.contains(_norm_texto("Cursos y Eventos"), na=False)),
                 ]
 
                 for nombre_hoja, mascara in secciones_hojas:
