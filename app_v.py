@@ -4946,7 +4946,11 @@ if tab_ventas_reportes is not None:
                     "Hora_Registro",
                     "Comprobante_Confirmado",
                 ]
-                df_ventas_excel = df_ventas[columnas_excel_orden].rename(columns=columnas_excel_map)
+
+                def _df_excel_desde_base(df_base: pd.DataFrame) -> pd.DataFrame:
+                    return df_base[columnas_excel_orden].rename(columns=columnas_excel_map)
+
+                df_ventas_excel = _df_excel_desde_base(df_ventas)
                 df_ventas_excel.to_excel(writer, index=False, sheet_name="Ventas_Reportes")
                 ws = writer.sheets["Ventas_Reportes"]
 
@@ -5040,10 +5044,41 @@ if tab_ventas_reportes is not None:
                     celda_monto.font = font_negrita
                     if monto != "":
                         celda_monto.number_format = '"$"#,##0.00'
+
+                secciones_hojas = [
+                    ("Transferencia", forma_pago_norm.eq(_norm_texto("Transferencia"))),
+                    ("TC", forma_pago_norm.eq(_norm_texto("Tarjeta de Crédito"))),
+                    ("TD", forma_pago_norm.eq(_norm_texto("Tarjeta de Débito"))),
+                    ("Efectivo", forma_pago_norm.eq(_norm_texto("Efectivo"))),
+                    ("Link", forma_pago_norm.eq(_norm_texto("Link de Pago"))),
+                    ("Deposito", forma_pago_norm.eq(_norm_texto("Depósito en Efectivo"))),
+                    ("Ruben", vendedor_norm.eq(_norm_texto("RUBEN"))),
+                    ("Juan", vendedor_norm.eq(_norm_texto("JUAN"))),
+                    ("Cursos", tipo_envio_norm.eq(_norm_texto("🎓 Cursos y Eventos"))),
+                ]
+
+                for nombre_hoja, mascara in secciones_hojas:
+                    df_seccion = _df_excel_desde_base(df_ventas[mascara].copy())
+                    df_seccion.to_excel(writer, index=False, sheet_name=nombre_hoja)
+
+            month_names_es = {
+                1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+                7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+            }
+            if filtro_mes != "Todos":
+                try:
+                    anio, mes = filtro_mes.split("-")
+                    nombre_mes = month_names_es.get(int(mes), mes)
+                    nombre_archivo = f"Ventas {nombre_mes} {anio}.xlsx"
+                except (ValueError, AttributeError):
+                    nombre_archivo = f"ventas_reportes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            else:
+                nombre_archivo = "Ventas Totales.xlsx"
+
             st.download_button(
                 label="📥 Descargar ventas (Excel)",
                 data=ventas_excel_buffer.getvalue(),
-                file_name=f"ventas_reportes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                file_name=nombre_archivo,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="tab_reportes_descargar_ventas_excel",
             )
