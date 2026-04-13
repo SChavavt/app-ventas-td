@@ -108,7 +108,9 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_total_factura",
     "local_route_adeudo_anterior",
     "local_route_referencias",
+    "local_route_dia_entrega",
     "local_route_hora_entrega_manual",
+    "local_route_hora_entrega_input",
     "local_route_hora_entrega_selector",
     "local_route_hora_entrega_custom",
     "local_route_confirmed_payload",
@@ -289,6 +291,11 @@ def get_weekday_name_es(delivery_date: date) -> str:
     return dias[delivery_date.weekday()]
 
 
+def get_weekday_options_es() -> list[str]:
+    """Return weekday options in uppercase Spanish."""
+    return ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO"]
+
+
 def build_local_route_sheet(template_path: Path, payload: Dict[str, object]) -> BytesIO:
     """Fill the local delivery Excel template and return it in memory."""
     workbook = load_workbook(template_path)
@@ -350,14 +357,17 @@ def build_local_route_payload(
     adeudo_anterior,
     folio: str,
     hora_entrega_manual: str = "",
+    dia_entrega_manual: str = "",
 ) -> Dict[str, str]:
     """Build the serialized payload used by the local route Excel and summary UI."""
     route_total_amount = float(total_factura or 0.0) + float(adeudo_anterior or 0.0)
     route_references = referencias_hoja_ruta.strip()
 
+    dia_entrega_limpio = str(dia_entrega_manual or "").strip().upper()
+
     return {
         "fecha": fecha_entrega.strftime('%Y-%m-%d') if isinstance(fecha_entrega, date) else "",
-        "dia_entrega": get_weekday_name_es(fecha_entrega),
+        "dia_entrega": dia_entrega_limpio or get_weekday_name_es(fecha_entrega),
         "cliente": registro_cliente.strip(),
         "subtipo_local": subtipo_local.strip(),
         "hora_entrega": resolve_local_delivery_slot(subtipo_local, hora_entrega_manual),
@@ -2991,6 +3001,8 @@ with tab1:
             st.session_state["local_route_selected_history_row"] = None
             if is_local_recoge_aula:
                 st.session_state["local_route_hora_entrega_manual"] = ""
+                st.session_state["local_route_dia_entrega"] = ""
+                st.session_state.pop("local_route_hora_entrega_input", None)
                 st.session_state.pop("local_route_hora_entrega_selector", None)
                 st.session_state.pop("local_route_hora_entrega_custom", None)
                 st.caption(
@@ -3161,6 +3173,7 @@ with tab1:
     local_route_total_factura = 0.0
     local_route_adeudo_anterior = 0.0
     local_route_referencias = ""
+    local_route_dia_entrega = str(st.session_state.get("local_route_dia_entrega", "") or "").strip()
     local_route_hora_entrega = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
 
     # -------------------------------
@@ -3256,26 +3269,6 @@ with tab1:
                 value=datetime.now().date(),
                 key="fecha_entrega_input",
             )
-            if usa_logica_local and not is_local_pasa_bodega and not is_local_recoge_aula:
-                hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
-                hora_automatica_preview = get_local_delivery_slot(subtipo_local)
-                valor_inicial_hora = hora_entrega_actual or hora_automatica_preview
-                if "local_route_hora_entrega_input" not in st.session_state:
-                    st.session_state["local_route_hora_entrega_input"] = valor_inicial_hora
-
-                hora_capturada = st.text_input(
-                    "🕒 HORA DE ENTREGA",
-                    key="local_route_hora_entrega_input",
-                    placeholder="Ej. 11:30 AM a 4:00 PM",
-                    help="Campo editable: puedes borrar, modificar o escribir cualquier horario.",
-                ).strip()
-                st.caption(
-                    f"Sugerencia por turno: **{hora_automatica_preview}**. También puedes usar: `9:00 AM a 2:00 PM` o `3:00 PM a 7:00 PM`."
-                )
-
-                local_route_hora_entrega = hora_capturada or hora_automatica_preview
-                st.session_state["local_route_hora_entrega_manual"] = hora_capturada
-                st.session_state.pop("local_route_hora_entrega_custom", None)
 
         comentario = st.text_area(
             "💬 Comentario / Descripción Detallada",
@@ -3285,6 +3278,33 @@ with tab1:
         if usa_logica_local:
             if usa_hoja_ruta_local and not is_local_pasa_bodega:
                 st.markdown("### 🗺️ Hoja de Ruta Local")
+                opciones_dia_entrega = get_weekday_options_es()
+                indice_dia_actual = datetime.now().date().weekday()
+                if not st.session_state.get("local_route_dia_entrega"):
+                    st.session_state["local_route_dia_entrega"] = opciones_dia_entrega[indice_dia_actual]
+
+                hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
+                if "local_route_hora_entrega_input" not in st.session_state:
+                    st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or "10:00 AM a 7:00 PM"
+
+                col_entrega_1, col_entrega_2 = st.columns(2)
+                with col_entrega_1:
+                    local_route_dia_entrega = st.selectbox(
+                        "📅 DIA DE ENTREGA",
+                        opciones_dia_entrega,
+                        key="local_route_dia_entrega",
+                    )
+                with col_entrega_2:
+                    hora_capturada = st.text_input(
+                        "🕒 HORA DE ENTREGA",
+                        key="local_route_hora_entrega_input",
+                        placeholder="Ej. 10:00 AM a 7:00 PM",
+                        help="Campo editable: se enviará tal como lo escriba el usuario.",
+                    ).strip()
+                    local_route_hora_entrega = hora_capturada or "10:00 AM a 7:00 PM"
+                    st.session_state["local_route_hora_entrega_manual"] = hora_capturada
+                    st.session_state.pop("local_route_hora_entrega_custom", None)
+
                 col_local_1, col_local_2 = st.columns(2)
                 with col_local_1:
                     local_route_recibe = st.text_input("🙋 Recibe", key="local_route_recibe")
@@ -3716,6 +3736,7 @@ with tab1:
             fecha_entrega=fecha_entrega,
             registro_cliente=registro_cliente,
             subtipo_local=subtipo_local,
+            dia_entrega_manual=local_route_dia_entrega,
             hora_entrega_manual=local_route_hora_entrega,
             recibe=local_route_recibe,
             referencias_hoja_ruta=local_route_referencias,
@@ -4084,6 +4105,7 @@ with tab1:
                 referencia_pago = submission_payload_override.get("referencia_pago", referencia_pago)
                 comentario = submission_payload_override.get("comentario", comentario)
                 subtipo_local = submission_payload_override.get("subtipo_local", subtipo_local)
+                local_route_dia_entrega = submission_payload_override.get("local_route_dia_entrega", local_route_dia_entrega)
                 local_route_hora_entrega = submission_payload_override.get("local_route_hora_entrega", local_route_hora_entrega)
                 local_route_recibe = submission_payload_override.get("local_route_recibe", local_route_recibe)
                 local_route_calle_no = submission_payload_override.get("local_route_calle_no", local_route_calle_no)
@@ -4124,6 +4146,7 @@ with tab1:
                     fecha_entrega=fecha_entrega,
                     registro_cliente=registro_cliente,
                     subtipo_local=subtipo_local,
+                    dia_entrega_manual=local_route_dia_entrega,
                     hora_entrega_manual=local_route_hora_entrega,
                     recibe=local_route_recibe,
                     referencias_hoja_ruta=local_route_referencias,
@@ -4229,6 +4252,7 @@ with tab1:
                     "referencia_pago": referencia_pago,
                     "comentario": comentario,
                     "subtipo_local": subtipo_local,
+                    "local_route_dia_entrega": local_route_dia_entrega,
                     "local_route_hora_entrega": local_route_hora_entrega,
                     "local_route_recibe": local_route_recibe,
                     "local_route_calle_no": local_route_calle_no,
