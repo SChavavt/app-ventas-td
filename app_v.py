@@ -159,7 +159,6 @@ USUARIOS_VALIDOS = [
     "CARITO82",
     "GLORIA53",
     "JUAN24",
-    "JOSE31",
     "KAREN58",
     "PAULINA57",
     "RUBEN67",
@@ -178,7 +177,6 @@ VENDEDOR_NOMBRE_POR_ID = {
     "CARITO82": "GRISELDA CAROLINA SANCHEZ GARCIA",
     "GLORIA53": "GLORIA MICHELLE GARCIA TORRES",
     "JUAN24": "JUAN CASTILLEJO",
-    "JOSE31": "JOSE CORTES",
     "KAREN58": "KAREN JAQUELINE",
     "PAULINA57": "PAULINA TREJO",
     "RUBEN67": "RUBEN",
@@ -2129,7 +2127,8 @@ if s3_status and not s3_status.get("ok", False):
         st.rerun()
     st.stop()
 
-st.markdown(f"### 👋 Bienvenido, {usuario_activo}")
+nombre_vendedor_activo = get_session_vendedor_name() or usuario_activo
+st.markdown(f"### 👋 Bienvenido, {nombre_vendedor_activo}")
 
 st.markdown(
     """
@@ -2797,7 +2796,6 @@ VENDEDORES_LIST = sorted([
     "DISTRIBUCION Y UNIVERSIDADES",
     "GLORIA MICHELLE GARCIA TORRES",
     "GRISELDA CAROLINA SANCHEZ GARCIA",
-    "JOSE CORTES",
     "JUAN CASTILLEJO",
     "KAREN JAQUELINE",
     "PAULINA TREJO",
