@@ -4946,24 +4946,9 @@ if tab_ventas_reportes is not None:
                     "Hora_Registro",
                     "Comprobante_Confirmado",
                 ]
-
-                def _df_excel_desde_base(df_base: pd.DataFrame) -> pd.DataFrame:
-                    return df_base[columnas_excel_orden].rename(columns=columnas_excel_map)
-
-                df_ventas_excel = _df_excel_desde_base(df_ventas)
-                main_sheet_name = "Ventas Totales"
-                if filtro_mes != "Todos":
-                    try:
-                        anio_sheet, mes_sheet = filtro_mes.split("-")
-                        main_sheet_name = f"Ventas {mes_sheet}/{anio_sheet}"
-                    except (ValueError, AttributeError):
-                        main_sheet_name = "Ventas Totales"
-
-                # Excel no permite "/" en nombres de hoja; se usa "-" como equivalente visual.
-                main_sheet_name = main_sheet_name.replace("/", "-")
-
-                df_ventas_excel.to_excel(writer, index=False, sheet_name=main_sheet_name)
-                ws = writer.sheets[main_sheet_name]
+                df_ventas_excel = df_ventas[columnas_excel_orden].rename(columns=columnas_excel_map)
+                df_ventas_excel.to_excel(writer, index=False, sheet_name="Ventas_Reportes")
+                ws = writer.sheets["Ventas_Reportes"]
 
                 def _monto_columna(serie: pd.Series) -> pd.Series:
                     return pd.to_numeric(serie.astype(str).str.replace(",", "", regex=False), errors="coerce").fillna(0.0)
@@ -5029,15 +5014,11 @@ if tab_ventas_reportes is not None:
 
                 # Formato encabezados de la tabla principal (similar a referencia)
                 color_header_tabla = PatternFill(fill_type="solid", fgColor="8EA9DB")
-
-                def _aplicar_formato_encabezado(ws_obj, total_columnas: int) -> None:
-                    for col_idx in range(1, total_columnas + 1):
-                        celda_header = ws_obj.cell(row=1, column=col_idx)
-                        celda_header.fill = color_header_tabla
-                        celda_header.font = font_negrita
-                        celda_header.border = borde_verde
-
-                _aplicar_formato_encabezado(ws, len(df_ventas_excel.columns))
+                for col_idx in range(1, len(df_ventas_excel.columns) + 1):
+                    celda_header = ws.cell(row=1, column=col_idx)
+                    celda_header.fill = color_header_tabla
+                    celda_header.font = font_negrita
+                    celda_header.border = borde_verde
 
                 ws.cell(row=fila_inicio_resumen, column=col_inicio_resumen, value="Resumen")
                 ws.cell(row=fila_inicio_resumen, column=col_inicio_resumen).fill = color_header
@@ -5059,61 +5040,10 @@ if tab_ventas_reportes is not None:
                     celda_monto.font = font_negrita
                     if monto != "":
                         celda_monto.number_format = '"$"#,##0.00'
-
-                secciones_hojas = [
-                    ("Transferencia", forma_pago_norm.eq(_norm_texto("Transferencia"))),
-                    ("TC", forma_pago_norm.eq(_norm_texto("Tarjeta de Crédito"))),
-                    ("TD", forma_pago_norm.eq(_norm_texto("Tarjeta de Débito"))),
-                    ("Efectivo", forma_pago_norm.eq(_norm_texto("Efectivo"))),
-                    ("Link", forma_pago_norm.eq(_norm_texto("Link de Pago"))),
-                    ("Deposito", forma_pago_norm.eq(_norm_texto("Depósito en Efectivo"))),
-                    ("Ruben", vendedor_norm.eq(_norm_texto("RUBEN"))),
-                    ("Juan", vendedor_norm.eq(_norm_texto("JUAN"))),
-                    ("Cursos", tipo_envio_norm.eq(_norm_texto("🎓 Cursos y Eventos"))),
-                ]
-
-                for nombre_hoja, mascara in secciones_hojas:
-                    df_ventas_seccion = df_ventas[mascara].copy()
-                    if df_ventas_seccion.empty:
-                        continue
-
-                    df_seccion = _df_excel_desde_base(df_ventas_seccion)
-                    df_seccion.to_excel(writer, index=False, sheet_name=nombre_hoja)
-
-                    ws_seccion = writer.sheets[nombre_hoja]
-                    _aplicar_formato_encabezado(ws_seccion, len(df_seccion.columns))
-
-                    total_vendido = float(_monto_columna(df_ventas_seccion["Monto_Comprobante"]).sum())
-                    fila_total = len(df_seccion) + 2
-                    col_monto = df_seccion.columns.get_loc("Monto") + 1
-                    col_label = max(1, col_monto - 1)
-
-                    celda_total_label = ws_seccion.cell(row=fila_total, column=col_label, value="TOTAL VENDIDO")
-                    celda_total_label.font = font_negrita
-                    celda_total_label.fill = color_bloque_verde
-
-                    celda_total_monto = ws_seccion.cell(row=fila_total, column=col_monto, value=total_vendido)
-                    celda_total_monto.font = font_negrita
-                    celda_total_monto.number_format = '"$"#,##0.00'
-
-            month_names_es = {
-                1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-                7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
-            }
-            if filtro_mes != "Todos":
-                try:
-                    anio, mes = filtro_mes.split("-")
-                    nombre_mes = month_names_es.get(int(mes), mes)
-                    nombre_archivo = f"Ventas {nombre_mes} {anio}.xlsx"
-                except (ValueError, AttributeError):
-                    nombre_archivo = f"ventas_reportes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            else:
-                nombre_archivo = "Ventas Totales.xlsx"
-
             st.download_button(
                 label="📥 Descargar ventas (Excel)",
                 data=ventas_excel_buffer.getvalue(),
-                file_name=nombre_archivo,
+                file_name=f"ventas_reportes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="tab_reportes_descargar_ventas_excel",
             )
