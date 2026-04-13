@@ -5456,7 +5456,6 @@ with tab3, suppress(StopException):
         submitted = st.form_submit_button(
             "💾 Guardar Confirmación",
             use_container_width=True,
-            key=f"tab3_submit_{row.get('ID_Pedido','')}",
         )
 
     # Helper para construir updates
