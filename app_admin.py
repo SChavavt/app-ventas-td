@@ -216,21 +216,6 @@ def format_material_for_word(raw_text: str) -> str:
     return "\n".join(lines)
 
 
-def sanitize_material_rows_for_table(raw_text: str) -> list[dict[str, str]]:
-    """Devuelve filas limpias para renderizar Material_Devuelto como tabla en Word."""
-    rows = parse_material_lines(raw_text)
-    if not rows:
-        return [
-            {
-                "Código": "N/A",
-                "Descripción": "Sin registro",
-                "Cantidad": "N/A",
-                "Monto IVA": "N/A",
-            }
-        ]
-    return rows
-
-
 def normalize_user_field(value: str | None) -> str:
     """Normaliza campos de usuario para mostrarlos solo si traen información."""
     raw = str(value or "").strip()
@@ -4813,52 +4798,6 @@ with tab3, suppress(StopException):
                     remaining.extend(PLACEHOLDER_PATTERN.findall(text))
 
         return total_found, total_replaced, remaining
-
-    def _replace_material_placeholder_with_table(
-        doc: Document,
-        placeholder_key: str,
-        material_rows: list[dict[str, str]],
-    ) -> int:
-        """Reemplaza {{Material_Devuelto}} por una tabla limpia en cada aparición."""
-        token = f"{{{{{placeholder_key}}}}}"
-        replacements = 0
-        headers = ["Código", "Descripción", "Cantidad", "Monto IVA"]
-        style_names = {s.name for s in doc.styles if getattr(s, "name", None)}
-
-        for paragraph in list(_iter_paragraphs_within(doc)):
-            runs = list(paragraph.runs)
-            paragraph_text = "".join(run.text or "" for run in runs) if runs else (paragraph.text or "")
-            if token not in paragraph_text:
-                continue
-
-            if runs:
-                while True:
-                    current_text = "".join(run.text or "" for run in runs)
-                    idx = current_text.find(token)
-                    if idx == -1:
-                        break
-                    _replace_span_in_runs(runs, idx, idx + len(token), "")
-            else:
-                paragraph.text = paragraph_text.replace(token, "")
-
-            parent = paragraph._parent
-            table = parent.add_table(rows=len(material_rows) + 1, cols=4)
-            if "Table Grid" in style_names:
-                table.style = "Table Grid"
-
-            for col_idx, header in enumerate(headers):
-                table.cell(0, col_idx).text = header
-
-            for row_idx, row_data in enumerate(material_rows, start=1):
-                table.cell(row_idx, 0).text = _safe_value(row_data.get("Código"))
-                table.cell(row_idx, 1).text = _safe_value(row_data.get("Descripción"))
-                table.cell(row_idx, 2).text = _safe_value(row_data.get("Cantidad"))
-                table.cell(row_idx, 3).text = _safe_value(row_data.get("Monto IVA"))
-
-            paragraph._p.addnext(table._tbl)
-            replacements += 1
-
-        return replacements
     # =====================================================================
 
     # Estado local
@@ -5637,13 +5576,9 @@ with tab3, suppress(StopException):
                     doc = Document(template_path)
 
                     # Mapping exacto a placeholders del .docx
-                    material_rows_word = sanitize_material_rows_for_table(row.get("Material_Devuelto"))
-                    material_table_replacements = _replace_material_placeholder_with_table(
-                        doc,
-                        "Material_Devuelto",
-                        material_rows_word,
-                    )
+                    material_devuelto_word = format_material_for_word(row.get("Material_Devuelto"))
                     mapping = {
+                        "Material_Devuelto": material_devuelto_word,
                         "Cliente": _safe_value(row.get("Cliente")),
                         "Vendedor_Registro": _safe_value(row.get("Vendedor_Registro")),
                         "Folio_Factura": _safe_value(row.get("Folio_Factura")),
@@ -5675,7 +5610,6 @@ with tab3, suppress(StopException):
                     )
                     pendientes = len(remaining_placeholders)
                     log_message = (
-                        f"Tablas de material insertadas: {material_table_replacements}. "
                         f"Placeholders encontrados: {total_found}. "
                         f"Reemplazados: {total_replaced}. "
                         f"Pendientes sin cambio: {pendientes}."
