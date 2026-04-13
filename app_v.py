@@ -2833,7 +2833,6 @@ with tab1:
     tab1_use_short_mty_labels = (
         id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS or tab1_is_dual_view_user
     )
-    tab1_enable_link_pago_option = id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS
     tab1_view_mode_key = "tab1_shipping_view_mode"
     if tab1_is_dual_view_user:
         current_view_mode = st.session_state.get(tab1_view_mode_key, "mty")
@@ -2855,8 +2854,6 @@ with tab1:
         current_view_mode = "mty"
 
     tab1_special_shipping = current_view_mode == "cdmx"
-    if tab1_special_shipping and tab1_is_dual_view_user:
-        tab1_enable_link_pago_option = True
     if tab1_special_shipping:
         tipo_envio_options = [
             "🚚 Foráneo CDMX",
@@ -3405,16 +3402,9 @@ with tab1:
                 with col1:
                     fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
                 with col2:
-                    forma_pago_options = [
-                        "Transferencia",
-                        "Depósito en Efectivo",
-                        "Tarjeta de Débito",
-                        "Tarjeta de Crédito",
-                        "Cheque",
-                    ]
-                    if tab1_enable_link_pago_option:
-                        forma_pago_options.append("Link de Pago")
-                    forma_pago = st.selectbox("💳 Forma de Pago", forma_pago_options, key="forma_pago_input")
+                    forma_pago = st.selectbox("💳 Forma de Pago", [
+                        "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
+                    ], key="forma_pago_input")
                 with col3:
                     monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_input")
 
@@ -3652,16 +3642,9 @@ with tab1:
                 with col1:
                     fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
                 with col2:
-                    forma_pago_options = [
-                        "Transferencia",
-                        "Depósito en Efectivo",
-                        "Tarjeta de Débito",
-                        "Tarjeta de Crédito",
-                        "Cheque",
-                    ]
-                    if tab1_enable_link_pago_option:
-                        forma_pago_options.append("Link de Pago")
-                    forma_pago = st.selectbox("💳 Forma de Pago", forma_pago_options, key="forma_pago_input")
+                    forma_pago = st.selectbox("💳 Forma de Pago", [
+                        "Transferencia", "Depósito en Efectivo", "Tarjeta de Débito", "Tarjeta de Crédito", "Cheque"
+                    ], key="forma_pago_input")
                 with col3:
                     monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_input")
 
