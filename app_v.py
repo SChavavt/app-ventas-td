@@ -75,12 +75,6 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "area_responsable",
     "nombre_responsable",
     "motivo_detallado",
-    "material_devuelto_editor_seed",
-    "material_devuelto_editor_rows",
-    "material_devuelto_editor",
-    "g_piezas_editor_seed",
-    "g_piezas_editor_rows",
-    "g_piezas_editor",
     "g_resultado_esperado",
     "g_descripcion_falla",
     "g_piezas_afectadas",
@@ -215,145 +209,6 @@ def normalize_case_amount(value, placeholder: str = "N/A") -> str:
     except (TypeError, ValueError):
         return placeholder
     return f"{amount:.2f}" if amount > 0 else placeholder
-
-
-MATERIAL_ROW_PATTERN = re.compile(
-    r"^\s*(?P<codigo>[A-Za-z0-9\-]+)\s+(?P<resto>.+?)\s*$"
-)
-MATERIAL_QTY_PATTERN = re.compile(r"\((?P<cantidad>\d+)\s*unidad(?:es)?\)", re.IGNORECASE)
-MATERIAL_AMOUNT_PATTERN = re.compile(r"\$\s*(?P<monto>[\d,]+(?:\.\d{1,2})?)\s*$")
-
-
-def parse_material_lines(raw_text: str) -> List[Dict[str, str]]:
-    """Parse multiline devolución material text into structured rows."""
-    rows: List[Dict[str, str]] = []
-    for raw_line in str(raw_text or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if "|" in line:
-            parts = [part.strip() for part in line.split("|")]
-            if len(parts) >= 4:
-                header_tokens = [p.lower() for p in parts[:4]]
-                if (
-                    "código" in header_tokens[0]
-                    and "descrip" in header_tokens[1]
-                    and "cantidad" in header_tokens[2]
-                    and "monto" in header_tokens[3]
-                ):
-                    continue
-                codigo_pipe, descripcion_pipe, cantidad_pipe, monto_pipe = parts[:4]
-                rows.append(
-                    {
-                        "Código": (codigo_pipe or "N/A").upper(),
-                        "Descripción": descripcion_pipe or "N/A",
-                        "Cantidad": cantidad_pipe or "N/A",
-                        "Monto IVA": monto_pipe or "N/A",
-                    }
-                )
-                continue
-
-        codigo = ""
-        descripcion = line
-        cantidad = ""
-        monto = ""
-
-        amount_match = MATERIAL_AMOUNT_PATTERN.search(line)
-        if amount_match:
-            monto = amount_match.group("monto").replace(",", "")
-            line = line[:amount_match.start()].strip()
-
-        qty_match = MATERIAL_QTY_PATTERN.search(line)
-        if qty_match:
-            cantidad = qty_match.group("cantidad")
-            line = (line[:qty_match.start()] + line[qty_match.end():]).strip()
-
-        row_match = MATERIAL_ROW_PATTERN.match(line)
-        if row_match:
-            codigo = row_match.group("codigo").strip().upper()
-            descripcion = row_match.group("resto").strip()
-        else:
-            descripcion = line
-
-        rows.append(
-            {
-                "Código": codigo or "N/A",
-                "Descripción": descripcion or "N/A",
-                "Cantidad": cantidad or "N/A",
-                "Monto IVA": (f"${float(monto):,.2f}" if monto else "N/A"),
-            }
-        )
-    return rows
-
-
-def format_material_rows_for_storage(rows: List[Dict[str, str]]) -> str:
-    """Serialize material rows to canonical storage format."""
-    if not rows:
-        return "N/A"
-    lines = ["Código | Descripción | Cantidad | Monto IVA"]
-    for row in rows:
-        lines.append(
-            f"{row['Código']} | {row['Descripción']} | {row['Cantidad']} | {row['Monto IVA']}"
-        )
-    return "\n".join(lines)
-
-
-def format_material_for_storage(raw_text: str) -> str:
-    """Return canonical text format so other apps can parse consistently."""
-    rows = parse_material_lines(raw_text)
-    if not rows:
-        return normalize_case_text(raw_text)
-    return format_material_rows_for_storage(rows)
-
-
-def get_material_rows_for_editor(raw_text: str) -> List[Dict[str, str]]:
-    rows = parse_material_lines(raw_text)
-    if rows:
-        return rows
-    return [{"Código": "", "Descripción": "", "Cantidad": "", "Monto IVA": ""}]
-
-
-def sanitize_material_editor_rows(edited_df: pd.DataFrame) -> List[Dict[str, str]]:
-    cleaned_rows: List[Dict[str, str]] = []
-    for _, row in edited_df.iterrows():
-        codigo = str(row.get("Código", "") or "").strip().upper()
-        descripcion = str(row.get("Descripción", "") or "").strip()
-        cantidad_raw = str(row.get("Cantidad", "") or "").strip()
-        monto_raw = str(row.get("Monto IVA", "") or "").strip().replace("$", "").replace(",", "")
-
-        if not any([codigo, descripcion, cantidad_raw, monto_raw]):
-            continue
-
-        cantidad = "N/A"
-        if cantidad_raw:
-            try:
-                cantidad_int = int(float(cantidad_raw))
-                cantidad = str(cantidad_int) if cantidad_int >= 0 else "N/A"
-            except ValueError:
-                cantidad = cantidad_raw
-
-        monto = "N/A"
-        if monto_raw:
-            try:
-                monto = f"${float(monto_raw):,.2f}"
-            except ValueError:
-                monto = str(row.get("Monto IVA", "") or "").strip() or "N/A"
-
-        cleaned_rows.append(
-            {
-                "Código": codigo or "N/A",
-                "Descripción": descripcion or "N/A",
-                "Cantidad": cantidad,
-                "Monto IVA": monto,
-            }
-        )
-    return cleaned_rows
-
-
-def show_material_table(raw_text: str) -> None:
-    rows = parse_material_lines(raw_text)
-    if rows:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def format_estado_entrega(value) -> str:
@@ -3654,35 +3509,10 @@ with tab1:
                 key="resultado_esperado"
             )
 
-            st.markdown("#### 📦 Material a Devolver (captura por renglón)")
-            st.caption("Agrega una fila por producto para evitar mezclas de código, descripción, cantidad y monto.")
-            material_seed = st.session_state.get("material_devuelto", "")
-            if "material_devuelto_editor_seed" not in st.session_state:
-                st.session_state["material_devuelto_editor_seed"] = material_seed
-            if "material_devuelto_editor_rows" not in st.session_state:
-                st.session_state["material_devuelto_editor_rows"] = get_material_rows_for_editor(material_seed)
-
-            if material_seed != st.session_state.get("material_devuelto_editor_seed", "") and material_seed.strip():
-                st.session_state["material_devuelto_editor_rows"] = get_material_rows_for_editor(material_seed)
-                st.session_state["material_devuelto_editor_seed"] = material_seed
-
-            material_editor_df = st.data_editor(
-                pd.DataFrame(st.session_state.get("material_devuelto_editor_rows", [])),
-                key="material_devuelto_editor",
-                num_rows="dynamic",
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "Código": st.column_config.TextColumn("Código", help="Ejemplo: TOR-208"),
-                    "Descripción": st.column_config.TextColumn("Descripción"),
-                    "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0, step=1, format="%d"),
-                    "Monto IVA": st.column_config.TextColumn("Monto IVA", help="Ejemplo: 5719.96 o $5,719.96"),
-                },
+            material_devuelto = st.text_area(
+                "📦 Material a Devolver (códigos, descripciones, cantidades y monto individual con IVA)",
+                key="material_devuelto"
             )
-            material_rows_clean = sanitize_material_editor_rows(material_editor_df)
-            st.session_state["material_devuelto_editor_rows"] = material_rows_clean
-            material_devuelto = format_material_rows_for_storage(material_rows_clean)
-            st.session_state["material_devuelto"] = material_devuelto
 
             monto_devuelto = st.number_input(
                 "💲 Total de Materiales a Devolver (con IVA)",
@@ -3720,35 +3550,10 @@ with tab1:
                 key="g_descripcion_falla"
             )
 
-            st.markdown("#### 🧰 Piezas / Material afectado (captura por renglón)")
-            st.caption("Usa una fila por producto para mantener estructura en garantía.")
-            garantia_material_seed = st.session_state.get("g_piezas_afectadas", "")
-            if "g_piezas_editor_seed" not in st.session_state:
-                st.session_state["g_piezas_editor_seed"] = garantia_material_seed
-            if "g_piezas_editor_rows" not in st.session_state:
-                st.session_state["g_piezas_editor_rows"] = get_material_rows_for_editor(garantia_material_seed)
-
-            if garantia_material_seed != st.session_state.get("g_piezas_editor_seed", "") and garantia_material_seed.strip():
-                st.session_state["g_piezas_editor_rows"] = get_material_rows_for_editor(garantia_material_seed)
-                st.session_state["g_piezas_editor_seed"] = garantia_material_seed
-
-            garantia_editor_df = st.data_editor(
-                pd.DataFrame(st.session_state.get("g_piezas_editor_rows", [])),
-                key="g_piezas_editor",
-                num_rows="dynamic",
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "Código": st.column_config.TextColumn("Código", help="Ejemplo: BRK0158"),
-                    "Descripción": st.column_config.TextColumn("Descripción"),
-                    "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0, step=1, format="%d"),
-                    "Monto IVA": st.column_config.TextColumn("Monto IVA", help="Opcional si aplica"),
-                },
+            g_piezas_afectadas = st.text_area(
+                "🧰 Piezas/Material afectado (códigos, descripciones, cantidades y monto individual con IVA si aplica)",
+                key="g_piezas_afectadas"
             )
-            garantia_rows_clean = sanitize_material_editor_rows(garantia_editor_df)
-            st.session_state["g_piezas_editor_rows"] = garantia_rows_clean
-            g_piezas_afectadas = format_material_rows_for_storage(garantia_rows_clean)
-            st.session_state["g_piezas_afectadas"] = g_piezas_afectadas
 
             g_monto_estimado = st.number_input(
                 "💲 Monto estimado de atención (con IVA, opcional)",
@@ -4526,7 +4331,7 @@ with tab1:
             # Normalización de campos para Casos Especiales
             if tipo_envio == "🔁 Devolución":
                 resultado_esperado = normalize_case_text(resultado_esperado)
-                material_devuelto = format_material_for_storage(material_devuelto)
+                material_devuelto = normalize_case_text(material_devuelto)
                 motivo_detallado = normalize_case_text(motivo_detallado)
                 nombre_responsable = normalize_case_text(nombre_responsable)
             if tipo_envio == "🛠 Garantía":
@@ -8466,9 +8271,7 @@ def render_caso_especial_busqueda(res):
         st.info(str(res.get("Motivo_Detallado", "")).strip())
     if str(res.get("Material_Devuelto", "")).strip():
         st.markdown("**📦 Piezas / Material:**")
-        material_text = str(res.get("Material_Devuelto", "")).strip()
-        st.info(material_text)
-        show_material_table(material_text)
+        st.info(str(res.get("Material_Devuelto", "")).strip())
     if str(res.get("Monto_Devuelto", "")).strip():
         st.markdown(f"**💵 Monto (dev./estimado):** {res.get('Monto_Devuelto', '')}")
 
