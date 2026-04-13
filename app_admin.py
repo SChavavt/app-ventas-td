@@ -216,6 +216,44 @@ def format_material_for_word(raw_text: str) -> str:
     return "\n".join(lines)
 
 
+def sanitize_material_rows_for_table(raw_text: str) -> list[dict[str, str]]:
+    """Devuelve filas limpias para renderizar Material_Devuelto como tabla en Word."""
+    rows = parse_material_lines(raw_text)
+    if not rows:
+        return [
+            {
+                "Código": "n/a",
+                "Descripción": "n/a",
+                "Cantidad": "n/a",
+                "Monto IVA": "n/a",
+            }
+        ]
+    return rows
+
+
+def has_structured_material_format(raw_text: str) -> bool:
+    """Detecta si Material_Devuelto viene en formato tabular con pipes."""
+    for raw_line in str(raw_text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "|" not in line:
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) < 4:
+            continue
+        header_tokens = [p.lower() for p in parts[:4]]
+        is_header = (
+            "código" in header_tokens[0]
+            and "descrip" in header_tokens[1]
+            and "cantidad" in header_tokens[2]
+            and "monto" in header_tokens[3]
+        )
+        if not is_header:
+            return True
+    return False
+
+
 def normalize_user_field(value: str | None) -> str:
     """Normaliza campos de usuario para mostrarlos solo si traen información."""
     raw = str(value or "").strip()
@@ -4798,6 +4836,86 @@ with tab3, suppress(StopException):
                     remaining.extend(PLACEHOLDER_PATTERN.findall(text))
 
         return total_found, total_replaced, remaining
+
+    def _replace_material_placeholder_with_table(
+        doc: Document,
+        placeholder_key: str,
+        material_rows: list[dict[str, str]],
+    ) -> int:
+        """Reemplaza {{Material_Devuelto}} por una tabla limpia en cada aparición."""
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        def _normalize_material_cell(value) -> str:
+            raw = str(value or "").strip()
+            if raw.lower() in {"", "nan", "none", "n/a", "sin registro"}:
+                return "n/a"
+            return raw
+
+        def _set_cell_borders(cell) -> None:
+            tc = cell._tc
+            tc_pr = tc.get_or_add_tcPr()
+            tc_borders = tc_pr.find(qn("w:tcBorders"))
+            if tc_borders is None:
+                tc_borders = OxmlElement("w:tcBorders")
+                tc_pr.append(tc_borders)
+            for border_name in ("top", "left", "bottom", "right"):
+                border = tc_borders.find(qn(f"w:{border_name}"))
+                if border is None:
+                    border = OxmlElement(f"w:{border_name}")
+                    tc_borders.append(border)
+                border.set(qn("w:val"), "single")
+                border.set(qn("w:sz"), "8")
+                border.set(qn("w:space"), "0")
+                border.set(qn("w:color"), "FFFFFF")
+
+        token = f"{{{{{placeholder_key}}}}}"
+        replacements = 0
+        headers = ["Código", "Descripción", "Cantidad", "Monto IVA"]
+        style_names = {s.name for s in doc.styles if getattr(s, "name", None)}
+
+        for paragraph in list(_iter_paragraphs_within(doc)):
+            runs = list(paragraph.runs)
+            paragraph_text = "".join(run.text or "" for run in runs) if runs else (paragraph.text or "")
+            if token not in paragraph_text:
+                continue
+
+            if runs:
+                while True:
+                    current_text = "".join(run.text or "" for run in runs)
+                    idx = current_text.find(token)
+                    if idx == -1:
+                        break
+                    _replace_span_in_runs(runs, idx, idx + len(token), "")
+            else:
+                paragraph.text = paragraph_text.replace(token, "")
+
+            parent = paragraph._parent
+            table = parent.add_table(rows=len(material_rows) + 1, cols=4)
+            if "Table Grid" in style_names:
+                table.style = "Table Grid"
+
+            for col_idx, header in enumerate(headers):
+                header_cell = table.cell(0, col_idx)
+                header_cell.text = ""
+                p = header_cell.paragraphs[0]
+                run = p.add_run(header)
+                run.underline = True
+
+            for row_idx, row_data in enumerate(material_rows, start=1):
+                table.cell(row_idx, 0).text = _normalize_material_cell(row_data.get("Código"))
+                table.cell(row_idx, 1).text = _normalize_material_cell(row_data.get("Descripción"))
+                table.cell(row_idx, 2).text = _normalize_material_cell(row_data.get("Cantidad"))
+                table.cell(row_idx, 3).text = _normalize_material_cell(row_data.get("Monto IVA"))
+
+            for row_cells in table.rows:
+                for cell in row_cells.cells:
+                    _set_cell_borders(cell)
+
+            paragraph._p.addnext(table._tbl)
+            replacements += 1
+
+        return replacements
     # =====================================================================
 
     # Estado local
@@ -5576,9 +5694,19 @@ with tab3, suppress(StopException):
                     doc = Document(template_path)
 
                     # Mapping exacto a placeholders del .docx
-                    material_devuelto_word = format_material_for_word(row.get("Material_Devuelto"))
+                    raw_material_devuelto = row.get("Material_Devuelto")
+                    material_table_replacements = 0
+                    material_devuelto_mapping = None
+                    if has_structured_material_format(raw_material_devuelto):
+                        material_rows_word = sanitize_material_rows_for_table(raw_material_devuelto)
+                        material_table_replacements = _replace_material_placeholder_with_table(
+                            doc,
+                            "Material_Devuelto",
+                            material_rows_word,
+                        )
+                    else:
+                        material_devuelto_mapping = str(raw_material_devuelto or "").strip() or "n/a"
                     mapping = {
-                        "Material_Devuelto": material_devuelto_word,
                         "Cliente": _safe_value(row.get("Cliente")),
                         "Vendedor_Registro": _safe_value(row.get("Vendedor_Registro")),
                         "Folio_Factura": _safe_value(row.get("Folio_Factura")),
@@ -5593,6 +5721,8 @@ with tab3, suppress(StopException):
                         "Motivo_Detallado": _safe_value(row.get("Motivo_Detallado")),
                         "Comentarios_Admin_Devolucion": _safe_value(comentario_admin),
                     }
+                    if material_devuelto_mapping is not None:
+                        mapping["Material_Devuelto"] = material_devuelto_mapping
 
                     total_found, total_replaced, remaining_placeholders = _docx_replace_all(doc, mapping)
 
@@ -5610,6 +5740,7 @@ with tab3, suppress(StopException):
                     )
                     pendientes = len(remaining_placeholders)
                     log_message = (
+                        f"Tablas de material insertadas: {material_table_replacements}. "
                         f"Placeholders encontrados: {total_found}. "
                         f"Reemplazados: {total_replaced}. "
                         f"Pendientes sin cambio: {pendientes}."
