@@ -211,6 +211,73 @@ def normalize_case_amount(value, placeholder: str = "N/A") -> str:
     return f"{amount:.2f}" if amount > 0 else placeholder
 
 
+MATERIAL_ROW_PATTERN = re.compile(
+    r"^\s*(?P<codigo>[A-Za-z0-9\-]+)\s+(?P<resto>.+?)\s*$"
+)
+MATERIAL_QTY_PATTERN = re.compile(r"\((?P<cantidad>\d+)\s*unidad(?:es)?\)", re.IGNORECASE)
+MATERIAL_AMOUNT_PATTERN = re.compile(r"\$\s*(?P<monto>[\d,]+(?:\.\d{1,2})?)\s*$")
+
+
+def parse_material_lines(raw_text: str) -> List[Dict[str, str]]:
+    """Parse multiline devolución material text into structured rows."""
+    rows: List[Dict[str, str]] = []
+    for raw_line in str(raw_text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        codigo = ""
+        descripcion = line
+        cantidad = ""
+        monto = ""
+
+        amount_match = MATERIAL_AMOUNT_PATTERN.search(line)
+        if amount_match:
+            monto = amount_match.group("monto").replace(",", "")
+            line = line[:amount_match.start()].strip()
+
+        qty_match = MATERIAL_QTY_PATTERN.search(line)
+        if qty_match:
+            cantidad = qty_match.group("cantidad")
+            line = (line[:qty_match.start()] + line[qty_match.end():]).strip()
+
+        row_match = MATERIAL_ROW_PATTERN.match(line)
+        if row_match:
+            codigo = row_match.group("codigo").strip().upper()
+            descripcion = row_match.group("resto").strip()
+        else:
+            descripcion = line
+
+        rows.append(
+            {
+                "Código": codigo or "N/A",
+                "Descripción": descripcion or "N/A",
+                "Cantidad": cantidad or "N/A",
+                "Monto IVA": (f"${float(monto):,.2f}" if monto else "N/A"),
+            }
+        )
+    return rows
+
+
+def format_material_for_storage(raw_text: str) -> str:
+    """Return canonical text format so other apps can parse consistently."""
+    rows = parse_material_lines(raw_text)
+    if not rows:
+        return normalize_case_text(raw_text)
+    lines = ["Código | Descripción | Cantidad | Monto IVA"]
+    for row in rows:
+        lines.append(
+            f"{row['Código']} | {row['Descripción']} | {row['Cantidad']} | {row['Monto IVA']}"
+        )
+    return "\n".join(lines)
+
+
+def show_material_table(raw_text: str) -> None:
+    rows = parse_material_lines(raw_text)
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
 def format_estado_entrega(value) -> str:
     """Return delivery status text for local orders."""
     if value is None:
@@ -3511,8 +3578,10 @@ with tab1:
 
             material_devuelto = st.text_area(
                 "📦 Material a Devolver (códigos, descripciones, cantidades y monto individual con IVA)",
-                key="material_devuelto"
+                key="material_devuelto",
+                help="Captura una línea por producto. Ejemplo: TOR-208 MICRO TORNILLO... (10 unidades) $5,719.96",
             )
+            show_material_table(material_devuelto)
 
             monto_devuelto = st.number_input(
                 "💲 Total de Materiales a Devolver (con IVA)",
@@ -4331,7 +4400,7 @@ with tab1:
             # Normalización de campos para Casos Especiales
             if tipo_envio == "🔁 Devolución":
                 resultado_esperado = normalize_case_text(resultado_esperado)
-                material_devuelto = normalize_case_text(material_devuelto)
+                material_devuelto = format_material_for_storage(material_devuelto)
                 motivo_detallado = normalize_case_text(motivo_detallado)
                 nombre_responsable = normalize_case_text(nombre_responsable)
             if tipo_envio == "🛠 Garantía":
@@ -8271,7 +8340,9 @@ def render_caso_especial_busqueda(res):
         st.info(str(res.get("Motivo_Detallado", "")).strip())
     if str(res.get("Material_Devuelto", "")).strip():
         st.markdown("**📦 Piezas / Material:**")
-        st.info(str(res.get("Material_Devuelto", "")).strip())
+        material_text = str(res.get("Material_Devuelto", "")).strip()
+        st.info(material_text)
+        show_material_table(material_text)
     if str(res.get("Monto_Devuelto", "")).strip():
         st.markdown(f"**💵 Monto (dev./estimado):** {res.get('Monto_Devuelto', '')}")
 
