@@ -128,6 +128,94 @@ def normalize_estado_entrega(value) -> str:
     return raw
 
 
+MATERIAL_ROW_PATTERN = re.compile(
+    r"^\s*(?P<codigo>[A-Za-z0-9\-]+)\s+(?P<resto>.+?)\s*$"
+)
+MATERIAL_QTY_PATTERN = re.compile(r"\((?P<cantidad>\d+)\s*unidad(?:es)?\)", re.IGNORECASE)
+MATERIAL_AMOUNT_PATTERN = re.compile(r"\$\s*(?P<monto>[\d,]+(?:\.\d{1,2})?)\s*$")
+
+
+def parse_material_lines(raw_text: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for raw_line in str(raw_text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "|" in line:
+            parts = [part.strip() for part in line.split("|")]
+            if len(parts) >= 4:
+                header_tokens = [p.lower() for p in parts[:4]]
+                if (
+                    "código" in header_tokens[0]
+                    and "descrip" in header_tokens[1]
+                    and "cantidad" in header_tokens[2]
+                    and "monto" in header_tokens[3]
+                ):
+                    continue
+                codigo_pipe, descripcion_pipe, cantidad_pipe, monto_pipe = parts[:4]
+                rows.append(
+                    {
+                        "Código": (codigo_pipe or "N/A").upper(),
+                        "Descripción": descripcion_pipe or "N/A",
+                        "Cantidad": cantidad_pipe or "N/A",
+                        "Monto IVA": monto_pipe or "N/A",
+                    }
+                )
+                continue
+
+        codigo = ""
+        descripcion = line
+        cantidad = ""
+        monto = ""
+
+        amount_match = MATERIAL_AMOUNT_PATTERN.search(line)
+        if amount_match:
+            monto = amount_match.group("monto").replace(",", "")
+            line = line[:amount_match.start()].strip()
+
+        qty_match = MATERIAL_QTY_PATTERN.search(line)
+        if qty_match:
+            cantidad = qty_match.group("cantidad")
+            line = (line[:qty_match.start()] + line[qty_match.end():]).strip()
+
+        row_match = MATERIAL_ROW_PATTERN.match(line)
+        if row_match:
+            codigo_candidate = row_match.group("codigo").strip().upper()
+            descripcion_candidate = row_match.group("resto").strip()
+            # Compatibilidad con formato legado: cuando viene solo un token
+            # (ej. "P106-06"), debe mostrarse como descripción.
+            if descripcion_candidate:
+                codigo = codigo_candidate
+                descripcion = descripcion_candidate
+            else:
+                codigo = ""
+                descripcion = codigo_candidate
+        else:
+            descripcion = line
+
+        rows.append(
+            {
+                "Código": codigo or "N/A",
+                "Descripción": descripcion or "N/A",
+                "Cantidad": cantidad or "N/A",
+                "Monto IVA": (f"${float(monto):,.2f}" if monto else "N/A"),
+            }
+        )
+    return rows
+
+
+def format_material_for_word(raw_text: str) -> str:
+    rows = parse_material_lines(raw_text)
+    if not rows:
+        return str(raw_text or "").strip() or "Sin registro"
+    lines = ["Código | Descripción | Cantidad | Monto IVA"]
+    for row in rows:
+        lines.append(
+            f"{row['Código']} | {row['Descripción']} | {row['Cantidad']} | {row['Monto IVA']}"
+        )
+    return "\n".join(lines)
+
+
 def normalize_user_field(value: str | None) -> str:
     """Normaliza campos de usuario para mostrarlos solo si traen información."""
     raw = str(value or "").strip()
@@ -5003,7 +5091,16 @@ with tab3, suppress(StopException):
             st.info(__s(row.get("Motivo_Detallado","")))
         if __has(row.get("Material_Devuelto","")):
             st.markdown("**📦 Piezas / Material:**")
-            st.info(__s(row.get("Material_Devuelto","")))
+            material_txt = __s(row.get("Material_Devuelto",""))
+            material_has_structured_format = "|" in material_txt
+            if not material_has_structured_format:
+                st.info(material_txt)
+            else:
+                material_rows = parse_material_lines(material_txt)
+                if material_rows:
+                    st.dataframe(pd.DataFrame(material_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.info(material_txt)
         if __has(row.get("Monto_Devuelto","")):
             st.markdown(f"**💵 Monto (dev./estimado):** {row.get('Monto_Devuelto')}")
 
@@ -5356,7 +5453,11 @@ with tab3, suppress(StopException):
             key=comment_key,
             value=st.session_state[comment_key]
         )
-        submitted = st.form_submit_button("💾 Guardar Confirmación", use_container_width=True)
+        submitted = st.form_submit_button(
+            "💾 Guardar Confirmación",
+            use_container_width=True,
+            key=f"tab3_submit_{row.get('ID_Pedido','')}",
+        )
 
     # Helper para construir updates
     def update_gsheet_cell(headers, row_idx, col_name, value):
@@ -5369,16 +5470,20 @@ with tab3, suppress(StopException):
 
     # Guardado
     if submitted:
+        tab3_alert.info("⏳ Procesando guardado de confirmación...")
         if not estado_recepcion:
             tab3_alert.warning("⚠️ Completa el campo de estado de recepción.")
+            st.toast("Completa estado de recepción", icon="⚠️")
             st.stop()
         if not seguimiento_sel:
             tab3_alert.warning("⚠️ Selecciona el estado de seguimiento.")
+            st.toast("Selecciona estado de seguimiento", icon="⚠️")
             st.stop()
         if is_dev:
             guias_val = st.session_state.get(guias_key) if guias_key else None
             if guias_val not in GUIAS_DEVOLUCION_OPTIONS:
                 tab3_alert.warning("⚠️ Selecciona la cantidad de guías utilizadas.")
+                st.toast("Selecciona número de guías", icon="⚠️")
                 st.stop()
         else:
             guias_val = None
@@ -5472,8 +5577,9 @@ with tab3, suppress(StopException):
                     doc = Document(template_path)
 
                     # Mapping exacto a placeholders del .docx
+                    material_devuelto_word = format_material_for_word(row.get("Material_Devuelto"))
                     mapping = {
-                        "Material_Devuelto": _safe_value(row.get("Material_Devuelto")),
+                        "Material_Devuelto": material_devuelto_word,
                         "Cliente": _safe_value(row.get("Cliente")),
                         "Vendedor_Registro": _safe_value(row.get("Vendedor_Registro")),
                         "Folio_Factura": _safe_value(row.get("Folio_Factura")),
