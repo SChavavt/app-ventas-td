@@ -3789,10 +3789,12 @@ with tab1:
 
             material_devuelto = st.session_state.get("material_devuelto", "N/A")
             monto_devuelto = float(st.session_state.get("monto_devuelto", 0.0) or 0.0)
+            st.markdown("💲 **Total de Materiales a Devolver (con IVA)**")
             st.text_input(
-                "💲 Total de Materiales a Devolver (con IVA)",
+                "Total de Materiales a Devolver (con IVA)",
                 value=f"${monto_devuelto:,.2f}",
                 disabled=True,
+                label_visibility="collapsed",
                 help="Formato moneda: símbolo $, separador de miles y 2 decimales.",
             )
 
