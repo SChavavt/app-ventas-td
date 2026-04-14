@@ -516,6 +516,54 @@ def build_local_route_sheet(template_path: Path, payload: Dict[str, object]) -> 
     return output
 
 
+def build_daily_deposit_report_sheet(
+    template_path: Path,
+    df_filtrado: pd.DataFrame,
+    fecha_filtro,
+    banco_seleccionado: str,
+) -> BytesIO:
+    """Fill the daily deposit report template preserving workbook styles and formulas."""
+    workbook = load_workbook(template_path)
+    worksheet = workbook[workbook.sheetnames[0]]
+
+    fecha_filtro_dt = pd.to_datetime(fecha_filtro, errors="coerce")
+    fecha_filtro_excel = (
+        fecha_filtro_dt.date() if pd.notna(fecha_filtro_dt) else str(fecha_filtro or "")
+    )
+    worksheet["C9"] = fecha_filtro_excel
+    worksheet["C10"] = str(banco_seleccionado or "").strip()
+
+    fila_inicio = 14
+    for indice, (_, registro) in enumerate(df_filtrado.iterrows()):
+        fila_actual = fila_inicio + indice
+
+        fecha_pago_dt = pd.to_datetime(registro.get("Fecha_Pago_Comprobante"), errors="coerce")
+        fecha_pago_excel = (
+            fecha_pago_dt.date()
+            if pd.notna(fecha_pago_dt)
+            else str(registro.get("Fecha_Pago_Comprobante") or "").strip()
+        )
+
+        monto = pd.to_numeric(registro.get("Monto_Comprobante"), errors="coerce")
+        monto_valor = float(monto) if pd.notna(monto) else 0.0
+
+        comentario = registro.get("Comentario")
+        comentario_limpio = "" if pd.isna(comentario) else str(comentario).strip()
+
+        worksheet[f"B{fila_actual}"] = fecha_pago_excel
+        worksheet[f"C{fila_actual}"] = str(registro.get("Cliente") or "").strip()
+        worksheet[f"D{fila_actual}"] = str(registro.get("Folio_Factura") or "").strip()
+        worksheet[f"E{fila_actual}"] = str(registro.get("Forma_Pago_Comprobante") or "").strip()
+        worksheet[f"F{fila_actual}"] = monto_valor
+        worksheet[f"G{fila_actual}"] = monto_valor
+        worksheet[f"I{fila_actual}"] = comentario_limpio
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output
+
+
 def slugify_local_route_client_name(cliente: str, fallback: str = "CLIENTE") -> str:
     """Return an uppercase ASCII filename-safe slug based on the client name."""
     normalized = unicodedata.normalize("NFKD", str(cliente or "").strip())
@@ -5504,14 +5552,14 @@ if tab_ventas_reportes is not None:
                 st.info("No hay registros de 'Depósito en Efectivo' con fecha de pago válida.")
             else:
                 fecha_diaria_default = fechas_pago_validas.max().date()
-                fecha_reporte_diario = st.date_input(
+                fecha_filtro = st.date_input(
                     "📆 Filtrar por día",
                     value=fecha_diaria_default,
                     key="tab_reportes_filtro_fecha_diaria",
                 )
 
                 df_reporte_diario = df_reporte_diario[
-                    df_reporte_diario["Fecha_Pago_Comprobante_dt"].dt.date == fecha_reporte_diario
+                    df_reporte_diario["Fecha_Pago_Comprobante_dt"].dt.date == fecha_filtro
                 ].copy()
 
                 st.dataframe(
@@ -5520,21 +5568,40 @@ if tab_ventas_reportes is not None:
                     hide_index=True,
                 )
                 st.caption(
-                    f"Total de registros (Depósito en Efectivo) para {fecha_reporte_diario}: {len(df_reporte_diario)}"
+                    f"Total de registros (Depósito en Efectivo) para {fecha_filtro}: {len(df_reporte_diario)}"
                 )
 
-                reporte_diario_excel_buffer = BytesIO()
-                with pd.ExcelWriter(reporte_diario_excel_buffer, engine="openpyxl") as writer:
-                    df_reporte_diario[columnas_reporte_diario].to_excel(
-                        writer, index=False, sheet_name="Reporte_Diario"
-                    )
-                st.download_button(
-                    label="📥 Descargar reporte diario (Excel)",
-                    data=reporte_diario_excel_buffer.getvalue(),
-                    file_name=f"reporte_diario_{fecha_reporte_diario}_{datetime.now().strftime('%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="tab_reportes_descargar_reporte_diario_excel",
+                banco_seleccionado = st.selectbox(
+                    "🏦 Banco",
+                    options=["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"],
+                    key="tab_reportes_reporte_diario_banco",
                 )
+
+                template_reporte_diario = Path("plantillas") / "REPORTE DE FICHA DE DEPOSITO CDMX.xlsx"
+                if not template_reporte_diario.exists():
+                    st.error(
+                        f"No se encontró la plantilla del reporte diario en: {template_reporte_diario}"
+                    )
+                else:
+                    reporte_diario_excel_buffer = build_daily_deposit_report_sheet(
+                        template_path=template_reporte_diario,
+                        df_filtrado=df_reporte_diario,
+                        fecha_filtro=fecha_filtro,
+                        banco_seleccionado=banco_seleccionado,
+                    )
+                    fecha_archivo = pd.to_datetime(fecha_filtro, errors="coerce")
+                    fecha_archivo_str = (
+                        fecha_archivo.strftime("%Y-%m-%d")
+                        if pd.notna(fecha_archivo)
+                        else str(fecha_filtro)
+                    )
+                    st.download_button(
+                        label="📥 Descargar reporte diario (Excel)",
+                        data=reporte_diario_excel_buffer.getvalue(),
+                        file_name=f"REPORTE_FICHA_DE_DEPOSITO_CDMX_{fecha_archivo_str}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="tab_reportes_descargar_reporte_diario_excel",
+                    )
 
 
 # --- TAB 2: MODIFY EXISTING ORDER ---
