@@ -298,12 +298,8 @@ def format_material_rows_for_storage(rows: List[Dict[str, str]]) -> str:
         return "N/A"
     lines = ["Código | Descripción | Cantidad | Monto IVA"]
     for row in rows:
-        codigo = str(row.get("Código", "") or "").strip() or "N/A"
-        descripcion = str(row.get("Descripción", "") or "").strip() or "N/A"
-        cantidad = str(row.get("Cantidad", "") or "").strip() or "N/A"
-        monto = str(row.get("Monto IVA", "") or "").strip() or "N/A"
         lines.append(
-            f"{codigo} | {descripcion} | {cantidad} | {monto}"
+            f"{row['Código']} | {row['Descripción']} | {row['Cantidad']} | {row['Monto IVA']}"
         )
     return "\n".join(lines)
 
@@ -319,17 +315,7 @@ def format_material_for_storage(raw_text: str) -> str:
 def get_material_rows_for_editor(raw_text: str) -> List[Dict[str, str]]:
     rows = parse_material_lines(raw_text)
     if rows:
-        normalized_rows: List[Dict[str, str]] = []
-        for row in rows:
-            normalized_rows.append(
-                {
-                    "Código": "" if str(row.get("Código", "")).strip().upper() == "N/A" else str(row.get("Código", "") or "").strip().upper(),
-                    "Descripción": "" if str(row.get("Descripción", "")).strip().upper() == "N/A" else str(row.get("Descripción", "") or "").strip(),
-                    "Cantidad": "" if str(row.get("Cantidad", "")).strip().upper() == "N/A" else str(row.get("Cantidad", "") or "").strip(),
-                    "Monto IVA": "" if str(row.get("Monto IVA", "")).strip().upper() == "N/A" else str(row.get("Monto IVA", "") or "").strip(),
-                }
-            )
-        return normalized_rows
+        return rows
     return [{"Código": "", "Descripción": "", "Cantidad": "", "Monto IVA": ""}]
 
 
@@ -344,25 +330,25 @@ def sanitize_material_editor_rows(edited_df: pd.DataFrame) -> List[Dict[str, str
         if not any([codigo, descripcion, cantidad_raw, monto_raw]):
             continue
 
-        cantidad = ""
+        cantidad = "N/A"
         if cantidad_raw:
             try:
                 cantidad_int = int(float(cantidad_raw))
-                cantidad = str(cantidad_int) if cantidad_int >= 0 else ""
+                cantidad = str(cantidad_int) if cantidad_int >= 0 else "N/A"
             except ValueError:
-                cantidad = ""
+                cantidad = cantidad_raw
 
-        monto = ""
+        monto = "N/A"
         if monto_raw:
             try:
                 monto = f"${float(monto_raw):,.2f}"
             except ValueError:
-                monto = ""
+                monto = str(row.get("Monto IVA", "") or "").strip() or "N/A"
 
         cleaned_rows.append(
             {
-                "Código": codigo or "",
-                "Descripción": descripcion or "",
+                "Código": codigo or "N/A",
+                "Descripción": descripcion or "N/A",
                 "Cantidad": cantidad,
                 "Monto IVA": monto,
             }
