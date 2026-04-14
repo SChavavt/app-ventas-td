@@ -141,6 +141,7 @@ TAB1_RESTORE_EXCLUDED_KEYS: set[str] = {
 
 TAB1_SCROLL_RESTORE_FLAG_KEY = "tab1_restore_scroll_after_submit"
 TAB1_FEEDBACK_ANCHOR_ID = "tab1-pedido-feedback-anchor"
+TAB1_DEVOLUCION_MATERIAL_ANCHOR_ID = "tab1-devolucion-material-anchor"
 TAB1_FORM_NONCE_KEY = "tab1_form_nonce"
 TAB2_LOADING_MESSAGE_KEY = "tab2_modification_loading_message"
 LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY = "local_route_confirmed_payload"
@@ -341,6 +342,15 @@ def sanitize_material_editor_rows(edited_df: pd.DataFrame) -> List[Dict[str, str
         cantidad_raw = str(row.get("Cantidad", "") or "").strip()
         monto_raw = str(row.get("Monto IVA", "") or "").strip().replace("$", "").replace(",", "")
 
+        if codigo in {"NONE", "NAN"}:
+            codigo = ""
+        if descripcion.lower() in {"none", "nan"}:
+            descripcion = ""
+        if cantidad_raw.lower() in {"none", "nan"}:
+            cantidad_raw = ""
+        if monto_raw.lower() in {"none", "nan"}:
+            monto_raw = ""
+
         if not any([codigo, descripcion, cantidad_raw, monto_raw]):
             continue
 
@@ -368,6 +378,21 @@ def sanitize_material_editor_rows(edited_df: pd.DataFrame) -> List[Dict[str, str
             }
         )
     return cleaned_rows
+
+
+def sum_material_rows_monto_iva(rows: List[Dict[str, str]]) -> float:
+    """Return total IVA amount from material rows (ignoring invalid/empty values)."""
+    total = 0.0
+    for row in rows:
+        monto_raw = str(row.get("Monto IVA", "") or "").strip()
+        if not monto_raw:
+            continue
+        monto_clean = monto_raw.replace("$", "").replace(",", "")
+        try:
+            total += float(monto_clean)
+        except ValueError:
+            continue
+    return round(total, 2)
 
 
 def show_material_table(raw_text: str) -> None:
@@ -706,6 +731,32 @@ def scroll_to_tab1_feedback_section() -> None:
 
             if (!scrollToFeedback()) {{
                 setTimeout(scrollToFeedback, 150);
+            }}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def scroll_to_tab1_devolucion_material_section() -> None:
+    """Mantiene la vista en la captura de material de devolución tras refrescar el form."""
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            const parentWindow = window.parent;
+            const anchorId = {json.dumps(TAB1_DEVOLUCION_MATERIAL_ANCHOR_ID)};
+
+            function scrollToMaterial() {{
+                const anchor = parentWindow.document.getElementById(anchorId);
+                if (!anchor) return false;
+                anchor.scrollIntoView({{ behavior: 'auto', block: 'start' }});
+                return true;
+            }}
+
+            if (!scrollToMaterial()) {{
+                setTimeout(scrollToMaterial, 150);
             }}
         }})();
         </script>
@@ -3684,7 +3735,8 @@ with tab1:
             )
 
             st.markdown("#### 📦 Material a Devolver (captura por renglón)")
-            st.caption("Agrega una fila por producto para evitar mezclas de código, descripción, cantidad y monto.")
+            st.caption("Captura tus renglones y después presiona 'Aceptar materiales' para refrescar y calcular el total.")
+            st.markdown(f"<div id='{TAB1_DEVOLUCION_MATERIAL_ANCHOR_ID}'></div>", unsafe_allow_html=True)
             material_seed = st.session_state.get("material_devuelto", "")
             if "material_devuelto_editor_seed" not in st.session_state:
                 st.session_state["material_devuelto_editor_seed"] = material_seed
@@ -3695,8 +3747,20 @@ with tab1:
                 st.session_state["material_devuelto_editor_rows"] = get_material_rows_for_editor(material_seed)
                 st.session_state["material_devuelto_editor_seed"] = material_seed
 
+            material_editor_source_df = pd.DataFrame(st.session_state.get("material_devuelto_editor_rows", []))
+            if "Monto IVA" in material_editor_source_df.columns:
+                monto_editor_series = (
+                    material_editor_source_df["Monto IVA"]
+                    .astype(str)
+                    .str.replace("$", "", regex=False)
+                    .str.replace(",", "", regex=False)
+                    .str.strip()
+                    .replace({"": None, "None": None, "none": None, "nan": None, "NaN": None})
+                )
+                material_editor_source_df["Monto IVA"] = pd.to_numeric(monto_editor_series, errors="coerce")
+
             material_editor_df = st.data_editor(
-                pd.DataFrame(st.session_state.get("material_devuelto_editor_rows", [])),
+                material_editor_source_df,
                 key="material_devuelto_editor",
                 num_rows="dynamic",
                 hide_index=True,
@@ -3705,19 +3769,31 @@ with tab1:
                     "Código": st.column_config.TextColumn("Código", help="Ejemplo: TOR-208"),
                     "Descripción": st.column_config.TextColumn("Descripción"),
                     "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0, step=1, format="%d"),
-                    "Monto IVA": st.column_config.TextColumn("Monto IVA", help="Ejemplo: 5719.96 o $5,719.96"),
+                    "Monto IVA": st.column_config.NumberColumn("Monto IVA", min_value=0.0, step=0.01, format="$%.2f"),
                 },
             )
             material_rows_clean = sanitize_material_editor_rows(material_editor_df)
             st.session_state["material_devuelto_editor_rows"] = material_rows_clean
-            material_devuelto = format_material_rows_for_storage(material_rows_clean)
-            st.session_state["material_devuelto"] = material_devuelto
+            st.session_state["material_devuelto"] = format_material_rows_for_storage(material_rows_clean)
+            st.session_state["monto_devuelto"] = sum_material_rows_monto_iva(material_rows_clean)
 
-            monto_devuelto = st.number_input(
+            aceptar_material_button = st.form_submit_button(
+                "✅ Aceptar materiales y calcular total",
+                help="Al presionar, se actualiza el total con la suma de la columna 'Monto IVA'.",
+            )
+            if aceptar_material_button:
+                with st.spinner("Actualizando materiales y total..."):
+                    time.sleep(0.25)
+                st.success("✅ Materiales aceptados. Total actualizado.")
+                scroll_to_tab1_devolucion_material_section()
+
+            material_devuelto = st.session_state.get("material_devuelto", "N/A")
+            monto_devuelto = float(st.session_state.get("monto_devuelto", 0.0) or 0.0)
+            st.text_input(
                 "💲 Total de Materiales a Devolver (con IVA)",
-                min_value=0.0,
-                format="%.2f",
-                key="monto_devuelto"
+                value=f"${monto_devuelto:,.2f}",
+                disabled=True,
+                help="Formato moneda: símbolo $, separador de miles y 2 decimales.",
             )
 
             area_responsable = st.selectbox(
