@@ -341,15 +341,6 @@ def sanitize_material_editor_rows(edited_df: pd.DataFrame) -> List[Dict[str, str
         cantidad_raw = str(row.get("Cantidad", "") or "").strip()
         monto_raw = str(row.get("Monto IVA", "") or "").strip().replace("$", "").replace(",", "")
 
-        if codigo in {"NONE", "NAN"}:
-            codigo = ""
-        if descripcion.lower() in {"none", "nan"}:
-            descripcion = ""
-        if cantidad_raw.lower() in {"none", "nan"}:
-            cantidad_raw = ""
-        if monto_raw.lower() in {"none", "nan"}:
-            monto_raw = ""
-
         if not any([codigo, descripcion, cantidad_raw, monto_raw]):
             continue
 
@@ -377,21 +368,6 @@ def sanitize_material_editor_rows(edited_df: pd.DataFrame) -> List[Dict[str, str
             }
         )
     return cleaned_rows
-
-
-def sum_material_rows_monto_iva(rows: List[Dict[str, str]]) -> float:
-    """Return total IVA amount from material rows (ignoring invalid/empty values)."""
-    total = 0.0
-    for row in rows:
-        monto_raw = str(row.get("Monto IVA", "") or "").strip()
-        if not monto_raw:
-            continue
-        monto_clean = monto_raw.replace("$", "").replace(",", "")
-        try:
-            total += float(monto_clean)
-        except ValueError:
-            continue
-    return round(total, 2)
 
 
 def show_material_table(raw_text: str) -> None:
@@ -3149,46 +3125,6 @@ with tab1:
     else:
         st.session_state.pop("tipo_envio_original", None)
 
-    if tipo_envio == "🔁 Devolución":
-        st.markdown("#### 📦 Material a Devolver (captura por renglón)")
-        st.caption("Agrega una fila por producto para evitar mezclas de código, descripción, cantidad y monto.")
-        material_seed = st.session_state.get("material_devuelto", "")
-        if "material_devuelto_editor_seed" not in st.session_state:
-            st.session_state["material_devuelto_editor_seed"] = material_seed
-        if "material_devuelto_editor_rows" not in st.session_state:
-            st.session_state["material_devuelto_editor_rows"] = get_material_rows_for_editor(material_seed)
-
-        if material_seed != st.session_state.get("material_devuelto_editor_seed", "") and material_seed.strip():
-            st.session_state["material_devuelto_editor_rows"] = get_material_rows_for_editor(material_seed)
-            st.session_state["material_devuelto_editor_seed"] = material_seed
-
-        material_editor_df = st.data_editor(
-            pd.DataFrame(st.session_state.get("material_devuelto_editor_rows", [])),
-            key="material_devuelto_editor",
-            num_rows="dynamic",
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "Código": st.column_config.TextColumn("Código", help="Ejemplo: TOR-208"),
-                "Descripción": st.column_config.TextColumn("Descripción"),
-                "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0, step=1, format="%d"),
-                "Monto IVA": st.column_config.TextColumn("Monto IVA", help="Ejemplo: 5719.96 o $5,719.96"),
-            },
-        )
-        material_rows_clean = sanitize_material_editor_rows(material_editor_df)
-        st.session_state["material_devuelto_editor_rows"] = material_rows_clean
-        st.session_state["material_devuelto"] = format_material_rows_for_storage(material_rows_clean)
-        st.session_state["monto_devuelto"] = sum_material_rows_monto_iva(material_rows_clean)
-
-        st.number_input(
-            "💲 Total de Materiales a Devolver (con IVA)",
-            min_value=0.0,
-            format="%.2f",
-            value=float(st.session_state.get("monto_devuelto", 0.0)),
-            disabled=True,
-            help="Se calcula automáticamente con la suma de la columna 'Monto IVA' en tiempo real.",
-        )
-
     subtipo_local = ""
     is_local_pasa_bodega = False
     is_local_recoge_aula = False
@@ -3747,8 +3683,42 @@ with tab1:
                 key="resultado_esperado"
             )
 
-            material_devuelto = st.session_state.get("material_devuelto", "N/A")
-            monto_devuelto = float(st.session_state.get("monto_devuelto", 0.0) or 0.0)
+            st.markdown("#### 📦 Material a Devolver (captura por renglón)")
+            st.caption("Agrega una fila por producto para evitar mezclas de código, descripción, cantidad y monto.")
+            material_seed = st.session_state.get("material_devuelto", "")
+            if "material_devuelto_editor_seed" not in st.session_state:
+                st.session_state["material_devuelto_editor_seed"] = material_seed
+            if "material_devuelto_editor_rows" not in st.session_state:
+                st.session_state["material_devuelto_editor_rows"] = get_material_rows_for_editor(material_seed)
+
+            if material_seed != st.session_state.get("material_devuelto_editor_seed", "") and material_seed.strip():
+                st.session_state["material_devuelto_editor_rows"] = get_material_rows_for_editor(material_seed)
+                st.session_state["material_devuelto_editor_seed"] = material_seed
+
+            material_editor_df = st.data_editor(
+                pd.DataFrame(st.session_state.get("material_devuelto_editor_rows", [])),
+                key="material_devuelto_editor",
+                num_rows="dynamic",
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Código": st.column_config.TextColumn("Código", help="Ejemplo: TOR-208"),
+                    "Descripción": st.column_config.TextColumn("Descripción"),
+                    "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0, step=1, format="%d"),
+                    "Monto IVA": st.column_config.TextColumn("Monto IVA", help="Ejemplo: 5719.96 o $5,719.96"),
+                },
+            )
+            material_rows_clean = sanitize_material_editor_rows(material_editor_df)
+            st.session_state["material_devuelto_editor_rows"] = material_rows_clean
+            material_devuelto = format_material_rows_for_storage(material_rows_clean)
+            st.session_state["material_devuelto"] = material_devuelto
+
+            monto_devuelto = st.number_input(
+                "💲 Total de Materiales a Devolver (con IVA)",
+                min_value=0.0,
+                format="%.2f",
+                key="monto_devuelto"
+            )
 
             area_responsable = st.selectbox(
                 "🏷 Área Responsable del Error",
