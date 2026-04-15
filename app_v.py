@@ -2969,11 +2969,11 @@ if show_tab_ventas_reportes:
 tabs_labels.extend([
     "✏️ Modificar Pedido Existente",
     "📦 Guías Cargadas",
-    "🔍 Buscar Pedido",
     "🧾 Pedidos Pendientes de Comprobante",
     "📁 Casos Especiales",
     "⏳ Pedidos No Entregados",
     "⬇️ Descargar Datos",
+    "🔍 Buscar Pedido",
 ])
 
 # Leer índice de pestaña desde los parámetros de la URL.
@@ -3062,20 +3062,20 @@ tab_ventas_reportes = tabs[1] if show_tab_ventas_reportes else None
 tab_offset = 1 if show_tab_ventas_reportes else 0
 tab2 = tabs[1 + tab_offset]
 tab5 = tabs[2 + tab_offset]
-tab8 = tabs[3 + tab_offset]
-tab3 = tabs[4 + tab_offset]
-tab4 = tabs[5 + tab_offset]
-tab6 = tabs[6 + tab_offset]
-tab7 = tabs[7 + tab_offset]
+tab3 = tabs[3 + tab_offset]
+tab4 = tabs[4 + tab_offset]
+tab6 = tabs[5 + tab_offset]
+tab7 = tabs[6 + tab_offset]
+tab8 = tabs[7 + tab_offset]
 TAB_INDEX_TAB1 = 0
 TAB_INDEX_REPORTES = 1 if show_tab_ventas_reportes else None
 TAB_INDEX_TAB2 = 1 + tab_offset
 TAB_INDEX_TAB5 = 2 + tab_offset
-TAB_INDEX_TAB8 = 3 + tab_offset
-TAB_INDEX_TAB3 = 4 + tab_offset
-TAB_INDEX_TAB4 = 5 + tab_offset
-TAB_INDEX_TAB6 = 6 + tab_offset
-TAB_INDEX_TAB7 = 7 + tab_offset
+TAB_INDEX_TAB3 = 3 + tab_offset
+TAB_INDEX_TAB4 = 4 + tab_offset
+TAB_INDEX_TAB6 = 5 + tab_offset
+TAB_INDEX_TAB7 = 6 + tab_offset
+TAB_INDEX_TAB8 = 7 + tab_offset
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
