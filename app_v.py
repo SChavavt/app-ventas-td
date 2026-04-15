@@ -138,6 +138,8 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
 
 TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
 TAB1_VENDOR_EMPTY_OPTION = ""
+SCHAVA_USER_ID = "SCHAVA"
+SCHAVA_VENDOR_NAME = "SCHAVA"
 
 TAB1_RESTORE_EXCLUDED_KEYS: set[str] = {
     "pedido_adjuntos",
@@ -3596,11 +3598,17 @@ with tab1:
 
         id_vendedor_form = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
         default_vendedor = VENDEDOR_NOMBRE_POR_ID.get(id_vendedor_form, TAB1_VENDOR_EMPTY_OPTION)
+        is_schava_user = id_vendedor_form == SCHAVA_USER_ID
         vendor_options_tab1 = [TAB1_VENDOR_EMPTY_OPTION] + VENDEDORES_LIST
+        if is_schava_user and SCHAVA_VENDOR_NAME not in vendor_options_tab1:
+            vendor_options_tab1.append(SCHAVA_VENDOR_NAME)
 
         # Si el usuario logeado tiene mapeo, siempre forzamos ese vendedor como base del formulario.
-        if default_vendedor in VENDEDORES_LIST:
+        if default_vendedor in vendor_options_tab1:
             st.session_state.last_selected_vendedor = default_vendedor
+
+        if is_schava_user:
+            st.session_state.last_selected_vendedor = SCHAVA_VENDOR_NAME
 
         selected_vendedor_state = st.session_state.get("last_selected_vendedor", TAB1_VENDOR_EMPTY_OPTION)
         if selected_vendedor_state not in vendor_options_tab1:
@@ -3612,7 +3620,12 @@ with tab1:
         except ValueError:
             initial_vendedor_index = 0
 
-        vendedor = st.selectbox("👤 Vendedor", vendor_options_tab1, index=initial_vendedor_index)
+        vendedor = st.selectbox(
+            "👤 Vendedor",
+            vendor_options_tab1,
+            index=initial_vendedor_index,
+            disabled=is_schava_user,
+        )
         if vendedor != st.session_state.get("last_selected_vendedor", None):
             st.session_state.last_selected_vendedor = vendedor
 
