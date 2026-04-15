@@ -5568,7 +5568,7 @@ with tab3, suppress(StopException):
         ):
             st.session_state[seg_key] = _segui_val
         faltante_key = f"material_faltante_{row.get('ID_Pedido','')}"
-        if (
+        if is_dev and (
             faltante_key not in st.session_state
             or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
         ):
@@ -5627,25 +5627,27 @@ with tab3, suppress(StopException):
         else:
             guias_sel = None
 
-        st.markdown("### 🧩 Material faltante (Descripción del Producto)")
-        todo_recibido_key = f"todo_recibido_{row.get('ID_Pedido','')}"
-        todo_recibido_default = st.session_state.get(estado_key) == "Sí, completo"
-        todo_recibido = st.checkbox(
-            "✅ Todo llegó correctamente (sin faltantes, se guarda como 'No aplica')",
-            value=todo_recibido_default,
-            key=todo_recibido_key,
-        )
+        todo_recibido = False
         material_faltante_sel = []
-        if material_options_form:
-            material_faltante_sel = st.multiselect(
-                "Selecciona solo los materiales que NO llegaron",
-                options=material_options_form,
-                key=faltante_key,
-                disabled=todo_recibido,
-                help="Estos materiales se insertarán en la sección 'Descripción del Producto' del formato Word.",
+        if is_dev:
+            st.markdown("### 🧩 Material faltante (Descripción del Producto)")
+            todo_recibido_key = f"todo_recibido_{row.get('ID_Pedido','')}"
+            todo_recibido_default = st.session_state.get(estado_key) == "Sí, completo"
+            todo_recibido = st.checkbox(
+                "✅ Todo llegó correctamente (sin faltantes, se guarda como 'No aplica')",
+                value=todo_recibido_default,
+                key=todo_recibido_key,
             )
-        else:
-            st.caption("No se detectaron materiales en 'Material_Devuelto' para seleccionar faltantes.")
+            if material_options_form:
+                material_faltante_sel = st.multiselect(
+                    "Selecciona solo los materiales que NO llegaron",
+                    options=material_options_form,
+                    key=faltante_key,
+                    disabled=todo_recibido,
+                    help="Estos materiales se insertarán en la sección 'Descripción del Producto' del formato Word.",
+                )
+            else:
+                st.caption("No se detectaron materiales en 'Material_Devuelto' para seleccionar faltantes.")
 
         doc_principal = st.file_uploader(
             "🧾 Subir Nota de Crédito / Dictamen (PDF/Imagen)",
@@ -5703,24 +5705,26 @@ with tab3, suppress(StopException):
         else:
             guias_val = None
 
-        if estado_recepcion == "Sí, completo":
-            material_faltante_final = "No aplica"
-        else:
-            if todo_recibido:
+        material_faltante_final = "No aplica"
+        if is_dev:
+            if estado_recepcion == "Sí, completo":
                 material_faltante_final = "No aplica"
-            elif material_faltante_sel:
-                selected_rows = [material_option_to_row.get(opt, {}) for opt in material_faltante_sel]
-                lines = ["Código | Descripción | Cantidad | Monto IVA"]
-                for sel_row in selected_rows:
-                    lines.append(
-                        f"{sel_row.get('Código','N/A')} | {sel_row.get('Descripción','N/A')} | "
-                        f"{sel_row.get('Cantidad','N/A')} | {sel_row.get('Monto IVA','N/A')}"
-                    )
-                material_faltante_final = "\n".join(lines)
             else:
-                tab3_alert.warning("⚠️ Selecciona al menos un material faltante o marca 'Todo llegó correctamente'.")
-                st.toast("Completa Material faltante", icon="⚠️")
-                st.stop()
+                if todo_recibido:
+                    material_faltante_final = "No aplica"
+                elif material_faltante_sel:
+                    selected_rows = [material_option_to_row.get(opt, {}) for opt in material_faltante_sel]
+                    lines = ["Código | Descripción | Cantidad | Monto IVA"]
+                    for sel_row in selected_rows:
+                        lines.append(
+                            f"{sel_row.get('Código','N/A')} | {sel_row.get('Descripción','N/A')} | "
+                            f"{sel_row.get('Cantidad','N/A')} | {sel_row.get('Monto IVA','N/A')}"
+                        )
+                    material_faltante_final = "\n".join(lines)
+                else:
+                    tab3_alert.warning("⚠️ Selecciona al menos un material faltante o marca 'Todo llegó correctamente'.")
+                    st.toast("Completa Material faltante", icon="⚠️")
+                    st.stop()
 
         # Subir archivos
         tipo_slug = "devolucion" if is_dev else "garantia"
@@ -5777,8 +5781,9 @@ with tab3, suppress(StopException):
             col_comentarios: comentario_admin,
             "Estado_Caso": "Aprobado",
             "Seguimiento": seguimiento_sel,
-            "Material_Faltante": material_faltante_final,
         }
+        if is_dev:
+            updates["Material_Faltante"] = material_faltante_final
         if is_dev and guias_val:
             col_guias = pick_first_col(
                 headers_casos,
