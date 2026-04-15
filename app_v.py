@@ -29,7 +29,7 @@ from http.client import InvalidURL
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 from gspread.utils import rowcol_to_a1
-from gspread.exceptions import APIError
+from gspread.exceptions import APIError, GSpreadException
 
 
 # NEW: Import boto3 for AWS S3
@@ -2969,11 +2969,11 @@ if show_tab_ventas_reportes:
 tabs_labels.extend([
     "✏️ Modificar Pedido Existente",
     "📦 Guías Cargadas",
+    "🔍 Buscar Pedido",
     "🧾 Pedidos Pendientes de Comprobante",
     "📁 Casos Especiales",
     "⏳ Pedidos No Entregados",
     "⬇️ Descargar Datos",
-    "🔍 Buscar Pedido",
 ])
 
 # Leer índice de pestaña desde los parámetros de la URL.
@@ -3062,20 +3062,20 @@ tab_ventas_reportes = tabs[1] if show_tab_ventas_reportes else None
 tab_offset = 1 if show_tab_ventas_reportes else 0
 tab2 = tabs[1 + tab_offset]
 tab5 = tabs[2 + tab_offset]
-tab3 = tabs[3 + tab_offset]
-tab4 = tabs[4 + tab_offset]
-tab6 = tabs[5 + tab_offset]
-tab7 = tabs[6 + tab_offset]
-tab8 = tabs[7 + tab_offset]
+tab8 = tabs[3 + tab_offset]
+tab3 = tabs[4 + tab_offset]
+tab4 = tabs[5 + tab_offset]
+tab6 = tabs[6 + tab_offset]
+tab7 = tabs[7 + tab_offset]
 TAB_INDEX_TAB1 = 0
 TAB_INDEX_REPORTES = 1 if show_tab_ventas_reportes else None
 TAB_INDEX_TAB2 = 1 + tab_offset
 TAB_INDEX_TAB5 = 2 + tab_offset
-TAB_INDEX_TAB3 = 3 + tab_offset
-TAB_INDEX_TAB4 = 4 + tab_offset
-TAB_INDEX_TAB6 = 5 + tab_offset
-TAB_INDEX_TAB7 = 6 + tab_offset
-TAB_INDEX_TAB8 = 7 + tab_offset
+TAB_INDEX_TAB8 = 3 + tab_offset
+TAB_INDEX_TAB3 = 4 + tab_offset
+TAB_INDEX_TAB4 = 5 + tab_offset
+TAB_INDEX_TAB6 = 6 + tab_offset
+TAB_INDEX_TAB7 = 7 + tab_offset
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
@@ -8898,7 +8898,38 @@ def _leer_registros_hoja_busqueda(nombre_hoja: str, retries: int = 5, base_delay
     for attempt in range(retries):
         try:
             sheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID).worksheet(nombre_hoja)
-            return sheet.get_all_records()
+            try:
+                return sheet.get_all_records()
+            except GSpreadException as gspread_error:
+                if "header row in the worksheet is not unique" not in str(gspread_error).lower():
+                    raise
+
+                all_values = sheet.get_all_values()
+                if not all_values:
+                    return []
+
+                raw_headers = all_values[0]
+                headers = []
+                seen_headers: Dict[str, int] = {}
+
+                for idx, raw_header in enumerate(raw_headers, start=1):
+                    header_base = str(raw_header or "").strip() or f"Columna_{idx}"
+                    seen_headers[header_base] = seen_headers.get(header_base, 0) + 1
+                    header_count = seen_headers[header_base]
+                    headers.append(header_base if header_count == 1 else f"{header_base}_{header_count}")
+
+                rows = []
+                for raw_row in all_values[1:]:
+                    if len(raw_row) < len(headers):
+                        row = raw_row + [""] * (len(headers) - len(raw_row))
+                    else:
+                        row = raw_row[:len(headers)]
+
+                    if not any(str(cell).strip() for cell in row):
+                        continue
+
+                    rows.append(dict(zip(headers, row)))
+                return rows
         except APIError as e:
             last_error = e
             status = getattr(getattr(e, "response", None), "status_code", None)
