@@ -218,6 +218,16 @@ def normalize_case_amount(value, placeholder: str = "N/A") -> str:
     return f"{amount:.2f}" if amount > 0 else placeholder
 
 
+def normalize_tipo_envio_original(value: str) -> str:
+    """Normaliza valores antiguos y actuales del tipo de envío original."""
+    cleaned = str(value or "").strip()
+    if cleaned in {"🚚 Foráneo", "🚚 Pedido Foráneo"}:
+        return "🚚 Pedido Foráneo"
+    if cleaned in {"📍 Local", "📍 Pedido Local"}:
+        return "📍 Pedido Local"
+    return cleaned
+
+
 MATERIAL_ROW_PATTERN = re.compile(
     r"^\s*(?P<codigo>[A-Za-z0-9\-]+)\s+(?P<resto>.+?)\s*$"
 )
@@ -3226,7 +3236,7 @@ with tab1:
     subtipo_local = ""
     is_local_pasa_bodega = False
     is_local_recoge_aula = False
-    is_devolucion_local = tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
+    is_devolucion_local = tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
     usa_logica_local = tipo_envio == "📍 Pedido Local" or is_devolucion_local
     expand_payment_details_default = (
         id_vendedor_tab1 in TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS
@@ -3396,7 +3406,11 @@ with tab1:
     uploaded_files = []
 
     # Variables Devolución
-    tipo_envio_original = ""
+    tipo_envio_original = (
+        normalize_tipo_envio_original(st.session_state.get("tipo_envio_original", ""))
+        if tipo_envio == "🔁 Devolución"
+        else ""
+    )
     estatus_origen_factura = ""
     resultado_esperado = ""
     material_devuelto = ""
@@ -4597,7 +4611,7 @@ with tab1:
                     "folio_factura": folio_factura,
                     "folio_factura_error": folio_factura_error,
                     "motivo_nota_venta": motivo_nota_venta,
-                    "tipo_envio_original": tipo_envio_original,
+                    "tipo_envio_original": normalize_tipo_envio_original(tipo_envio_original),
                     "estatus_origen_factura": estatus_origen_factura,
                     "aplica_pago": aplica_pago,
                     "resultado_esperado": resultado_esperado,
@@ -4651,6 +4665,13 @@ with tab1:
                 if not all([pedido_id, hora_registro, s3_prefix]):
                     pedido_id, hora_registro, s3_prefix = build_submission_identity()
 
+            if tipo_envio == "🔁 Devolución" and not tipo_envio_original:
+                tipo_envio_original = normalize_tipo_envio_original(
+                    st.session_state.get("tipo_envio_original", "")
+                )
+            else:
+                tipo_envio_original = normalize_tipo_envio_original(tipo_envio_original)
+
             pedido_sin_adjuntos = not (
                 uploaded_files or comprobante_pago_files or comprobante_cliente or auto_route_files
             )
@@ -4662,7 +4683,7 @@ with tab1:
                 "📍 Pedido Local",
                 "🎓 Cursos y Eventos",
             ]
-            if tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local":
+            if tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local":
                 pedidos_con_estado_pago.append("🔁 Devolución")
 
             if (
@@ -4867,7 +4888,11 @@ with tab1:
                 elif header == "Tipo_Envio":
                     values.append(tipo_envio_excel)
                 elif header == "Tipo_Envio_Original":
-                    values.append(tipo_envio_original if tipo_envio == "🔁 Devolución" else "")
+                    values.append(
+                        normalize_tipo_envio_original(tipo_envio_original)
+                        if tipo_envio == "🔁 Devolución"
+                        else ""
+                    )
                 elif header == "Estatus_OrigenF":
                     values.append(estatus_origen_factura if tipo_envio == "🔁 Devolución" else "")
                 elif header == "Turno":
@@ -4887,7 +4912,7 @@ with tab1:
                     values.append("🟡 Pendiente")
                 elif header == "Estado_Pago":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
+                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
                     ):
                         values.append(estado_pago)
                     else:
@@ -4896,7 +4921,7 @@ with tab1:
                     values.append("Sí" if aplica_pago == "Sí" else "No")
                 elif header == "Fecha_Pago_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
+                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
                     ):
                         values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
                     else:
@@ -4904,20 +4929,20 @@ with tab1:
                 elif header == "Forma_Pago_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
                         values.append(forma_pago)
-                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"):
+                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"):
                         values.append(local_route_forma_pago)
                     else:
                         values.append("")
                 elif header == "Terminal":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
+                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
                     ):
                         values.append(terminal)
                     else:
                         values.append("")
                 elif header == "Banco_Destino_Pago":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
+                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
                     ):
                         values.append(banco_destino)
                     else:
@@ -4925,14 +4950,14 @@ with tab1:
                 elif header == "Monto_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
                         values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
-                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"):
+                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"):
                         monto_comprobante_local = float(local_route_total_factura or 0) + float(local_route_adeudo_anterior or 0)
                         values.append(f"{monto_comprobante_local:.2f}" if monto_comprobante_local > 0 else "")
                     else:
                         values.append("")
                 elif header == "Referencia_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and tipo_envio_original == "📍 Local"
+                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
                     ):
                         values.append(referencia_pago)
                     else:
