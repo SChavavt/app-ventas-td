@@ -1413,6 +1413,9 @@ def reset_tab1_form_state(additional_preserved: dict[str, object] | None = None)
 
     for key in TAB1_FORM_STATE_KEYS_TO_CLEAR:
         st.session_state.pop(key, None)
+    for key in list(st.session_state.keys()):
+        if key.startswith("registrar_nota_venta_checkbox_widget_"):
+            st.session_state.pop(key, None)
 
     for key, value in preserved_values.items():
         if value is None:
@@ -3392,11 +3395,18 @@ with tab1:
                 st.session_state["local_route_selected_history_label"] = None
                 st.session_state["local_route_selected_history_row"] = None
 
+    form_nonce = int(st.session_state.get(TAB1_FORM_NONCE_KEY, 0) or 0)
+    registrar_nota_venta_widget_key = f"registrar_nota_venta_checkbox_widget_{form_nonce}"
+    registrar_nota_venta_default = bool(st.session_state.get("registrar_nota_venta_checkbox", False))
+    if registrar_nota_venta_widget_key not in st.session_state:
+        st.session_state[registrar_nota_venta_widget_key] = registrar_nota_venta_default
+
     registrar_nota_venta = st.checkbox(
         "🧾 Registrar nota de venta",
-        key="registrar_nota_venta_checkbox",
+        key=registrar_nota_venta_widget_key,
         help="Activa para capturar los datos de una nota de venta.",
     )
+    st.session_state["registrar_nota_venta_checkbox"] = bool(registrar_nota_venta)
     tipo_venta = "Venta TD"
     condicion_venta_terceros = ""
     if registrar_nota_venta:
@@ -3496,7 +3506,6 @@ with tab1:
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
-    form_nonce = int(st.session_state.get(TAB1_FORM_NONCE_KEY, 0) or 0)
     route_post_confirm_notice = (
         st.session_state.get(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY)
         if usa_hoja_ruta_local
