@@ -2491,7 +2491,7 @@ if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo n
         get_cached_connection_statuses.clear()
         st.rerun()
 
-st.title("🛒 App de Vendedores TD")
+st.title("🛒 Ventas TD")
 st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
 
 id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
