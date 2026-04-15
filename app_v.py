@@ -179,6 +179,7 @@ USUARIOS_VALIDOS = [
     "RUBEN67",
     "ROBERTO51",
     "FRANKO95",
+    "SCHAVA",
 ]
 
 VENDEDOR_NOMBRE_POR_ID = {
@@ -197,6 +198,7 @@ VENDEDOR_NOMBRE_POR_ID = {
     "RUBEN67": "RUBEN",
     "ROBERTO51": "DISTRIBUCION Y UNIVERSIDADES",
     "FRANKO95": "FRANKO",
+    "SCHAVA": "SCHAVA",
 }
 
 TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS = {
@@ -205,6 +207,7 @@ TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS = {
     "FRANKO95",
 }
 
+BRAND_LOGO_EDITOR_USERS = {"SCHAVA"}
 
 
 def normalize_case_text(value, placeholder: str = "N/A") -> str:
@@ -2491,7 +2494,83 @@ if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo n
         get_cached_connection_statuses.clear()
         st.rerun()
 
-st.title("🛒 Ventas TD")
+def render_brand_title(icon: str, prefix: str, fallback_suffix: str, logo_path: str = "assets/td_logo.png") -> None:
+    """Renderiza un título con logo configurable para reemplazar el texto 'TD'."""
+    logo_file = Path(logo_path)
+    if logo_file.exists():
+        try:
+            logo_b64 = base64.b64encode(logo_file.read_bytes()).decode("utf-8")
+            st.markdown(
+                f"""
+                <h1 style="display:flex;align-items:center;gap:0.45rem;margin:0;">
+                    <span>{icon}</span>
+                    <span>{prefix}</span>
+                    <img src="data:image/png;base64,{logo_b64}" alt="Logo TD"
+                         style="height:1.15em;width:auto;vertical-align:middle;" />
+                </h1>
+                """,
+                unsafe_allow_html=True,
+            )
+            return
+        except Exception:
+            pass
+
+    st.title(f"{icon} {prefix} {fallback_suffix}")
+    st.caption(
+        f"Tip: agrega tu logo en `{logo_path}` (PNG recomendado) para reemplazar “{fallback_suffix}”."
+    )
+
+
+def render_logo_uploader(logo_path: str = "assets/td_logo.png", section_key: str = "ventas") -> None:
+    """Permite subir o reemplazar el logo de marca desde la misma app."""
+    logo_file = Path(logo_path)
+    logo_dir = logo_file.parent
+    with st.expander("🎨 Personalizar logo TD"):
+        st.caption(
+            "Sube un PNG/JPG/WebP para usarlo en el título principal. "
+            f"Se guardará en `{logo_path}`."
+        )
+        uploaded_logo = st.file_uploader(
+            "Selecciona imagen de logo",
+            type=["png", "jpg", "jpeg", "webp"],
+            key=f"{section_key}_logo_uploader",
+        )
+        cols = st.columns([1, 1, 2])
+        with cols[0]:
+            if st.button("💾 Guardar logo", key=f"{section_key}_save_logo"):
+                if uploaded_logo is None:
+                    st.warning("Primero selecciona una imagen.")
+                else:
+                    logo_dir.mkdir(parents=True, exist_ok=True)
+                    logo_file.write_bytes(uploaded_logo.getbuffer())
+                    st.success("Logo guardado. Recarga para ver el cambio aplicado en toda la app.")
+        with cols[1]:
+            if st.button("🗑️ Quitar logo", key=f"{section_key}_remove_logo"):
+                if logo_file.exists():
+                    logo_file.unlink()
+                    st.success("Logo eliminado. El título volverá a mostrar TD en texto.")
+                else:
+                    st.info("No hay logo guardado todavía.")
+        if logo_file.exists():
+            st.image(str(logo_file), caption="Logo actual", width=180)
+
+
+def can_edit_brand_logo() -> bool:
+    """Define si el usuario actual puede ver el cargador de logo."""
+    current_user = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
+    if current_user in BRAND_LOGO_EDITOR_USERS:
+        return True
+
+    usuario_param = st.query_params.get("usuario")
+    if isinstance(usuario_param, (list, tuple)):
+        usuario_param = usuario_param[0] if usuario_param else ""
+    candidate = normalize_vendedor_id(usuario_param or "")
+    return candidate in BRAND_LOGO_EDITOR_USERS
+
+
+render_brand_title("🛒", "Ventas", "TD")
+if can_edit_brand_logo():
+    render_logo_uploader("assets/td_logo.png", "ventas")
 st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
 
 id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
