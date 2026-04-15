@@ -5459,28 +5459,6 @@ with tab3, suppress(StopException):
 
     # ===== FORMULARIO (ajusta columnas según tipo detectado) =====
     guias_key: str | None = None
-    raw_material_devuelto_form = str(row.get("Material_Devuelto", "") or "")
-    parsed_material_rows_form = parse_material_lines(raw_material_devuelto_form)
-    material_options_form: list[str] = []
-    material_option_to_row: dict[str, dict[str, str]] = {}
-    for idx, mat_row in enumerate(parsed_material_rows_form, start=1):
-        codigo = str(mat_row.get("Código", "N/A") or "N/A")
-        descripcion = str(mat_row.get("Descripción", "N/A") or "N/A")
-        cantidad = str(mat_row.get("Cantidad", "N/A") or "N/A")
-        label = f"{idx}. {codigo} | {descripcion} | Cant: {cantidad}"
-        material_options_form.append(label)
-        material_option_to_row[label] = mat_row
-    if not material_options_form and raw_material_devuelto_form.strip():
-        for idx, line in enumerate([x.strip() for x in raw_material_devuelto_form.splitlines() if x.strip()], start=1):
-            label = f"{idx}. {line}"
-            material_options_form.append(label)
-            material_option_to_row[label] = {
-                "Código": "N/A",
-                "Descripción": line,
-                "Cantidad": "N/A",
-                "Monto IVA": "N/A",
-            }
-
     with st.form(key="tab3_confirm_form", clear_on_submit=False):
         fecha_key = f"fecha_recepcion_{'devolucion' if is_dev else 'garantia'}"
         estado_key = f"estado_recepcion_{'devolucion' if is_dev else 'garantia'}"
@@ -5518,12 +5496,6 @@ with tab3, suppress(StopException):
             or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
         ):
             st.session_state[seg_key] = _segui_val
-        faltante_key = f"material_faltante_{row.get('ID_Pedido','')}"
-        if (
-            faltante_key not in st.session_state
-            or st.session_state.get("tab3_last_case_id") != row.get("ID_Pedido")
-        ):
-            st.session_state[faltante_key] = []
         if is_dev:
             guias_key = f"guias_devolucion_{row.get('ID_Pedido','')}"
             _guias_raw = str(row.get(GUIAS_DEVOLUCION_COL, "")).strip()
@@ -5577,27 +5549,6 @@ with tab3, suppress(StopException):
             )
         else:
             guias_sel = None
-
-        st.markdown("### 🧩 Material faltante (Descripción del Producto)")
-        todo_recibido_key = f"todo_recibido_{row.get('ID_Pedido','')}"
-        todo_recibido_default = st.session_state.get(estado_key) == "Sí, completo"
-        todo_recibido = st.checkbox(
-            "✅ Todo llegó correctamente (sin faltantes, se guarda como 'No aplica')",
-            value=todo_recibido_default,
-            key=todo_recibido_key,
-        )
-        material_faltante_sel = []
-        if material_options_form:
-            material_faltante_sel = st.multiselect(
-                "Selecciona solo los materiales que NO llegaron",
-                options=material_options_form,
-                key=faltante_key,
-                disabled=todo_recibido,
-                help="Estos materiales se insertarán en la sección 'Descripción del Producto' del formato Word.",
-            )
-        else:
-            st.caption("No se detectaron materiales en 'Material_Devuelto' para seleccionar faltantes.")
-
         doc_principal = st.file_uploader(
             "🧾 Subir Nota de Crédito / Dictamen (PDF/Imagen)",
             type=["pdf","jpg","jpeg","png"],
@@ -5654,25 +5605,6 @@ with tab3, suppress(StopException):
         else:
             guias_val = None
 
-        if estado_recepcion == "Sí, completo":
-            material_faltante_final = "No aplica"
-        else:
-            if todo_recibido:
-                material_faltante_final = "No aplica"
-            elif material_faltante_sel:
-                selected_rows = [material_option_to_row.get(opt, {}) for opt in material_faltante_sel]
-                lines = ["Código | Descripción | Cantidad | Monto IVA"]
-                for sel_row in selected_rows:
-                    lines.append(
-                        f"{sel_row.get('Código','N/A')} | {sel_row.get('Descripción','N/A')} | "
-                        f"{sel_row.get('Cantidad','N/A')} | {sel_row.get('Monto IVA','N/A')}"
-                    )
-                material_faltante_final = "\n".join(lines)
-            else:
-                tab3_alert.warning("⚠️ Selecciona al menos un material faltante o marca 'Todo llegó correctamente'.")
-                st.toast("Completa Material faltante", icon="⚠️")
-                st.stop()
-
         # Subir archivos
         tipo_slug = "devolucion" if is_dev else "garantia"
         urls = {}
@@ -5693,11 +5625,6 @@ with tab3, suppress(StopException):
                 worksheet_casos,
                 headers_casos,
                 GUIAS_DEVOLUCION_COL,
-            )
-            headers_casos = ensure_sheet_column(
-                worksheet_casos,
-                headers_casos,
-                "Material_Faltante",
             )
         col_fecha_recepcion = pick_first_col(
             headers_casos,
@@ -5728,7 +5655,6 @@ with tab3, suppress(StopException):
             col_comentarios: comentario_admin,
             "Estado_Caso": "Aprobado",
             "Seguimiento": seguimiento_sel,
-            "Material_Faltante": material_faltante_final,
         }
         if is_dev and guias_val:
             col_guias = pick_first_col(
@@ -5769,10 +5695,8 @@ with tab3, suppress(StopException):
 
                     # Mapping exacto a placeholders del .docx
                     raw_material_devuelto = row.get("Material_Devuelto")
-                    raw_material_faltante = material_faltante_final
                     material_table_replacements = 0
                     material_devuelto_mapping = None
-                    material_faltante_mapping = None
                     if has_structured_material_format(raw_material_devuelto):
                         material_rows_word = sanitize_material_rows_for_table(raw_material_devuelto)
                         material_table_replacements = _replace_material_placeholder_with_table(
@@ -5782,16 +5706,6 @@ with tab3, suppress(StopException):
                         )
                     else:
                         material_devuelto_mapping = str(raw_material_devuelto or "").strip() or "n/a"
-
-                    if has_structured_material_format(raw_material_faltante):
-                        material_rows_faltante_word = sanitize_material_rows_for_table(raw_material_faltante)
-                        material_table_replacements += _replace_material_placeholder_with_table(
-                            doc,
-                            "Material_Faltante",
-                            material_rows_faltante_word,
-                        )
-                    else:
-                        material_faltante_mapping = str(raw_material_faltante or "").strip() or "No aplica"
                     mapping = {
                         "Cliente": _safe_value(row.get("Cliente")),
                         "Vendedor_Registro": _safe_value(row.get("Vendedor_Registro")),
@@ -5809,8 +5723,6 @@ with tab3, suppress(StopException):
                     }
                     if material_devuelto_mapping is not None:
                         mapping["Material_Devuelto"] = material_devuelto_mapping
-                    if material_faltante_mapping is not None:
-                        mapping["Material_Faltante"] = material_faltante_mapping
 
                     total_found, total_replaced, remaining_placeholders = _docx_replace_all(doc, mapping)
 
