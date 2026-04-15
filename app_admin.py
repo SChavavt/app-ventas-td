@@ -604,12 +604,6 @@ def is_nota_venta_pedido(row: pd.Series) -> bool:
     return has_text_value(row.get("Motivo_NotaVenta", ""))
 
 
-def is_venta_terceros_pedido(row: pd.Series) -> bool:
-    """Detecta pedidos marcados como venta a terceros."""
-    tipo_venta = str(row.get("Tipo_Venta", "") or "").strip().lower()
-    return tipo_venta == "venta terceros"
-
-
 def is_estado_pago_no_aplica(value: object) -> bool:
     """Detecta estados de pago del tipo 'No Aplica'."""
     estado = str(value or "").strip().lower()
@@ -2319,39 +2313,6 @@ with tab1:
             st.info("Todos los pedidos pagados han sido confirmados.")
         else:
             st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes.")
-
-            pedidos_nota_venta_terceros = pedidos_pagados_no_confirmados[
-                pedidos_pagados_no_confirmados.apply(
-                    lambda row: is_nota_venta_pedido(row) and is_venta_terceros_pedido(row),
-                    axis=1,
-                )
-            ].copy()
-
-            if pedidos_nota_venta_terceros.empty:
-                st.info("🧭 Radar Venta Terceros: no hay notas de venta marcadas como Venta terceros por confirmar.")
-            else:
-                st.warning(
-                    f"🧭 Radar Venta Terceros: hay {len(pedidos_nota_venta_terceros)} nota(s) de venta marcadas como Venta terceros."
-                )
-                columnas_radar = [
-                    "Folio_Factura",
-                    "Cliente",
-                    "Vendedor_Registro",
-                    "Tipo_Envio",
-                    "Estado_Pago",
-                    "Condicion_Venta_Terceros",
-                    "Monto_Comprobante",
-                    "Motivo_NotaVenta",
-                ]
-                columnas_radar_existentes = [
-                    col for col in columnas_radar if col in pedidos_nota_venta_terceros.columns
-                ]
-                if columnas_radar_existentes:
-                    st.dataframe(
-                        pedidos_nota_venta_terceros[columnas_radar_existentes],
-                        use_container_width=True,
-                        hide_index=True,
-                    )
 
             # Mostrar tabla
             columns_to_show = [
