@@ -3435,7 +3435,7 @@ with tab1:
     credito_anticipo = 0.0
     credito_plazo_meses = 0
     credito_frecuencia_pago = ""
-    credito_dia_cobro = ""
+    credito_dia_cobro = None
     credito_datos_contacto = ""
 
     # Variables Devolución
@@ -3608,10 +3608,11 @@ with tab1:
                     format="%.2f",
                     key="credito_anticipo",
                 )
-                credito_dia_cobro = st.text_input(
+                credito_dia_cobro = st.date_input(
                     "🗓 Día de cobro (opcional)",
                     key="credito_dia_cobro",
-                    placeholder="Ej. Viernes / día 15",
+                    value=None,
+                    format="DD/MM/YYYY",
                 )
                 credito_datos_contacto = st.text_area(
                     "📞 Datos de contacto (opcional)",
@@ -4412,7 +4413,9 @@ with tab1:
         credito_frecuencia_pago.strip() if isinstance(credito_frecuencia_pago, str) else ""
     )
     credito_dia_cobro = (
-        credito_dia_cobro.strip() if isinstance(credito_dia_cobro, str) else ""
+        credito_dia_cobro.strftime("%Y-%m-%d")
+        if isinstance(credito_dia_cobro, date)
+        else (credito_dia_cobro.strip() if isinstance(credito_dia_cobro, str) else "")
     )
     credito_datos_contacto = (
         credito_datos_contacto.strip() if isinstance(credito_datos_contacto, str) else ""
