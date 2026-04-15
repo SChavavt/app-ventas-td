@@ -1524,7 +1524,7 @@ S3_USE_PERMANENT_URLS = _coerce_secret_bool(st.secrets.get("s3_use_permanent_url
 if S3_PUBLIC_BASE_URL:
     S3_USE_PERMANENT_URLS = True
 
-st.title("👨‍💼 App de Administración TD")
+st.title("👨‍💼 Administración TD")
 st.write("Panel de administración para revisar y confirmar comprobantes de pago.")
 
 # --- FUNCIONES DE CARGA DE DATOS Y S3 (Adaptadas) ---
