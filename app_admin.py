@@ -2327,9 +2327,7 @@ with tab1:
                 )
             ].copy()
 
-            if pedidos_nota_venta_terceros.empty:
-                st.info("🧭 Radar Venta Terceros: no hay notas de venta marcadas como Venta terceros por confirmar.")
-            else:
+            if not pedidos_nota_venta_terceros.empty:
                 st.warning(
                     f"🧭 Radar Venta Terceros: hay {len(pedidos_nota_venta_terceros)} nota(s) de venta marcadas como Venta terceros."
                 )
