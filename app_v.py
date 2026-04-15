@@ -57,6 +57,14 @@ TAB1_PRESERVED_STATE_KEYS: set[str] = {
 
 TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "registrar_nota_venta_checkbox",
+    "tipo_venta_selector",
+    "condicion_venta_terceros",
+    "credito_monto_venta",
+    "credito_anticipo",
+    "credito_plazo_meses",
+    "credito_frecuencia_pago",
+    "credito_dia_cobro",
+    "credito_datos_contacto",
     "registro_cliente",
     "numero_cliente_rfc",
     "tipo_envio_original",
@@ -3389,6 +3397,23 @@ with tab1:
         key="registrar_nota_venta_checkbox",
         help="Activa para capturar los datos de una nota de venta.",
     )
+    tipo_venta = st.selectbox(
+        "🏷️ Tipo de venta",
+        ["Venta TD", "Venta terceros"],
+        index=0,
+        key="tipo_venta_selector",
+        help="Selecciona si el pedido corresponde a Venta TD o Venta terceros.",
+    )
+    condicion_venta_terceros = ""
+    if tipo_venta == "Venta terceros":
+        condicion_venta_terceros = st.radio(
+            "• Condición de venta terceros",
+            options=["Contado", "Crédito"],
+            index=0,
+            horizontal=True,
+            key="condicion_venta_terceros",
+            help="Define si la venta a terceros fue de contado o a crédito.",
+        )
 
     # -------------------------------
     # Inicialización de variables
@@ -3404,6 +3429,12 @@ with tab1:
     fecha_entrega = datetime.now().date()
     comentario = ""
     uploaded_files = []
+    credito_monto_venta = 0.0
+    credito_anticipo = 0.0
+    credito_plazo_meses = 0
+    credito_frecuencia_pago = ""
+    credito_dia_cobro = ""
+    credito_datos_contacto = ""
 
     # Variables Devolución
     tipo_envio_original = (
@@ -3545,6 +3576,46 @@ with tab1:
             # Folio normal (renombrado a 'Folio Nuevo' en devoluciones)
             folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
             folio_factura_input_value = st.text_input(folio_label, key="folio_factura_input")
+
+        if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
+            st.markdown("#### 💳 Datos de crédito (Venta terceros)")
+            col_credito_1, col_credito_2 = st.columns(2)
+            with col_credito_1:
+                credito_monto_venta = st.number_input(
+                    "💲 Monto de la venta",
+                    min_value=0.0,
+                    format="%.2f",
+                    key="credito_monto_venta",
+                    help="Se guarda en la columna Monto_Comprobante.",
+                )
+                credito_plazo_meses = st.number_input(
+                    "📆 Plazo de crédito (meses)",
+                    min_value=0,
+                    step=1,
+                    key="credito_plazo_meses",
+                )
+                credito_frecuencia_pago = st.selectbox(
+                    "🔁 Frecuencia de pago",
+                    ["Semanal", "Quincena", "Mensual"],
+                    key="credito_frecuencia_pago",
+                )
+            with col_credito_2:
+                credito_anticipo = st.number_input(
+                    "💵 Anticipo (opcional)",
+                    min_value=0.0,
+                    format="%.2f",
+                    key="credito_anticipo",
+                )
+                credito_dia_cobro = st.text_input(
+                    "🗓 Día de cobro (opcional)",
+                    key="credito_dia_cobro",
+                    placeholder="Ej. Viernes / día 15",
+                )
+                credito_datos_contacto = st.text_area(
+                    "📞 Datos de contacto (opcional)",
+                    key="credito_datos_contacto",
+                    placeholder="Nombre, teléfono, correo, observaciones",
+                )
 
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
@@ -4335,6 +4406,15 @@ with tab1:
         if registrar_nota_venta and isinstance(motivo_nota_venta, str)
         else ""
     )
+    credito_frecuencia_pago = (
+        credito_frecuencia_pago.strip() if isinstance(credito_frecuencia_pago, str) else ""
+    )
+    credito_dia_cobro = (
+        credito_dia_cobro.strip() if isinstance(credito_dia_cobro, str) else ""
+    )
+    credito_datos_contacto = (
+        credito_datos_contacto.strip() if isinstance(credito_datos_contacto, str) else ""
+    )
     has_new_capture_signal = any(
         [
             bool(str(registro_cliente or "").strip()),
@@ -4507,6 +4587,14 @@ with tab1:
                 local_route_total_factura = float(submission_payload_override.get("local_route_total_factura", local_route_total_factura) or 0)
                 local_route_adeudo_anterior = float(submission_payload_override.get("local_route_adeudo_anterior", local_route_adeudo_anterior) or 0)
                 local_route_referencias = submission_payload_override.get("local_route_referencias", local_route_referencias)
+                tipo_venta = submission_payload_override.get("tipo_venta", tipo_venta)
+                condicion_venta_terceros = submission_payload_override.get("condicion_venta_terceros", condicion_venta_terceros)
+                credito_monto_venta = float(submission_payload_override.get("credito_monto_venta", credito_monto_venta) or 0)
+                credito_anticipo = float(submission_payload_override.get("credito_anticipo", credito_anticipo) or 0)
+                credito_plazo_meses = int(submission_payload_override.get("credito_plazo_meses", credito_plazo_meses) or 0)
+                credito_frecuencia_pago = submission_payload_override.get("credito_frecuencia_pago", credito_frecuencia_pago)
+                credito_dia_cobro = submission_payload_override.get("credito_dia_cobro", credito_dia_cobro)
+                credito_datos_contacto = submission_payload_override.get("credito_datos_contacto", credito_datos_contacto)
                 fecha_entrega_str = submission_payload_override.get("fecha_entrega")
                 if fecha_entrega_str:
                     try:
@@ -4597,6 +4685,16 @@ with tab1:
                 st.session_state.pop("pedido_submit_disabled_at", None)
                 rerun_with_pedido_loading("⏳ Recargando formulario...")
 
+            if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
+                if credito_monto_venta <= 0 or credito_plazo_meses <= 0 or not credito_frecuencia_pago:
+                    set_pedido_submission_status(
+                        "warning",
+                        "⚠️ Para Venta terceros a crédito, captura monto, plazo y frecuencia de pago.",
+                    )
+                    st.session_state["pedido_submit_disabled"] = False
+                    st.session_state.pop("pedido_submit_disabled_at", None)
+                    rerun_with_pedido_loading("⏳ Recargando formulario...")
+
             if not submission_payload_override:
                 pedido_id, hora_registro, s3_prefix = build_submission_identity()
                 payload_to_retry = {
@@ -4654,6 +4752,14 @@ with tab1:
                     "local_route_total_factura": local_route_total_factura,
                     "local_route_adeudo_anterior": local_route_adeudo_anterior,
                     "local_route_referencias": local_route_referencias,
+                    "tipo_venta": tipo_venta,
+                    "condicion_venta_terceros": condicion_venta_terceros,
+                    "credito_monto_venta": credito_monto_venta,
+                    "credito_anticipo": credito_anticipo,
+                    "credito_plazo_meses": credito_plazo_meses,
+                    "credito_frecuencia_pago": credito_frecuencia_pago,
+                    "credito_dia_cobro": credito_dia_cobro,
+                    "credito_datos_contacto": credito_datos_contacto,
                     "fecha_entrega": fecha_entrega.strftime('%Y-%m-%d') if fecha_entrega else "",
                     "uploaded_files": _serialize_uploaded_files(uploaded_files),
                     "comprobante_pago_files": _serialize_uploaded_files(comprobante_pago_files),
@@ -4768,7 +4874,15 @@ with tab1:
                         )
                         rerun_with_pedido_loading()
                     headers = worksheet.row_values(1)
-                    required_headers = []
+                    required_headers = [
+                        "Tipo_Venta",
+                        "Condicion_Venta_Terceros",
+                        "Anticipo_Credito",
+                        "Plazo_Credito_Meses",
+                        "Frecuencia_Pago_Credito",
+                        "Dia_Cobro_Credito",
+                        "Datos_Contacto_Credito",
+                    ]
                     if tipo_envio == "🚚 Pedido Foráneo":
                         required_headers.append("Direccion_Guia_Retorno")
                     if required_headers:
@@ -4885,6 +4999,35 @@ with tab1:
                     values.append(folio_factura_error if tipo_envio == "🔁 Devolución" else "")
                 elif header == "Motivo_NotaVenta":
                     values.append(motivo_nota_venta)
+                elif header == "Tipo_Venta":
+                    values.append(tipo_venta)
+                elif header == "Condicion_Venta_Terceros":
+                    values.append(condicion_venta_terceros if tipo_venta == "Venta terceros" else "")
+                elif header == "Anticipo_Credito":
+                    if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
+                        values.append(f"{credito_anticipo:.2f}" if credito_anticipo > 0 else "")
+                    else:
+                        values.append("")
+                elif header == "Plazo_Credito_Meses":
+                    if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
+                        values.append(str(int(credito_plazo_meses)) if credito_plazo_meses > 0 else "")
+                    else:
+                        values.append("")
+                elif header == "Frecuencia_Pago_Credito":
+                    if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
+                        values.append(credito_frecuencia_pago)
+                    else:
+                        values.append("")
+                elif header == "Dia_Cobro_Credito":
+                    if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
+                        values.append(credito_dia_cobro)
+                    else:
+                        values.append("")
+                elif header == "Datos_Contacto_Credito":
+                    if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
+                        values.append(credito_datos_contacto)
+                    else:
+                        values.append("")
                 elif header == "Tipo_Envio":
                     values.append(tipo_envio_excel)
                 elif header == "Tipo_Envio_Original":
@@ -4948,7 +5091,9 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Monto_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
+                    if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
+                        values.append(f"{credito_monto_venta:.2f}" if credito_monto_venta > 0 else "")
+                    elif tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
                         values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
                     elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"):
                         monto_comprobante_local = float(local_route_total_factura or 0) + float(local_route_adeudo_anterior or 0)
