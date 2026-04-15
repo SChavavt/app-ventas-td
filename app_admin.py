@@ -3936,9 +3936,15 @@ with tab2:
             normalize_estado_entrega
         )
 
-        df_local_filtrado = df_local.copy()
+        estados_visibles_entrega_local = {ESTADO_ENTREGA_OPCIONES[1], ""}
+        df_local_filtrado = df_local[
+            df_local[ESTADO_ENTREGA_COL].apply(normalize_estado_entrega).isin(
+                estados_visibles_entrega_local
+            )
+        ].copy()
 
         if df_local_filtrado.empty:
+            st.caption("ℹ️ No hay pedidos locales con estado pendiente de entrega.")
             return
 
         opciones_local = {
