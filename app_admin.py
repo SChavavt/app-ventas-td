@@ -3886,182 +3886,13 @@ with tab2:
             pendientes = len(pedidos_pagados_no_confirmados) if 'pedidos_pagados_no_confirmados' in locals() else 0
             st.metric("Pendientes Confirmación", pendientes)
 
-    def render_entrega_local_panel(
-        *,
-        title: str,
-        source_df: pd.DataFrame,
-        search_label: str,
-        select_label: str,
-        key_prefix: str,
-        empty_message: str,
-        estado_pago_filtro: str | None = None,
-        order_by_fecha_confirmado: bool = False,
-    ) -> None:
-        st.markdown(f"##### {title}")
-
-        if "Tipo_Envio" in source_df.columns:
-            df_local = source_df[source_df["Tipo_Envio"].apply(es_local)].copy()
-        else:
-            df_local = pd.DataFrame()
-
-        if estado_pago_filtro and "Estado_Pago" in df_local.columns:
-            df_local = df_local[
-                df_local["Estado_Pago"].astype(str).str.strip() == estado_pago_filtro
-            ].copy()
-
-        if ESTADO_ENTREGA_COL not in df_local.columns:
-            df_local[ESTADO_ENTREGA_COL] = ESTADO_ENTREGA_DEFAULT
-
-        if df_local.empty:
-            st.caption(empty_message)
-            return
-
-        if "ID_Pedido" in df_local.columns:
-            df_local = df_local.drop_duplicates(subset="ID_Pedido", keep="last")
-
-        if order_by_fecha_confirmado:
-            fecha_sort_col = "_fecha_confirmado_sort"
-            if FECHA_CONFIRMADO_COL in df_local.columns:
-                df_local[fecha_sort_col] = pd.to_datetime(
-                    df_local[FECHA_CONFIRMADO_COL], errors="coerce"
-                )
-            else:
-                df_local[fecha_sort_col] = pd.NaT
-
-            df_local = df_local.sort_values(
-                fecha_sort_col, ascending=False, na_position="last"
-            )
-            df_local = df_local.drop(columns=[fecha_sort_col], errors="ignore")
-
-        df_local[ESTADO_ENTREGA_COL] = df_local[ESTADO_ENTREGA_COL].apply(
-            normalize_estado_entrega
-        )
-
-        busqueda = st.text_input(search_label, key=f"{key_prefix}_buscar").strip()
-        if busqueda:
-            criterio = busqueda.lower()
-            folios = df_local.get("Folio_Factura", pd.Series(dtype=str)).astype(str).str.lower()
-            clientes = df_local.get("Cliente", pd.Series(dtype=str)).astype(str).str.lower()
-            df_local_filtrado = df_local[
-                folios.str.contains(criterio, na=False)
-                | clientes.str.contains(criterio, na=False)
-            ].copy()
-        else:
-            df_local_filtrado = df_local.copy()
-
-        if df_local_filtrado.empty:
-            st.caption("Sin coincidencias para esa búsqueda.")
-            return
-
-        opciones_local = {
-            idx: (
-                f"📄 {row.get('Folio_Factura', 'N/A')} · "
-                f"👤 {row.get('Cliente', 'N/A')} · "
-                f"{row.get(ESTADO_ENTREGA_COL, '') or 'Sin estado'}"
-            )
-            for idx, row in df_local_filtrado.iterrows()
-        }
-        selected_idx_local = st.selectbox(
-            select_label,
-            options=list(opciones_local.keys()),
-            format_func=lambda i: opciones_local[i],
-            key=f"{key_prefix}_select",
-        )
-
-        selected_local_row = df_local_filtrado.loc[selected_idx_local]
-        estado_actual = normalize_estado_entrega(selected_local_row.get(ESTADO_ENTREGA_COL, ""))
-        if estado_actual not in ESTADO_ENTREGA_OPCIONES:
-            estado_actual = ESTADO_ENTREGA_DEFAULT
-
-        estado_nuevo = st.radio(
-            "Estado",
-            ESTADO_ENTREGA_OPCIONES,
-            index=ESTADO_ENTREGA_OPCIONES.index(estado_actual),
-            horizontal=True,
-            key=f"{key_prefix}_radio_{selected_idx_local}",
-        )
-
-        if st.button(
-            "💾 Guardar entrega",
-            key=f"{key_prefix}_guardar_{selected_idx_local}",
-            use_container_width=True,
-        ):
-            try:
-                pedido_id_raw = selected_local_row.get("ID_Pedido", "")
-                pedido_id_norm = normalize_id_pedido(pedido_id_raw)
-                folio_norm = normalize_folio_factura(selected_local_row.get("Folio_Factura", ""))
-
-                df_pedidos_idx = pd.Index([])
-                if "ID_Pedido" in df_pedidos.columns and pedido_id_norm:
-                    df_pedidos_idx = df_pedidos[
-                        df_pedidos["ID_Pedido"].apply(normalize_id_pedido) == pedido_id_norm
-                    ].index
-
-                if df_pedidos_idx.empty and "Folio_Factura" in df_pedidos.columns and folio_norm:
-                    df_pedidos_idx = df_pedidos[
-                        df_pedidos["Folio_Factura"].apply(normalize_folio_factura) == folio_norm
-                    ].index
-
-                if df_pedidos_idx.empty:
-                    raise ValueError("No se encontró el pedido en la hoja 'datos_pedidos'.")
-
-                gsheet_row_index = df_pedidos_idx[0] + 2
-                worksheet = _get_ws_datos()
-                headers_local = ensure_sheet_column(worksheet, headers, ESTADO_ENTREGA_COL)
-                st.session_state.headers = headers_local
-
-                safe_batch_update(
-                    worksheet,
-                    [
-                        {
-                            "range": rowcol_to_a1(
-                                gsheet_row_index,
-                                headers_local.index(ESTADO_ENTREGA_COL) + 1,
-                            ),
-                            "values": [[estado_nuevo]],
-                        }
-                    ],
-                )
-
-                _get_ws_datos.clear()
-                cargar_pedidos_desde_google_sheet.clear()
-                df_pedidos.at[df_pedidos_idx[0], ESTADO_ENTREGA_COL] = estado_nuevo
-                st.session_state.df_pedidos = df_pedidos
-                st.success("✅ Estado de entrega actualizado.")
-                st.toast("Estado de entrega actualizado", icon="📦")
-                rerun_current_tab()
-            except Exception as err:
-                st.error(f"❌ No se pudo actualizar el estado de entrega: {err}")
-
-    st.markdown("#### 🚚 Entregas locales")
-    col_local_pagado, col_local_no_pagado = st.columns(2, gap="medium")
-    with col_local_pagado:
-        render_entrega_local_panel(
-            title="Actualizar estado de pedidos locales",
-            source_df=df_confirmados_guardados,
-            search_label="🔎 Buscar folio o cliente",
-            select_label="Pedido local confirmado",
-            key_prefix="confirmados_local_compacto",
-            empty_message="ℹ️ No hay pedidos locales confirmados para actualizar.",
-            order_by_fecha_confirmado=True,
-        )
-    with col_local_no_pagado:
-        render_entrega_local_panel(
-            title="Actualizar estado de locales no pagados",
-            source_df=df_pedidos,
-            search_label="🔎 Buscar folio o cliente",
-            select_label="Pedido local no pagado",
-            key_prefix="confirmados_no_pagado_compacto",
-            empty_message="ℹ️ No hay pedidos locales no pagados para actualizar.",
-            estado_pago_filtro="🔴 No Pagado",
-        )
-
     st.markdown("---")
 
     # 🔁 Botón único: Actualizar Enlaces (agregar nuevos) + Recargar tabla
     tab2_alert = st.empty()
     if st.button(
         "🔁 Actualizar Enlaces y Recargar Confirmados",
+        type="primary",
         help="Agrega confirmados nuevos con enlaces y refresca la tabla",
     ):
         if allow_refresh("tab2_last_refresh", tab2_alert):
@@ -4518,6 +4349,342 @@ with tab2:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="download_excel_confirmados_ready",
             )
+
+        st.markdown("---")
+        st.subheader("🚚 Actualizar estado de entrega de pedidos locales")
+
+        if "Tipo_Envio" in df_confirmados_guardados.columns:
+            df_local_confirmados = df_confirmados_guardados[
+                df_confirmados_guardados["Tipo_Envio"].apply(es_local)
+            ].copy()
+        else:
+            df_local_confirmados = pd.DataFrame()
+
+        if ESTADO_ENTREGA_COL not in df_local_confirmados.columns:
+            df_local_confirmados[ESTADO_ENTREGA_COL] = ESTADO_ENTREGA_DEFAULT
+
+        if df_local_confirmados.empty:
+            st.info("ℹ️ No hay pedidos locales confirmados para actualizar.")
+        else:
+            if "ID_Pedido" in df_local_confirmados.columns:
+                df_local_confirmados = df_local_confirmados.drop_duplicates(
+                    subset="ID_Pedido", keep="last"
+                )
+
+            fecha_sort_col = "_fecha_confirmado_sort"
+            if FECHA_CONFIRMADO_COL in df_local_confirmados.columns:
+                df_local_confirmados[fecha_sort_col] = pd.to_datetime(
+                    df_local_confirmados[FECHA_CONFIRMADO_COL],
+                    errors="coerce",
+                )
+            else:
+                df_local_confirmados[fecha_sort_col] = pd.NaT
+
+            df_local_confirmados = df_local_confirmados.sort_values(
+                fecha_sort_col,
+                ascending=False,
+                na_position="last",
+            )
+
+            df_local_confirmados[ESTADO_ENTREGA_COL] = df_local_confirmados[
+                ESTADO_ENTREGA_COL
+            ].apply(normalize_estado_entrega)
+
+            busqueda_local = st.text_input(
+                "🔍 Buscar pedido por folio o cliente",
+                key="buscar_pedido_local_entrega_confirmados",
+            ).strip()
+
+            if busqueda_local:
+                criterio = busqueda_local.lower()
+
+                folios = (
+                    df_local_confirmados.get("Folio_Factura", pd.Series(dtype=str))
+                    .astype(str)
+                    .str.lower()
+                )
+                clientes = (
+                    df_local_confirmados.get("Cliente", pd.Series(dtype=str))
+                    .astype(str)
+                    .str.lower()
+                )
+
+                mask_busqueda = (
+                    folios.str.contains(criterio, na=False)
+                    | clientes.str.contains(criterio, na=False)
+                )
+                df_local_filtrado = df_local_confirmados[mask_busqueda].copy()
+            else:
+                df_local_filtrado = df_local_confirmados.copy()
+
+            df_local_filtrado = df_local_filtrado.drop(columns=[fecha_sort_col], errors="ignore")
+            df_local_confirmados = df_local_confirmados.drop(
+                columns=[fecha_sort_col], errors="ignore"
+            )
+
+            def _local_display_label(row: pd.Series) -> str:
+                folio = row.get("Folio_Factura", "N/A")
+                cliente = row.get("Cliente", "N/A")
+                estado = row.get(ESTADO_ENTREGA_COL, "") or "Sin estado"
+                return f"📄 {folio} - 👤 {cliente} · {estado}"
+
+            if df_local_filtrado.empty:
+                st.info("ℹ️ No se encontraron pedidos que coincidan con la búsqueda.")
+            else:
+                local_options = {
+                    idx: _local_display_label(row)
+                    for idx, row in df_local_filtrado.iterrows()
+                }
+
+                if not local_options:
+                    st.info("ℹ️ No hay pedidos locales disponibles para actualizar.")
+                else:
+                    option_keys = list(local_options.keys())
+                    selected_idx_local = st.selectbox(
+                        "Selecciona un pedido local para ajustar su entrega",
+                        options=option_keys,
+                        format_func=lambda i: local_options[i],
+                    key="select_local_entrega_confirmados",
+                )
+
+                selected_local_row = df_local_filtrado.loc[selected_idx_local]
+                estado_actual = normalize_estado_entrega(
+                    selected_local_row.get(ESTADO_ENTREGA_COL, "")
+                )
+                if estado_actual not in ESTADO_ENTREGA_OPCIONES:
+                    estado_actual = ESTADO_ENTREGA_DEFAULT
+                estado_nuevo = st.radio(
+                    "Estado de entrega",
+                    ESTADO_ENTREGA_OPCIONES,
+                    index=ESTADO_ENTREGA_OPCIONES.index(estado_actual),
+                    horizontal=True,
+                    key=f"radio_estado_entrega_{selected_idx_local}",
+                )
+
+                if st.button(
+                    "💾 Guardar estado de entrega",
+                    type="primary",
+                    key=f"btn_guardar_estado_entrega_{selected_idx_local}",
+                ):
+                    try:
+                        pedido_id_raw = selected_local_row.get("ID_Pedido", "")
+                        pedido_id_norm = normalize_id_pedido(pedido_id_raw)
+                        folio_norm = normalize_folio_factura(
+                            selected_local_row.get("Folio_Factura", "")
+                        )
+
+                        df_pedidos_idx = pd.Index([])
+                        if "ID_Pedido" in df_pedidos.columns and pedido_id_norm:
+                            df_pedidos_idx = df_pedidos[
+                                df_pedidos["ID_Pedido"].apply(normalize_id_pedido)
+                                == pedido_id_norm
+                            ].index
+
+                        if df_pedidos_idx.empty and "Folio_Factura" in df_pedidos.columns and folio_norm:
+                            df_pedidos_idx = df_pedidos[
+                                df_pedidos["Folio_Factura"].apply(normalize_folio_factura)
+                                == folio_norm
+                            ].index
+
+                        if df_pedidos_idx.empty:
+                            raise ValueError(
+                                "No se encontró el pedido en la hoja 'datos_pedidos'."
+                            )
+
+                        gsheet_row_index = df_pedidos_idx[0] + 2
+
+                        worksheet = _get_ws_datos()
+                        headers_local = ensure_sheet_column(
+                            worksheet, headers, ESTADO_ENTREGA_COL
+                        )
+                        st.session_state.headers = headers_local
+                        headers = headers_local
+
+                        safe_batch_update(
+                            worksheet,
+                            [
+                                {
+                                    "range": rowcol_to_a1(
+                                        gsheet_row_index,
+                                        headers_local.index(ESTADO_ENTREGA_COL) + 1,
+                                    ),
+                                    "values": [[estado_nuevo]],
+                                }
+                            ],
+                        )
+
+                        _get_ws_datos.clear()
+                        cargar_pedidos_desde_google_sheet.clear()
+
+                        df_pedidos.at[df_pedidos_idx[0], ESTADO_ENTREGA_COL] = estado_nuevo
+                        st.session_state.df_pedidos = df_pedidos
+
+                        st.success("✅ Estado de entrega actualizado correctamente.")
+                        st.toast("Estado de entrega actualizado", icon="📦")
+                        rerun_current_tab()
+                    except Exception as err:
+                        st.error(f"❌ No se pudo actualizar el estado de entrega: {err}")
+
+        st.markdown("---")
+        st.subheader("🚚 Actualizar estado de entrega de pedidos locales no pagados")
+
+        if "Tipo_Envio" in df_pedidos.columns:
+            df_local_no_pagados = df_pedidos[
+                df_pedidos["Tipo_Envio"].apply(es_local)
+            ].copy()
+        else:
+            df_local_no_pagados = pd.DataFrame()
+
+        if "Estado_Pago" in df_local_no_pagados.columns:
+            df_local_no_pagados = df_local_no_pagados[
+                df_local_no_pagados["Estado_Pago"].astype(str).str.strip()
+                == "🔴 No Pagado"
+            ].copy()
+
+        if ESTADO_ENTREGA_COL not in df_local_no_pagados.columns:
+            df_local_no_pagados[ESTADO_ENTREGA_COL] = ESTADO_ENTREGA_DEFAULT
+
+        if df_local_no_pagados.empty:
+            st.info("ℹ️ No hay pedidos locales no pagados para actualizar.")
+        else:
+            if "ID_Pedido" in df_local_no_pagados.columns:
+                df_local_no_pagados = df_local_no_pagados.drop_duplicates(
+                    subset="ID_Pedido", keep="last"
+                )
+
+            df_local_no_pagados[ESTADO_ENTREGA_COL] = df_local_no_pagados[
+                ESTADO_ENTREGA_COL
+            ].apply(normalize_estado_entrega)
+
+            busqueda_no_pagado = st.text_input(
+                "🔍 Buscar pedido no pagado por folio o cliente",
+                key="buscar_pedido_local_entrega_no_pagados",
+            ).strip()
+
+            if busqueda_no_pagado:
+                criterio = busqueda_no_pagado.lower()
+
+                folios = (
+                    df_local_no_pagados.get("Folio_Factura", pd.Series(dtype=str))
+                    .astype(str)
+                    .str.lower()
+                )
+                clientes = (
+                    df_local_no_pagados.get("Cliente", pd.Series(dtype=str))
+                    .astype(str)
+                    .str.lower()
+                )
+
+                mask_busqueda = (
+                    folios.str.contains(criterio, na=False)
+                    | clientes.str.contains(criterio, na=False)
+                )
+                df_local_filtrado = df_local_no_pagados[mask_busqueda].copy()
+            else:
+                df_local_filtrado = df_local_no_pagados.copy()
+
+            def _local_display_label_no_pagado(row: pd.Series) -> str:
+                folio = row.get("Folio_Factura", "N/A")
+                cliente = row.get("Cliente", "N/A")
+                estado = row.get(ESTADO_ENTREGA_COL, "") or "Sin estado"
+                return f"📄 {folio} - 👤 {cliente} · {estado}"
+
+            if df_local_filtrado.empty:
+                st.info("ℹ️ No se encontraron pedidos que coincidan con la búsqueda.")
+            else:
+                local_options = {
+                    idx: _local_display_label_no_pagado(row)
+                    for idx, row in df_local_filtrado.iterrows()
+                }
+
+                if not local_options:
+                    st.info("ℹ️ No hay pedidos locales disponibles para actualizar.")
+                else:
+                    option_keys = list(local_options.keys())
+                    selected_idx_local = st.selectbox(
+                        "Selecciona un pedido local no pagado para ajustar su entrega",
+                        options=option_keys,
+                        format_func=lambda i: local_options[i],
+                        key="select_local_entrega_no_pagados",
+                    )
+
+                selected_local_row = df_local_filtrado.loc[selected_idx_local]
+                estado_actual = normalize_estado_entrega(
+                    selected_local_row.get(ESTADO_ENTREGA_COL, "")
+                )
+                if estado_actual not in ESTADO_ENTREGA_OPCIONES:
+                    estado_actual = ESTADO_ENTREGA_DEFAULT
+                estado_nuevo = st.radio(
+                    "Estado de entrega",
+                    ESTADO_ENTREGA_OPCIONES,
+                    index=ESTADO_ENTREGA_OPCIONES.index(estado_actual),
+                    horizontal=True,
+                    key=f"radio_estado_entrega_no_pagados_{selected_idx_local}",
+                )
+
+                if st.button(
+                    "💾 Guardar estado de entrega",
+                    type="primary",
+                    key=f"btn_guardar_estado_entrega_no_pagados_{selected_idx_local}",
+                ):
+                    try:
+                        pedido_id_raw = selected_local_row.get("ID_Pedido", "")
+                        pedido_id_norm = normalize_id_pedido(pedido_id_raw)
+                        folio_norm = normalize_folio_factura(
+                            selected_local_row.get("Folio_Factura", "")
+                        )
+
+                        df_pedidos_idx = pd.Index([])
+                        if "ID_Pedido" in df_pedidos.columns and pedido_id_norm:
+                            df_pedidos_idx = df_pedidos[
+                                df_pedidos["ID_Pedido"].apply(normalize_id_pedido)
+                                == pedido_id_norm
+                            ].index
+
+                        if df_pedidos_idx.empty and "Folio_Factura" in df_pedidos.columns and folio_norm:
+                            df_pedidos_idx = df_pedidos[
+                                df_pedidos["Folio_Factura"].apply(normalize_folio_factura)
+                                == folio_norm
+                            ].index
+
+                        if df_pedidos_idx.empty:
+                            raise ValueError(
+                                "No se encontró el pedido en la hoja 'datos_pedidos'."
+                            )
+
+                        gsheet_row_index = df_pedidos_idx[0] + 2
+
+                        worksheet = _get_ws_datos()
+                        headers_local = ensure_sheet_column(
+                            worksheet, headers, ESTADO_ENTREGA_COL
+                        )
+                        st.session_state.headers = headers_local
+                        headers = headers_local
+
+                        safe_batch_update(
+                            worksheet,
+                            [
+                                {
+                                    "range": rowcol_to_a1(
+                                        gsheet_row_index,
+                                        headers_local.index(ESTADO_ENTREGA_COL) + 1,
+                                    ),
+                                    "values": [[estado_nuevo]],
+                                }
+                            ],
+                        )
+
+                        _get_ws_datos.clear()
+                        cargar_pedidos_desde_google_sheet.clear()
+
+                        df_pedidos.at[df_pedidos_idx[0], ESTADO_ENTREGA_COL] = estado_nuevo
+                        st.session_state.df_pedidos = df_pedidos
+
+                        st.success("✅ Estado de entrega actualizado correctamente.")
+                        st.toast("Estado de entrega actualizado", icon="📦")
+                        rerun_current_tab()
+                    except Exception as err:
+                        st.error(f"❌ No se pudo actualizar el estado de entrega: {err}")
                         
 # --- TAB 3: CONFIRMACIÓN DE CASOS (Devoluciones + Garantías, con tabla y selectbox) ---
 with tab3, suppress(StopException):
