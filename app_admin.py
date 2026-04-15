@@ -1321,6 +1321,18 @@ def cargar_pedidos_desde_google_sheet(sheet_id, worksheet_name, _nonce: int = 0)
         }
         df = df.rename(columns=alias)
 
+        if not df.empty and df.columns.duplicated().any():
+            cols_coalescidas = {}
+            for col_name in pd.unique(df.columns):
+                same_name = df.loc[:, df.columns == col_name]
+                if isinstance(same_name, pd.Series) or same_name.shape[1] == 1:
+                    cols_coalescidas[col_name] = same_name.iloc[:, 0] if hasattr(same_name, "iloc") and not isinstance(same_name, pd.Series) else same_name
+                else:
+                    cols_coalescidas[col_name] = (
+                        same_name.replace("", pd.NA).bfill(axis=1).iloc[:, 0].fillna("")
+                    )
+            df = pd.DataFrame(cols_coalescidas, index=df.index)
+
         # Asegura columnas clave
         for col in ["Folio_Factura", "ID_Pedido"]:
             if col not in df.columns:
@@ -2327,9 +2339,7 @@ with tab1:
                 )
             ].copy()
 
-            if pedidos_nota_venta_terceros.empty:
-                st.info("🧭 Radar Venta Terceros: no hay notas de venta marcadas como Venta terceros por confirmar.")
-            else:
+            if not pedidos_nota_venta_terceros.empty:
                 st.warning(
                     f"🧭 Radar Venta Terceros: hay {len(pedidos_nota_venta_terceros)} nota(s) de venta marcadas como Venta terceros."
                 )
