@@ -619,6 +619,47 @@ def is_estado_pago_no_aplica(value: object) -> bool:
     return estado.startswith("🎟️ no aplica") or estado == "no aplica"
 
 
+def render_venta_terceros_info(row: pd.Series) -> None:
+    """Muestra datos de venta terceros si el pedido aplica y tiene valores útiles."""
+    if not is_venta_terceros_pedido(row):
+        return
+
+    terceros_fields = [
+        ("Tipo_Venta", "Tipo de Venta"),
+        ("Condicion_Venta_Terceros", "Condición de Venta Terceros"),
+        ("Anticipo_Credito", "Anticipo Crédito"),
+        ("Plazo_Credito_Meses", "Plazo Crédito (Meses)"),
+        ("Frecuencia_Pago_Credito", "Frecuencia de Pago"),
+        ("Dia_Cobro_Credito", "Día de Cobro"),
+        ("Datos_Contacto_Credito", "Datos de Contacto Crédito"),
+    ]
+
+    terceros_items: list[tuple[str, str]] = []
+    for field_key, field_label in terceros_fields:
+        field_value = row.get(field_key, "")
+        if has_text_value(field_value):
+            terceros_items.append((field_label, str(field_value).strip()))
+
+    if not terceros_items:
+        return
+
+    st.markdown("#### 🤝 Datos de Venta Terceros")
+    col_ter_1, col_ter_2 = st.columns(2)
+    split_index = (len(terceros_items) + 1) // 2
+    first_chunk = terceros_items[:split_index]
+    second_chunk = terceros_items[split_index:]
+
+    with col_ter_1:
+        for label, value in first_chunk:
+            st.write(f"**{label}:** {value}")
+
+    with col_ter_2:
+        for label, value in second_chunk:
+            st.write(f"**{label}:** {value}")
+
+    st.markdown("---")
+
+
 def force_reload_pedidos_and_refresh_pendientes() -> tuple[pd.DataFrame, list[str]]:
     """Fuerza recarga real de pedidos, refrescando pendientes y sesión."""
     _get_ws_datos.clear()
@@ -2409,8 +2450,6 @@ with tab1:
             st.success("🎉 ¡No hay comprobantes pendientes de confirmación!")
             st.info("Todos los pedidos pagados han sido confirmados.")
         else:
-            st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes.")
-
             pedidos_nota_venta_terceros = pedidos_pagados_no_confirmados[
                 pedidos_pagados_no_confirmados.apply(
                     lambda row: is_nota_venta_pedido(row) and is_venta_terceros_pedido(row),
@@ -2441,6 +2480,8 @@ with tab1:
                         use_container_width=True,
                         hide_index=True,
                     )
+
+            st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes.")
 
             # Mostrar tabla
             columns_to_show = [
@@ -2625,6 +2666,7 @@ with tab1:
                     clear_comprobante_form_state()
 
                 st.session_state["last_selected_pedido_key"] = current_selection_key
+
                 modificacion_surtido_text = clean_modificacion_surtido(
                     selected_pedido_data.get("Modificacion_Surtido", "")
                 )
@@ -2657,6 +2699,7 @@ with tab1:
                     st.session_state.selected_admin_pedido_id = selected_pedido_id_for_s3_search
 
                     # Mostrar información del pedido
+                    render_venta_terceros_info(selected_pedido_data)
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("📋 Información del Pedido")
@@ -3233,7 +3276,8 @@ with tab1:
                     except Exception:
                         st.session_state.monto_pago = 0.0
                     st.session_state.referencia_pago = selected_pedido_data.get('Referencia_Comprobante', '')
-    
+
+                    render_venta_terceros_info(selected_pedido_data)
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("📋 Información del Pedido")
