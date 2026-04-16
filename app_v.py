@@ -2417,11 +2417,38 @@ if s3_status and not s3_status.get("ok", False):
     st.stop()
 
 nombre_vendedor_activo = get_session_vendedor_name() or usuario_activo
-st.markdown(f"### 👋 Bienvenido, {nombre_vendedor_activo}")
+st.markdown(f"<h3 class='home-welcome-title'>👋 Bienvenido, {nombre_vendedor_activo}</h3>", unsafe_allow_html=True)
 
 st.markdown(
     """
     <style>
+    .home-welcome-title {
+        margin: 0.35rem 0 0.8rem 0;
+        font-size: clamp(1.55rem, 2.1vw, 2rem);
+        line-height: 1.2;
+        font-weight: 700;
+    }
+    .ventas-brand-title {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin: 0;
+        font-size: clamp(2.05rem, 3.1vw, 2.55rem);
+        line-height: 1.05;
+        font-weight: 800;
+    }
+    .ventas-brand-title img {
+        height: 1.08em;
+        width: auto;
+        vertical-align: middle;
+    }
+    div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        font-size: 0.98rem;
+    }
+    [data-testid="stAppViewContainer"] h2 {
+        font-size: clamp(1.75rem, 2.45vw, 2.25rem);
+        line-height: 1.2;
+    }
     .remote-zone-status {
         border-radius: 10px;
         padding: 10px 12px;
@@ -2504,11 +2531,11 @@ def render_brand_title(icon: str, prefix: str, fallback_suffix: str, logo_path: 
             logo_b64 = base64.b64encode(logo_file.read_bytes()).decode("utf-8")
             st.markdown(
                 f"""
-                <h1 style="display:flex;align-items:center;gap:0.45rem;margin:0;">
+                <h1 class="ventas-brand-title">
                     <span>{icon}</span>
                     <span>{prefix}</span>
                     <img src="data:image/png;base64,{logo_b64}" alt="Logo TD"
-                         style="height:1.15em;width:auto;vertical-align:middle;" />
+                         />
                 </h1>
                 """,
                 unsafe_allow_html=True,
@@ -2517,7 +2544,10 @@ def render_brand_title(icon: str, prefix: str, fallback_suffix: str, logo_path: 
         except Exception:
             pass
 
-    st.title(f"{icon} {prefix} {fallback_suffix}")
+    st.markdown(
+        f"<h1 class='ventas-brand-title'>{icon} {prefix} {fallback_suffix}</h1>",
+        unsafe_allow_html=True,
+    )
     st.caption(
         f"Tip: agrega tu logo en `{logo_path}` (PNG recomendado) para reemplazar “{fallback_suffix}”."
     )
