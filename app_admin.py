@@ -1526,10 +1526,6 @@ if not pedidos_pagados_no_confirmados.empty:
     )
     st.session_state.pedidos_pagados_no_confirmados = pedidos_pagados_no_confirmados
 
-df_casos, headers_casos = cargar_pedidos_desde_google_sheet(GOOGLE_SHEET_ID, "casos_especiales")
-
-
-
 # --- CONFIGURACIÓN DE AWS S3 ---
 try:
     AWS_ACCESS_KEY_ID = st.secrets["aws_access_key_id"]
@@ -4923,7 +4919,7 @@ with tab3, suppress(StopException):
         st.session_state["tab3_selected_idx"] = 0
 
     # Lectura con fallback
-    @st.cache_data(show_spinner=False)
+    @st.cache_data(show_spinner=False, ttl=300, max_entries=1)
     def get_raw_sheet_data_cached(sheet_id, worksheet_name, _nonce: int):
         try:
             try:
@@ -5891,19 +5887,19 @@ with tab4:
         st.session_state["tab4_reload_nonce"] = 0
 
     # ✅ lector robusto con caché
-    @st.cache_data(show_spinner=False, ttl=300)
+    @st.cache_data(show_spinner=False, ttl=300, max_entries=1)
     def cargar_casos_especiales_cached(sheet_id: str, ws_name: str, _nonce: int):
         ws = safe_open_worksheet(sheet_id, ws_name)
         vals = ws.get_all_values(value_render_option="UNFORMATTED_VALUE")
         if not vals:
-            return pd.DataFrame(), [], None
+            return pd.DataFrame(), []
         headers = vals[0]
         df = pd.DataFrame(vals[1:], columns=headers)
         df = df.dropna(how="all")
         for c in ["ID_Pedido", "Cliente", "Folio_Factura", "Tipo_Envio", "Hora_Registro"]:
             if c not in df.columns:
                 df[c] = ""
-        return df, headers, ws
+        return df, headers
 
     # 🔁 recargar
     col_a, col_b = st.columns([1, 5])
@@ -5917,15 +5913,15 @@ with tab4:
     # leer hoja
     prev_nonce = st.session_state["tab4_reload_nonce"]
     try:
-        df_ce, headers_ce, ws_casos = cargar_casos_especiales_cached(
+        df_ce, headers_ce = cargar_casos_especiales_cached(
             GOOGLE_SHEET_ID, "casos_especiales", prev_nonce
         )
         st.session_state["_lastgood_casos_especiales"] = (
-            df_ce.copy(), headers_ce
+            df_ce.copy(deep=False), headers_ce
         )
     except gspread.exceptions.WorksheetNotFound:
         st.error("❌ No existe la hoja 'casos_especiales'.")
-        df_ce, headers_ce, ws_casos = pd.DataFrame(), [], None
+        df_ce, headers_ce = pd.DataFrame(), []
     except gspread.exceptions.APIError as e:
         st.session_state["tab4_reload_nonce"] = max(0, prev_nonce - 1)
         snap = st.session_state.get("_lastgood_casos_especiales")
@@ -5934,10 +5930,9 @@ with tab4:
                 "♻️ Google Sheets dio un error temporal al leer 'casos_especiales'. Mostrando el último dato bueno en caché."
             )
             df_ce, headers_ce = snap
-            ws_casos = None
         else:
             st.error(f"❌ Error al leer 'casos_especiales': {e}")
-            df_ce, headers_ce, ws_casos = pd.DataFrame(), [], None
+            df_ce, headers_ce = pd.DataFrame(), []
 
     if df_ce.empty:
         st.info("ℹ️ No hay registros en 'casos_especiales'.")
