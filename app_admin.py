@@ -2409,6 +2409,8 @@ with tab1:
             st.success("🎉 ¡No hay comprobantes pendientes de confirmación!")
             st.info("Todos los pedidos pagados han sido confirmados.")
         else:
+            st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes.")
+
             pedidos_nota_venta_terceros = pedidos_pagados_no_confirmados[
                 pedidos_pagados_no_confirmados.apply(
                     lambda row: is_nota_venta_pedido(row) and is_venta_terceros_pedido(row),
@@ -2439,8 +2441,6 @@ with tab1:
                         use_container_width=True,
                         hide_index=True,
                     )
-
-            st.warning(f"📋 Hay {len(pedidos_pagados_no_confirmados)} comprobantes pendientes.")
 
             # Mostrar tabla
             columns_to_show = [
@@ -2625,41 +2625,6 @@ with tab1:
                     clear_comprobante_form_state()
 
                 st.session_state["last_selected_pedido_key"] = current_selection_key
-
-                if is_venta_terceros_pedido(selected_pedido_data):
-                    terceros_fields = [
-                        ("Tipo_Venta", "Tipo de Venta"),
-                        ("Condicion_Venta_Terceros", "Condición de Venta Terceros"),
-                        ("Anticipo_Credito", "Anticipo Crédito"),
-                        ("Plazo_Credito_Meses", "Plazo Crédito (Meses)"),
-                        ("Frecuencia_Pago_Credito", "Frecuencia de Pago"),
-                        ("Dia_Cobro_Credito", "Día de Cobro"),
-                        ("Datos_Contacto_Credito", "Datos de Contacto Crédito"),
-                    ]
-
-                    terceros_items: list[tuple[str, str]] = []
-                    for field_key, field_label in terceros_fields:
-                        field_value = selected_pedido_data.get(field_key, "")
-                        if has_text_value(field_value):
-                            terceros_items.append((field_label, str(field_value).strip()))
-
-                    if terceros_items:
-                        st.markdown("#### 🤝 Datos de Venta Terceros")
-                        col_ter_1, col_ter_2 = st.columns(2)
-                        split_index = (len(terceros_items) + 1) // 2
-                        first_chunk = terceros_items[:split_index]
-                        second_chunk = terceros_items[split_index:]
-
-                        with col_ter_1:
-                            for label, value in first_chunk:
-                                st.write(f"**{label}:** {value}")
-
-                        with col_ter_2:
-                            for label, value in second_chunk:
-                                st.write(f"**{label}:** {value}")
-
-                        st.markdown("---")
-
                 modificacion_surtido_text = clean_modificacion_surtido(
                     selected_pedido_data.get("Modificacion_Surtido", "")
                 )
