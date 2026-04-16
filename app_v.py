@@ -2614,6 +2614,42 @@ def normalizar_busqueda_libre(texto: object) -> str:
     """Normaliza texto para búsquedas flexibles ignorando espacios."""
     return normalizar(str(texto or "")).replace(" ", "")
 
+
+def _tokenizar_nombre_busqueda(texto: object) -> list[str]:
+    """Convierte texto en tokens alfanuméricos normalizados para comparación flexible."""
+    texto_normalizado = normalizar(str(texto or "")).strip()
+    if not texto_normalizado:
+        return []
+    return [tok for tok in re.split(r"[^a-z0-9]+", texto_normalizado) if tok]
+
+
+def coincide_nombre_cliente_busqueda(nombre: object, keyword: object) -> bool:
+    """
+    Compara nombre de cliente con una búsqueda flexible.
+    Reglas:
+      1) Coincidencia directa por subcadena.
+      2) Coincidencia por tokens en cualquier orden (ej. "denisse ramos" vs "denisse rubi ramos").
+    """
+    nombre_normalizado = normalizar(str(nombre or "")).strip()
+    keyword_normalizado = normalizar(str(keyword or "")).strip()
+
+    if not nombre_normalizado or not keyword_normalizado:
+        return False
+
+    if keyword_normalizado in nombre_normalizado:
+        return True
+
+    tokens_keyword = _tokenizar_nombre_busqueda(keyword_normalizado)
+    tokens_nombre = _tokenizar_nombre_busqueda(nombre_normalizado)
+    if not tokens_keyword or not tokens_nombre:
+        return False
+
+    # Cada token buscado debe aparecer (exacto o parcial) en algún token del nombre.
+    for token_kw in tokens_keyword:
+        if not any(token_kw in token_nombre for token_nombre in tokens_nombre):
+            return False
+    return True
+
 @st.cache_data(ttl=300)
 def obtener_prefijo_s3(pedido_id):
     posibles_prefijos = [
@@ -9168,10 +9204,9 @@ with tab8:
                 nombre = str(row.get("Cliente", "")).strip()
                 folio = str(row.get("Folio_Factura", "")).strip()
 
-                nombre_normalizado = normalizar(nombre) if nombre else ""
                 folio_normalizado = normalizar_folio(folio)
 
-                coincide_cliente = bool(nombre) and keyword_cliente_normalizado in nombre_normalizado
+                coincide_cliente = coincide_nombre_cliente_busqueda(nombre, keyword_cliente_normalizado)
                 coincide_folio = bool(folio_normalizado) and keyword_folio_normalizado == folio_normalizado
 
                 if not coincide_cliente and not coincide_folio:
@@ -9229,10 +9264,9 @@ with tab8:
                 nombre = str(row.get("Cliente", "")).strip()
                 folio = str(row.get("Folio_Factura", "")).strip()
 
-                nombre_normalizado = normalizar(nombre) if nombre else ""
                 folio_normalizado = normalizar_folio(folio)
 
-                coincide_cliente = bool(nombre) and keyword_cliente_normalizado in nombre_normalizado
+                coincide_cliente = coincide_nombre_cliente_busqueda(nombre, keyword_cliente_normalizado)
                 coincide_folio = bool(folio_normalizado) and keyword_folio_normalizado == folio_normalizado
 
                 if not coincide_cliente and not coincide_folio:
