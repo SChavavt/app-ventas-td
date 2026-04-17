@@ -5045,12 +5045,27 @@ with tab1:
                             )
                             rerun_with_pedido_loading()
                 else:
-                    worksheet = get_worksheet_operativa()
+                    guardar_en_historico = (
+                        tipo_envio_excel == "🏙️ Pedidos CDMX"
+                        or (
+                            tipo_envio == "📍 Pedido Local"
+                            and subtipo_local in {"🌆 Local CDMX", "🎓 Recoge en Aula"}
+                        )
+                    )
+
+                    worksheet = (
+                        get_worksheet_historico()
+                        if guardar_en_historico
+                        else get_worksheet_operativa()
+                    )
                     if worksheet is None:
+                        destino_hoja = (
+                            SHEET_PEDIDOS_HISTORICOS if guardar_en_historico else SHEET_PEDIDOS_OPERATIVOS
+                        )
                         set_pedido_submission_status(
                             "error",
                             "❌ Falla al subir el pedido.",
-                            "No fue posible acceder a la hoja de pedidos.",
+                            f"No fue posible acceder a la hoja de pedidos ({destino_hoja}).",
                         )
                         rerun_with_pedido_loading()
                     headers = worksheet.row_values(1)
