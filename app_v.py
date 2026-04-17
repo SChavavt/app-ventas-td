@@ -29,7 +29,7 @@ from http.client import InvalidURL
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 from gspread.utils import rowcol_to_a1
-from gspread.exceptions import APIError
+from gspread.exceptions import APIError, GSpreadException
 
 
 # NEW: Import boto3 for AWS S3
@@ -9079,7 +9079,38 @@ def _leer_registros_hoja_busqueda(nombre_hoja: str, retries: int = 5, base_delay
     for attempt in range(retries):
         try:
             sheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID).worksheet(nombre_hoja)
-            return sheet.get_all_records()
+            try:
+                return sheet.get_all_records()
+            except GSpreadException as gspread_error:
+                if "header row in the worksheet is not unique" not in str(gspread_error).lower():
+                    raise
+
+                all_values = sheet.get_all_values()
+                if not all_values:
+                    return []
+
+                raw_headers = all_values[0]
+                headers = []
+                seen_headers: Dict[str, int] = {}
+
+                for idx, raw_header in enumerate(raw_headers, start=1):
+                    header_base = str(raw_header or "").strip() or f"Columna_{idx}"
+                    seen_headers[header_base] = seen_headers.get(header_base, 0) + 1
+                    header_count = seen_headers[header_base]
+                    headers.append(header_base if header_count == 1 else f"{header_base}_{header_count}")
+
+                rows = []
+                for raw_row in all_values[1:]:
+                    if len(raw_row) < len(headers):
+                        row = raw_row + [""] * (len(headers) - len(raw_row))
+                    else:
+                        row = raw_row[:len(headers)]
+
+                    if not any(str(cell).strip() for cell in row):
+                        continue
+
+                    rows.append(dict(zip(headers, row)))
+                return rows
         except APIError as e:
             last_error = e
             status = getattr(getattr(e, "response", None), "status_code", None)
