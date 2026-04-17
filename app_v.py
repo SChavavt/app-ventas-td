@@ -29,7 +29,7 @@ from http.client import InvalidURL
 from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 from gspread.utils import rowcol_to_a1
-from gspread.exceptions import APIError
+from gspread.exceptions import APIError, GSpreadException
 
 
 # NEW: Import boto3 for AWS S3
@@ -9079,7 +9079,29 @@ def _leer_registros_hoja_busqueda(nombre_hoja: str, retries: int = 5, base_delay
     for attempt in range(retries):
         try:
             sheet = g_spread_client.open_by_key(GOOGLE_SHEET_ID).worksheet(nombre_hoja)
-            return sheet.get_all_records()
+            try:
+                return sheet.get_all_records()
+            except GSpreadException as e:
+                if "header row in the worksheet is not unique" not in str(e):
+                    raise
+                valores = sheet.get_all_values()
+                if not valores:
+                    return []
+                headers_raw = valores[0]
+                headers = []
+                conteo_headers = {}
+                for idx, raw_header in enumerate(headers_raw, start=1):
+                    base = str(raw_header).strip() or f"col_{idx}"
+                    repeticiones = conteo_headers.get(base, 0)
+                    conteo_headers[base] = repeticiones + 1
+                    if repeticiones:
+                        base = f"{base}_{repeticiones + 1}"
+                    headers.append(base)
+                registros = []
+                for fila in valores[1:]:
+                    fila_normalizada = list(fila) + [""] * max(0, len(headers) - len(fila))
+                    registros.append(dict(zip(headers, fila_normalizada)))
+                return registros
         except APIError as e:
             last_error = e
             status = getattr(getattr(e, "response", None), "status_code", None)
