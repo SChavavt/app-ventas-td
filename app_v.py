@@ -9090,13 +9090,26 @@ def _leer_registros_hoja_busqueda(nombre_hoja: str, retries: int = 5, base_delay
                 headers_raw = valores[0]
                 headers = []
                 conteo_headers = {}
+                headers_duplicados = {}
+                primera_columna_por_header = {}
                 for idx, raw_header in enumerate(headers_raw, start=1):
                     base = str(raw_header).strip() or f"col_{idx}"
                     repeticiones = conteo_headers.get(base, 0)
                     conteo_headers[base] = repeticiones + 1
+                    primera_columna_por_header.setdefault(base, idx)
                     if repeticiones:
+                        headers_duplicados.setdefault(base, []).append(idx)
                         base = f"{base}_{repeticiones + 1}"
                     headers.append(base)
+                if headers_duplicados:
+                    detalle_duplicados = ", ".join(
+                        f"{header} (columnas {', '.join(map(str, [primera_columna_por_header[header], *indices]))})"
+                        for header, indices in headers_duplicados.items()
+                    )
+                    st.session_state.setdefault("_busqueda_headers_duplicados", {})[nombre_hoja] = detalle_duplicados
+                    print(
+                        f"[BUSQUEDA_PEDIDOS] Encabezados duplicados detectados en hoja '{nombre_hoja}': {detalle_duplicados}"
+                    )
                 registros = []
                 for fila in valores[1:]:
                     fila_normalizada = list(fila) + [""] * max(0, len(headers) - len(fila))
@@ -9253,6 +9266,15 @@ with tab8:
         resultados = []
 
         df_pedidos = cargar_pedidos_busqueda()
+        headers_duplicados_busqueda = st.session_state.get("_busqueda_headers_duplicados", {})
+        if headers_duplicados_busqueda:
+            detalle_hojas = " | ".join(
+                f"{hoja}: {detalle}" for hoja, detalle in headers_duplicados_busqueda.items()
+            )
+            st.warning(
+                "Se detectaron encabezados duplicados en Google Sheets. "
+                f"Detalles: {detalle_hojas}"
+            )
         if "Hora_Registro" in df_pedidos.columns:
             df_pedidos["Hora_Registro"] = pd.to_datetime(df_pedidos["Hora_Registro"], errors="coerce")
             df_pedidos = df_pedidos.sort_values(by="Hora_Registro", ascending=not recientes_primero)
