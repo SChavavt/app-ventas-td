@@ -5015,6 +5015,14 @@ with tab1:
                 st.session_state.pop("pedido_submit_disabled_at", None)
                 rerun_with_pedido_loading()
 
+            es_envio_historico_especial = (
+                tipo_envio_excel == "🏙️ Pedidos CDMX"
+                or (
+                    tipo_envio == "📍 Pedido Local"
+                    and subtipo_local in {"🌆 Local CDMX", "🎓 Recoge en Aula"}
+                )
+            )
+
             # Acceso a la hoja
             headers = []
             try:
@@ -5045,12 +5053,19 @@ with tab1:
                             )
                             rerun_with_pedido_loading()
                 else:
-                    worksheet = get_worksheet_operativa()
+                    worksheet = (
+                        get_worksheet_historico()
+                        if es_envio_historico_especial
+                        else get_worksheet_operativa()
+                    )
                     if worksheet is None:
+                        destino_hoja = (
+                            SHEET_PEDIDOS_HISTORICOS if es_envio_historico_especial else SHEET_PEDIDOS_OPERATIVOS
+                        )
                         set_pedido_submission_status(
                             "error",
                             "❌ Falla al subir el pedido.",
-                            "No fue posible acceder a la hoja de pedidos.",
+                            f"No fue posible acceder a la hoja de pedidos ({destino_hoja}).",
                         )
                         rerun_with_pedido_loading()
                     headers = worksheet.row_values(1)
@@ -5232,7 +5247,7 @@ with tab1:
                 elif header == "Adjuntos_Surtido":
                     values.append("")
                 elif header == "Estado":
-                    values.append("🟡 Pendiente")
+                    values.append("No Aplica" if es_envio_historico_especial else "🟡 Pendiente")
                 elif header == "Estado_Pago":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
                         tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
