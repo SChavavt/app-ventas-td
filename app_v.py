@@ -8632,7 +8632,41 @@ with tab7:
         worksheet = get_worksheet()
         headers = worksheet.row_values(1)
         if headers:
-            df = pd.DataFrame(worksheet.get_all_records())
+            try:
+                df = pd.DataFrame(worksheet.get_all_records())
+            except GSpreadException as e:
+                if "header row in the worksheet is not unique" not in str(e):
+                    raise
+                valores = worksheet.get_all_values()
+                if not valores:
+                    return pd.DataFrame(), []
+                headers_unicos = []
+                conteo_headers = {}
+                headers_duplicados = {}
+                primera_columna_por_header = {}
+                for idx, raw_header in enumerate(valores[0], start=1):
+                    base = str(raw_header).strip() or f"col_{idx}"
+                    repeticiones = conteo_headers.get(base, 0)
+                    conteo_headers[base] = repeticiones + 1
+                    primera_columna_por_header.setdefault(base, idx)
+                    if repeticiones:
+                        headers_duplicados.setdefault(base, []).append(idx)
+                        base = f"{base}_{repeticiones + 1}"
+                    headers_unicos.append(base)
+                if headers_duplicados:
+                    detalle_duplicados = ", ".join(
+                        f"{header} (columnas {', '.join(map(str, [primera_columna_por_header[header], *indices]))})"
+                        for header, indices in headers_duplicados.items()
+                    )
+                    st.warning(
+                        "Se detectaron encabezados duplicados en Google Sheets para la pestaña de descarga. "
+                        f"Se usarán nombres temporales para continuar. Detalles: {detalle_duplicados}"
+                    )
+                registros = []
+                for fila in valores[1:]:
+                    fila_normalizada = list(fila) + [""] * max(0, len(headers_unicos) - len(fila))
+                    registros.append(dict(zip(headers_unicos, fila_normalizada)))
+                df = pd.DataFrame(registros)
             if "Adjuntos_Guia" not in df.columns:
                 df["Adjuntos_Guia"] = ""
             return df, headers
