@@ -474,14 +474,16 @@ def get_subtipo_local_excel_value(subtipo_local: str) -> str:
     return turno_normalizado
 
 
-LOCAL_TURNO_CDMX_IDS = {"JUAN24"}
+LOCAL_TURNO_COMBINADO_IDS = {"CARITO82", "KAREN58"}
 TAB1_DUAL_VIEW_IDS = {"ALEJANDRO38", "CECILIA94", "CARITO82", "KAREN58"}
 
 
 def get_local_shift_options(id_vendedor: str | None = None, force_cdmx_view: bool = False) -> list[str]:
     """Return local shift options, enabling CDMX only for approved users."""
     id_vendedor_normalizado = normalize_vendedor_id(id_vendedor or "")
-    if force_cdmx_view or id_vendedor_normalizado in LOCAL_TURNO_CDMX_IDS:
+    if id_vendedor_normalizado in LOCAL_TURNO_COMBINADO_IDS:
+        return ["🌤️ Local Día", "🌵 Saltillo", "📦 Pasa a Bodega", "🌆 Local CDMX", "🎓 Recoge en Aula"]
+    if force_cdmx_view:
         return ["🏙️ Local Mty", "🌆 Local CDMX", "🎓 Recoge en Aula"]
 
     opciones = ["🌤️ Local Día", "🌵 Saltillo", "📦 Pasa a Bodega"]
@@ -3125,7 +3127,7 @@ s3_client = get_s3_client()  # Initialize S3 client
 id_vendedor_tabs = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
 tab1_view_mode_tabs = str(st.session_state.get("tab1_shipping_view_mode", "mty")).strip().lower()
 show_tab_ventas_reportes = (
-    id_vendedor_tabs in LOCAL_TURNO_CDMX_IDS
+    id_vendedor_tabs in LOCAL_TURNO_COMBINADO_IDS
     or (id_vendedor_tabs in TAB1_DUAL_VIEW_IDS and tab1_view_mode_tabs == "cdmx")
 )
 tabs_labels = ["🛒 Registrar Nuevo Pedido"]
@@ -3295,7 +3297,8 @@ with tab1:
     st.header("📝 Nuevo Pedido")
     id_vendedor_tab1 = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
     tab1_is_dual_view_user = id_vendedor_tab1 in TAB1_DUAL_VIEW_IDS
-    tab1_enable_link_pago_option = id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS
+    tab1_is_combined_local_user = id_vendedor_tab1 in LOCAL_TURNO_COMBINADO_IDS
+    tab1_enable_link_pago_option = tab1_is_combined_local_user
     tab1_view_mode_key = "tab1_shipping_view_mode"
     if tab1_is_dual_view_user:
         current_view_mode = st.session_state.get(tab1_view_mode_key, "mty")
@@ -3322,10 +3325,12 @@ with tab1:
 
     tab1_special_shipping = current_view_mode == "cdmx"
     tab1_emulate_cdmx_vendor_view = (
-        id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS
+        id_vendedor_tab1 in LOCAL_TURNO_COMBINADO_IDS
         or (tab1_is_dual_view_user and tab1_special_shipping)
     )
-    tab1_allow_pedidos_cdmx_option = not tab1_emulate_cdmx_vendor_view
+    tab1_allow_pedidos_cdmx_option = not (
+        tab1_emulate_cdmx_vendor_view or tab1_is_combined_local_user
+    )
     tab1_use_short_mty_labels = tab1_emulate_cdmx_vendor_view
     if tab1_special_shipping and tab1_is_dual_view_user:
         tab1_enable_link_pago_option = True
@@ -3430,7 +3435,7 @@ with tab1:
             local_shift_options = get_local_shift_options(
                 (
                     st.session_state.get("id_vendedor", "")
-                    if (tab1_special_shipping or id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS)
+                    if (tab1_special_shipping or id_vendedor_tab1 in LOCAL_TURNO_COMBINADO_IDS)
                     else None
                 ),
                 force_cdmx_view=tab1_special_shipping,
@@ -5632,14 +5637,14 @@ def cargar_pedidos_combinados():
     df_all = pd.concat([df_datos, df_casos], ignore_index=True)
     return df_all
 
-# --- TAB VENTAS Y REPORTES (solo JUAN24/CARITO82/KAREN58) ---
+# --- TAB VENTAS Y REPORTES (solo CARITO82/KAREN58) ---
 if tab_ventas_reportes is not None:
     with tab_ventas_reportes:
         if TAB_INDEX_REPORTES is not None and default_tab == TAB_INDEX_REPORTES:
             st.session_state["current_tab_index"] = TAB_INDEX_REPORTES
 
         st.header("📊 Ventas y Reportes")
-        st.caption("Pedidos registrados por JUAN24, CARITO82 y KAREN58.")
+        st.caption("Pedidos registrados por CARITO82 y KAREN58.")
 
         try:
             df_ventas = cargar_pedidos_ventas_reportes()
@@ -5654,7 +5659,7 @@ if tab_ventas_reportes is not None:
                 df_ventas["id_vendedor"] = ""
 
             df_ventas["id_vendedor_norm"] = df_ventas["id_vendedor"].apply(normalize_vendedor_id)
-            df_ventas = df_ventas[df_ventas["id_vendedor_norm"].isin(LOCAL_TURNO_CDMX_IDS)].copy()
+            df_ventas = df_ventas[df_ventas["id_vendedor_norm"].isin(LOCAL_TURNO_COMBINADO_IDS)].copy()
 
             columnas_reporte = [
                 "Folio_Factura",
