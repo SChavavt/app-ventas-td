@@ -207,8 +207,6 @@ TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS = {
     "JUAN24",
     "RUBEN67",
     "FRANKO95",
-    "CARITO82",
-    "KAREN58",
 }
 
 BRAND_LOGO_EDITOR_USERS = {"SCHAVA"}
@@ -482,7 +480,7 @@ def get_subtipo_local_excel_value(subtipo_local: str) -> str:
     return turno_normalizado
 
 
-LOCAL_TURNO_CDMX_IDS = {"RUBEN67", "JUAN24", "FRANKO95", "CARITO82", "KAREN58"}
+LOCAL_TURNO_CDMX_IDS = {"RUBEN67", "JUAN24", "FRANKO95"}
 TAB1_DUAL_VIEW_IDS = {"ALEJANDRO38", "CECILIA94"}
 
 
@@ -5642,14 +5640,14 @@ def cargar_pedidos_combinados():
     df_all = pd.concat([df_datos, df_casos], ignore_index=True)
     return df_all
 
-# --- TAB VENTAS Y REPORTES (solo RUBEN67/JUAN24/FRANKO95/CARITO82/KAREN58) ---
+# --- TAB VENTAS Y REPORTES (solo RUBEN67/JUAN24/FRANKO95) ---
 if tab_ventas_reportes is not None:
     with tab_ventas_reportes:
         if TAB_INDEX_REPORTES is not None and default_tab == TAB_INDEX_REPORTES:
             st.session_state["current_tab_index"] = TAB_INDEX_REPORTES
 
         st.header("📊 Ventas y Reportes")
-        st.caption("Pedidos registrados por RUBEN67, JUAN24, FRANKO95, CARITO82 y KAREN58.")
+        st.caption("Pedidos registrados por RUBEN67, JUAN24 y FRANKO95.")
 
         try:
             df_ventas = cargar_pedidos_ventas_reportes()
