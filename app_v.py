@@ -1629,27 +1629,24 @@ def get_worksheet_casos_especiales():
     return spreadsheet.worksheet("casos_especiales")
 
 
-def get_remote_postal_codes() -> tuple[set[str], bool]:
-    """Obtiene los códigos postales de la hoja Zonas_Remotas como strings normalizados.
-
-    No se cachea para evitar guardar respuestas vacías cuando Google Sheets falla
-    temporalmente y así no marcar falsos negativos en el verificador.
-    """
+@st.cache_data(ttl=300, show_spinner=False)
+def get_remote_postal_codes() -> set[str]:
+    """Obtiene los códigos postales de la hoja Zonas_Remotas como strings normalizados."""
     worksheet = get_worksheet_zonas_remotas(st.session_state.get("remote_zones_refresh_token"))
     if worksheet is None:
-        return set(), False
+        return set()
 
     try:
         valores = worksheet.col_values(1)[1:]  # omite encabezado
     except Exception:
-        return set(), False
+        return set()
 
     codigos: set[str] = set()
     for value in valores:
         digits = re.sub(r"\D", "", str(value or "").strip())
         if digits:
             codigos.add(digits.zfill(5) if len(digits) <= 5 else digits)
-    return codigos, True
+    return codigos
 
 
 def normalize_client_history_text(value: object) -> str:
@@ -2484,7 +2481,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-remote_postal_codes, remote_codes_loaded = get_remote_postal_codes()
+remote_postal_codes = get_remote_postal_codes()
 _home_col_left, home_col_validator, _home_col_right = st.columns([1, 1.2, 1])
 with home_col_validator:
     st.markdown("##### ⚡ Verificador de Zonas Remotas")
@@ -2500,17 +2497,7 @@ with home_col_validator:
     cp_digits = re.sub(r"\D", "", str(cp_input or "").strip())
     cp_normalized = cp_digits.zfill(5) if cp_digits and len(cp_digits) <= 5 else cp_digits
 
-    if cp_normalized and not remote_codes_loaded:
-        st.markdown(
-            (
-                "<div class='remote-zone-status remote-zone-status--remote'>"
-                "⚠️ No se pudo verificar zonas remotas en este momento. "
-                "Reintenta o usa “Recargar Página y Conexión”."
-                "</div>"
-            ),
-            unsafe_allow_html=True,
-        )
-    elif cp_normalized:
+    if cp_normalized:
         if cp_normalized in remote_postal_codes:
             st.markdown(
                 (
