@@ -246,6 +246,7 @@ MATERIAL_ROW_PATTERN = re.compile(
 )
 MATERIAL_QTY_PATTERN = re.compile(r"\((?P<cantidad>\d+)\s*unidad(?:es)?\)", re.IGNORECASE)
 MATERIAL_AMOUNT_PATTERN = re.compile(r"\$\s*(?P<monto>[\d,]+(?:\.\d{1,2})?)\s*$")
+MATERIAL_EDITOR_COLUMNS = ["Código", "Descripción", "Cantidad", "Monto IVA"]
 
 
 def parse_material_lines(raw_text: str) -> List[Dict[str, str]]:
@@ -355,6 +356,13 @@ def get_material_rows_for_editor(raw_text: str) -> List[Dict[str, str]]:
             )
         return normalized_rows
     return [{"Código": "", "Descripción": "", "Cantidad": "", "Monto IVA": ""}]
+
+
+def material_editor_dataframe(rows: List[Dict[str, str]]) -> pd.DataFrame:
+    """Return a stable editor dataframe with expected columns and at least one row."""
+    safe_rows = rows if rows else [{"Código": "", "Descripción": "", "Cantidad": "", "Monto IVA": ""}]
+    editor_df = pd.DataFrame(safe_rows)
+    return editor_df.reindex(columns=MATERIAL_EDITOR_COLUMNS, fill_value="")
 
 
 def sanitize_material_editor_rows(edited_df: pd.DataFrame) -> List[Dict[str, str]]:
@@ -4071,7 +4079,9 @@ with tab1:
                 st.session_state["material_devuelto_editor_rows"] = get_material_rows_for_editor(material_seed)
                 st.session_state["material_devuelto_editor_seed"] = material_seed
 
-            material_editor_source_df = pd.DataFrame(st.session_state.get("material_devuelto_editor_rows", []))
+            material_editor_source_df = material_editor_dataframe(
+                st.session_state.get("material_devuelto_editor_rows", [])
+            )
             if "Monto IVA" in material_editor_source_df.columns:
                 monto_editor_series = (
                     material_editor_source_df["Monto IVA"]
@@ -4164,7 +4174,7 @@ with tab1:
                 st.session_state["g_piezas_editor_seed"] = garantia_material_seed
 
             garantia_editor_df = st.data_editor(
-                pd.DataFrame(st.session_state.get("g_piezas_editor_rows", [])),
+                material_editor_dataframe(st.session_state.get("g_piezas_editor_rows", [])),
                 key="g_piezas_editor",
                 num_rows="dynamic",
                 hide_index=True,
