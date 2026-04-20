@@ -453,8 +453,12 @@ def get_local_delivery_slot(turno_local: str) -> str:
     turno_normalizado = str(turno_local or "").strip()
     if turno_normalizado == "🌵 Saltillo":
         return "Saltillo"
+    if turno_normalizado in {"☀️ Local Mañana", "🏙️ Local Mty"}:
+        return "10 am a 2 pm"
+    if turno_normalizado == "🌙 Local Tarde":
+        return "3 pm a 7 pm"
     if turno_normalizado:
-        return "10:00 AM a 7:00 PM"
+        return turno_normalizado
     return "POR DEFINIR"
 
 
@@ -470,7 +474,7 @@ def get_subtipo_local_excel_value(subtipo_local: str) -> str:
     """Normalize local shift label for Excel persistence."""
     turno_normalizado = str(subtipo_local or "").strip()
     if turno_normalizado == "🏙️ Local Mty":
-        return "🌤️ Local Día"
+        return "☀️ Local Mañana"
     return turno_normalizado
 
 
@@ -483,11 +487,11 @@ def get_local_shift_options(id_vendedor: str | None = None, force_cdmx_view: boo
     """Return local shift options, enabling CDMX only for approved users."""
     id_vendedor_normalizado = normalize_vendedor_id(id_vendedor or "")
     if id_vendedor_normalizado in LOCAL_TURNO_COMBINADO_IDS:
-        return ["🌤️ Local Día", "🌵 Saltillo", "📦 Pasa a Bodega", "🌆 Local CDMX", "🎓 Recoge en Aula"]
+        return ["☀️ Local Mañana", "🌙 Local Tarde", "🌵 Saltillo", "📦 Pasa a Bodega", "🌆 Local CDMX", "🎓 Recoge en Aula"]
     if force_cdmx_view:
-        return ["🏙️ Local Mty", "🌆 Local CDMX", "🎓 Recoge en Aula"]
+        return ["🌆 Local CDMX", "🎓 Recoge en Aula"]
 
-    opciones = ["🌤️ Local Día", "🌵 Saltillo", "📦 Pasa a Bodega"]
+    opciones = ["☀️ Local Mañana", "🌙 Local Tarde", "🌵 Saltillo", "📦 Pasa a Bodega"]
     return opciones
 
 
@@ -3453,11 +3457,19 @@ with tab1:
                 key="subtipo_local_selector",
                 help="Selecciona el turno o tipo de entrega para pedidos locales."
             )
+            turno_local_anterior = str(st.session_state.get("local_route_last_turno", "") or "").strip()
+            hora_manual_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
+            hora_input_actual = str(st.session_state.get("local_route_hora_entrega_input", "") or "").strip()
+            if subtipo_local != turno_local_anterior and not hora_manual_actual:
+                default_anterior = get_local_delivery_slot(turno_local_anterior) if turno_local_anterior else ""
+                if not hora_input_actual or hora_input_actual == default_anterior:
+                    st.session_state["local_route_hora_entrega_input"] = get_local_delivery_slot(subtipo_local)
+            st.session_state["local_route_last_turno"] = subtipo_local
             is_local_pasa_bodega = subtipo_local == "📦 Pasa a Bodega"
             is_local_recoge_aula = subtipo_local == "🎓 Recoge en Aula"
         else:
             # Para devolución local no se muestra selector de turno/locales.
-            subtipo_local = "🌤️ Local Día"
+            subtipo_local = "☀️ Local Mañana"
             st.session_state["subtipo_local_selector"] = subtipo_local
 
         if is_local_recoge_aula:
@@ -3832,15 +3844,15 @@ with tab1:
             ):
                 hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
                 if "local_route_hora_entrega_input" not in st.session_state:
-                    st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or "10:00 AM a 7:00 PM"
+                    st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or get_local_delivery_slot(subtipo_local)
 
                 hora_capturada = st.text_input(
                     "🕒 HORA DE ENTREGA",
                     key="local_route_hora_entrega_input",
-                    placeholder="Ej. 10:00 AM a 7:00 PM",
+                    placeholder="Ej. 10 am a 2 pm",
                     help="Campo editable: se enviará tal como lo escriba el usuario.",
                 ).strip()
-                local_route_hora_entrega = hora_capturada or "10:00 AM a 7:00 PM"
+                local_route_hora_entrega = hora_capturada or get_local_delivery_slot(subtipo_local)
                 st.session_state["local_route_hora_entrega_manual"] = hora_capturada
 
         comentario = st.text_area(
@@ -3859,7 +3871,7 @@ with tab1:
 
                     hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
                     if "local_route_hora_entrega_input" not in st.session_state:
-                        st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or "10:00 AM a 7:00 PM"
+                        st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or get_local_delivery_slot(subtipo_local)
 
                     col_entrega_1, col_entrega_2 = st.columns(2)
                     with col_entrega_1:
@@ -3872,10 +3884,10 @@ with tab1:
                         hora_capturada = st.text_input(
                             "🕒 HORA DE ENTREGA",
                             key="local_route_hora_entrega_input",
-                            placeholder="Ej. 10:00 AM a 7:00 PM",
+                            placeholder="Ej. 10 am a 2 pm",
                             help="Campo editable: se enviará tal como lo escriba el usuario.",
                         ).strip()
-                        local_route_hora_entrega = hora_capturada or "10:00 AM a 7:00 PM"
+                        local_route_hora_entrega = hora_capturada or get_local_delivery_slot(subtipo_local)
                         st.session_state["local_route_hora_entrega_manual"] = hora_capturada
                         st.session_state.pop("local_route_hora_entrega_custom", None)
                 else:
@@ -4461,12 +4473,12 @@ with tab1:
 
         if (
             not tab1_special_shipping
-            and subtipo_local not in ["🌤️ Local Día", "🏙️ Local Mty"]
+            and subtipo_local not in ["☀️ Local Mañana", "🏙️ Local Mty", "🌙 Local Tarde"]
             and not str(local_route_hora_entrega or "").strip()
         ):
             st.warning(
                 "⚠️ Selecciona `HORA DE ENTREGA` para personalizar este turno. "
-                "Si lo dejas vacío, se aplica la lógica automática por turno (`10:00 AM a 7:00 PM`)."
+                "Si lo dejas vacío, se aplica la lógica automática por turno (`10 am a 2 pm` o `3 pm a 7 pm`)."
             )
 
         st.markdown("---")
@@ -6596,8 +6608,8 @@ with tab2:
                             key=tab2_turno_selector_key,
                             help="Usa las mismas opciones de turno del Tab 1 para pedidos locales.",
                         )
-                        if tab2_turno_local not in ["🌤️ Local Día", "🏙️ Local Mty"]:
-                            st.warning("⚠️ La hoja de ruta asigna horario automático para 🌤️ Local Día (10:00 AM a 7:00 PM). Para otros turnos se usará el texto del turno seleccionado.")
+                        if tab2_turno_local not in ["☀️ Local Mañana", "🏙️ Local Mty", "🌙 Local Tarde"]:
+                            st.warning("⚠️ La hoja de ruta asigna horario automático para ☀️ Local Mañana (10 am a 2 pm) y 🌙 Local Tarde (3 pm a 7 pm). Para otros turnos se usará el texto del turno seleccionado.")
 
                         st.subheader("💰 Estado de Pago")
                         if st.session_state.get("tab2_local_estado_pago") not in tab2_estado_pago_options:
@@ -8465,23 +8477,24 @@ with tab6:
                 else:
                     turno_options = [
                         "",
-                        "🌤️ Local Día",
+                        "☀️ Local Mañana",
+                        "🌙 Local Tarde",
                         "📦 Pasa a Bodega",
                         "🌵 Saltillo",
                     ]
                     turno_normalization_map = {
-                        "🌤️ local día": "🌤️ Local Día",
-                        "🌤️ local dia": "🌤️ Local Día",
-                        "local día": "🌤️ Local Día",
-                        "local dia": "🌤️ Local Día",
-                        "día": "🌤️ Local Día",
-                        "dia": "🌤️ Local Día",
-                        "🌙 local tarde": "🌤️ Local Día",
-                        "local tarde": "🌤️ Local Día",
-                        "tarde": "🌤️ Local Día",
-                        "☀️ local mañana": "🌤️ Local Día",
-                        "local mañana": "🌤️ Local Día",
-                        "mañana": "🌤️ Local Día",
+                        "🌤️ local día": "☀️ Local Mañana",
+                        "🌤️ local dia": "☀️ Local Mañana",
+                        "local día": "☀️ Local Mañana",
+                        "local dia": "☀️ Local Mañana",
+                        "día": "☀️ Local Mañana",
+                        "dia": "☀️ Local Mañana",
+                        "☀️ local mañana": "☀️ Local Mañana",
+                        "local mañana": "☀️ Local Mañana",
+                        "mañana": "☀️ Local Mañana",
+                        "🌙 local tarde": "🌙 Local Tarde",
+                        "local tarde": "🌙 Local Tarde",
+                        "tarde": "🌙 Local Tarde",
                         "📦 pasa a bodega": "📦 Pasa a Bodega",
                         "pasa a bodega": "📦 Pasa a Bodega",
                         "en bodega": "📦 Pasa a Bodega",
