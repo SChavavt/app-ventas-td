@@ -178,7 +178,9 @@ USUARIOS_VALIDOS = [
     "JUAN24",
     "KAREN58",
     "PAULINA57",
+    "RUBEN67",
     "ROBERTO51",
+    "FRANKO95",
     "SCHAVA",
 ]
 
@@ -195,12 +197,16 @@ VENDEDOR_NOMBRE_POR_ID = {
     "JUAN24": "JUAN CASTILLEJO",
     "KAREN58": "KAREN JAQUELINE",
     "PAULINA57": "PAULINA TREJO",
+    "RUBEN67": "RUBEN",
     "ROBERTO51": "DISTRIBUCION Y UNIVERSIDADES",
+    "FRANKO95": "FRANKO",
     "SCHAVA": "SCHAVA",
 }
 
 TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS = {
     "JUAN24",
+    "RUBEN67",
+    "FRANKO95",
 }
 
 BRAND_LOGO_EDITOR_USERS = {"SCHAVA"}
@@ -474,8 +480,8 @@ def get_subtipo_local_excel_value(subtipo_local: str) -> str:
     return turno_normalizado
 
 
-LOCAL_TURNO_CDMX_IDS = {"JUAN24"}
-TAB1_DUAL_VIEW_IDS = {"ALEJANDRO38", "CECILIA94", "CARITO82", "KAREN58"}
+LOCAL_TURNO_CDMX_IDS = {"RUBEN67", "JUAN24", "FRANKO95"}
+TAB1_DUAL_VIEW_IDS = {"ALEJANDRO38", "CECILIA94"}
 
 
 def get_local_shift_options(id_vendedor: str | None = None, force_cdmx_view: bool = False) -> list[str]:
@@ -3257,7 +3263,9 @@ VENDEDORES_LIST = sorted([
     "JUAN CASTILLEJO",
     "KAREN JAQUELINE",
     "PAULINA TREJO",
+    "RUBEN",
     "ROBERTO LEGRA",
+    "FRANKO"
 ])
 
 # Initialize session state for vendor (default linked to logged-in vendor ID)
@@ -5632,14 +5640,14 @@ def cargar_pedidos_combinados():
     df_all = pd.concat([df_datos, df_casos], ignore_index=True)
     return df_all
 
-# --- TAB VENTAS Y REPORTES (solo JUAN24/CARITO82/KAREN58) ---
+# --- TAB VENTAS Y REPORTES (solo RUBEN67/JUAN24/FRANKO95) ---
 if tab_ventas_reportes is not None:
     with tab_ventas_reportes:
         if TAB_INDEX_REPORTES is not None and default_tab == TAB_INDEX_REPORTES:
             st.session_state["current_tab_index"] = TAB_INDEX_REPORTES
 
         st.header("📊 Ventas y Reportes")
-        st.caption("Pedidos registrados por JUAN24, CARITO82 y KAREN58.")
+        st.caption("Pedidos registrados por RUBEN67, JUAN24 y FRANKO95.")
 
         try:
             df_ventas = cargar_pedidos_ventas_reportes()
@@ -5845,6 +5853,7 @@ if tab_ventas_reportes is not None:
                     ("Efectivo", forma_pago_norm.eq(_norm_texto("Efectivo"))),
                     ("Link", forma_pago_norm.eq(_norm_texto("Link de Pago"))),
                     ("Deposito", forma_pago_norm.eq(_norm_texto("Depósito en Efectivo"))),
+                    ("Ruben", vendedor_norm.str.startswith(_norm_texto("RUBEN"))),
                     ("Juan", vendedor_norm.str.startswith(_norm_texto("JUAN"))),
                     ("Cursos", tipo_envio_norm.str.contains(_norm_texto("Cursos y Eventos"), na=False)),
                 ]
