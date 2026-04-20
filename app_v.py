@@ -1629,9 +1629,12 @@ def get_worksheet_casos_especiales():
     return spreadsheet.worksheet("casos_especiales")
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 def get_remote_postal_codes() -> set[str]:
-    """Obtiene los códigos postales de la hoja Zonas_Remotas como strings normalizados."""
+    """Obtiene los códigos postales de la hoja Zonas_Remotas como strings normalizados.
+
+    No se cachea para evitar guardar respuestas vacías cuando Google Sheets falla
+    temporalmente y así no marcar falsos negativos en el verificador.
+    """
     worksheet = get_worksheet_zonas_remotas(st.session_state.get("remote_zones_refresh_token"))
     if worksheet is None:
         return set()
@@ -2482,6 +2485,7 @@ st.markdown(
 )
 
 remote_postal_codes = get_remote_postal_codes()
+remote_codes_loaded = len(remote_postal_codes) > 0
 _home_col_left, home_col_validator, _home_col_right = st.columns([1, 1.2, 1])
 with home_col_validator:
     st.markdown("##### ⚡ Verificador de Zonas Remotas")
@@ -2497,7 +2501,17 @@ with home_col_validator:
     cp_digits = re.sub(r"\D", "", str(cp_input or "").strip())
     cp_normalized = cp_digits.zfill(5) if cp_digits and len(cp_digits) <= 5 else cp_digits
 
-    if cp_normalized:
+    if cp_normalized and not remote_codes_loaded:
+        st.markdown(
+            (
+                "<div class='remote-zone-status remote-zone-status--remote'>"
+                "⚠️ No se pudo verificar zonas remotas en este momento. "
+                "Reintenta o usa “Recargar Página y Conexión”."
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+    elif cp_normalized:
         if cp_normalized in remote_postal_codes:
             st.markdown(
                 (
