@@ -2887,7 +2887,7 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
           observer.observe(document.body, { childList: true, subtree: true });
         </script>
         """,
-        height=0,
+        height=1,
     )
 
     precios_capturados: list[float] = []
@@ -2933,44 +2933,40 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
         descuento_porcentaje = descuento_factor * 100
         descuento_texto = f"{descuento_porcentaje:.2f}%"
 
-        metric_col, copy_col = st.columns([1, 0.42], vertical_alignment="bottom")
-        with metric_col:
-            st.metric("Descuento a aplicar", descuento_texto)
-
+        st.metric("Descuento a aplicar", descuento_texto)
         copy_button_id = f"copyDiscountBtn-{uuid.uuid4().hex[:8]}"
         copy_status_id = f"copyDiscountStatus-{uuid.uuid4().hex[:8]}"
-        with copy_col:
-            components.html(
-                f"""
-                <div style="display:flex;justify-content:flex-start;align-items:flex-end;gap:.35rem;margin-bottom:.42rem;">
-                  <button id="{copy_button_id}" style="
-                    border:1px solid rgba(151, 138, 255, .45);
-                    background:rgba(151, 138, 255, .15);
-                    color:#fff;
-                    border-radius:8px;
-                    padding:.38rem .75rem;
-                    font-size:.85rem;
-                    cursor:pointer;
-                    white-space:nowrap;
-                  ">📋 Copiar</button>
-                  <span id="{copy_status_id}" style="font-size:.78rem;color:#90EE90;"></span>
-                </div>
-                <script>
-                  const button = document.getElementById("{copy_button_id}");
-                  const status = document.getElementById("{copy_status_id}");
-                  button.addEventListener("click", async () => {{
-                    try {{
-                      await navigator.clipboard.writeText("{descuento_texto}");
-                      status.textContent = "Copiado";
-                      setTimeout(() => status.textContent = "", 1500);
-                    }} catch (error) {{
-                      status.textContent = "No se pudo copiar";
-                    }}
-                  }});
-                </script>
-                """,
-                height=44,
-            )
+        components.html(
+            f"""
+            <div style="display:flex;justify-content:flex-start;align-items:center;gap:.35rem;margin-top:-.2rem;margin-bottom:.1rem;">
+              <button id="{copy_button_id}" style="
+                border:1px solid rgba(151, 138, 255, .45);
+                background:rgba(151, 138, 255, .15);
+                color:#fff;
+                border-radius:8px;
+                padding:.38rem .75rem;
+                font-size:.85rem;
+                cursor:pointer;
+                white-space:nowrap;
+              ">📋 Copiar</button>
+              <span id="{copy_status_id}" style="font-size:.78rem;color:#90EE90;"></span>
+            </div>
+            <script>
+              const button = document.getElementById("{copy_button_id}");
+              const status = document.getElementById("{copy_status_id}");
+              button.addEventListener("click", async () => {{
+                try {{
+                  await navigator.clipboard.writeText("{descuento_texto}");
+                  status.textContent = "Copiado";
+                  setTimeout(() => status.textContent = "", 1500);
+                }} catch (error) {{
+                  status.textContent = "No se pudo copiar";
+                }}
+              }});
+            </script>
+            """,
+            height=42,
+        )
 # --- FIN BLOQUE: Calculadora de descuento ---
 
 id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
