@@ -2745,6 +2745,108 @@ if can_edit_brand_logo():
     render_logo_uploader("assets/td_logo.png", "ventas")
 st.write("¡Bienvenido! Aquí puedes registrar y gestionar tus pedidos.")
 
+# --- INICIO BLOQUE: Calculadora de descuento (replica lógica de Excel) ---
+DESCUENTO_TARGET_KEY = "discount_target_price"
+DESCUENTO_REGULAR_KEY = "discount_regular_prices"
+DESCUENTO_INPUT_PREFIX = "discount_regular_value_"
+
+if DESCUENTO_TARGET_KEY not in st.session_state:
+    st.session_state[DESCUENTO_TARGET_KEY] = 0.0
+if DESCUENTO_REGULAR_KEY not in st.session_state:
+    st.session_state[DESCUENTO_REGULAR_KEY] = [0.0]
+
+
+def clear_discount_calculator_state() -> None:
+    """Limpia todos los valores del bloque sin chocar con llaves de widgets activas."""
+    st.session_state[DESCUENTO_TARGET_KEY] = 0.0
+    for key in list(st.session_state.keys()):
+        if key.startswith(DESCUENTO_INPUT_PREFIX):
+            st.session_state.pop(key, None)
+    st.session_state[DESCUENTO_REGULAR_KEY] = [0.0]
+
+
+with st.expander("🧮 Calculadora de descuento", expanded=False):
+    top_col_1, top_col_2, top_col_3 = st.columns([2.2, 1, 1])
+    with top_col_1:
+        st.number_input(
+            "Precio a obtener",
+            min_value=0.0,
+            step=0.01,
+            format="%.2f",
+            key=DESCUENTO_TARGET_KEY,
+        )
+    with top_col_2:
+        st.write("")
+        st.button("➕ Agregar", key="discount_add_regular")
+    with top_col_3:
+        st.write("")
+        st.button(
+            "🧹 Limpiar",
+            key="discount_clear_all",
+            on_click=clear_discount_calculator_state,
+        )
+
+    precios_regulares = st.session_state[DESCUENTO_REGULAR_KEY]
+    if st.session_state.get("discount_add_regular"):
+        precios_regulares.append(0.0)
+        st.session_state[DESCUENTO_REGULAR_KEY] = precios_regulares
+        st.rerun()
+
+    st.markdown("**Precios regulares**")
+    precios_capturados: list[float] = []
+    for idx, valor_inicial in enumerate(precios_regulares):
+        col_input, col_delete = st.columns([5, 1])
+        with col_input:
+            valor_actual = st.number_input(
+                f"Precio regular {idx + 1}",
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                value=float(valor_inicial),
+                key=f"{DESCUENTO_INPUT_PREFIX}{idx}",
+                label_visibility="collapsed",
+                placeholder=f"Precio regular {idx + 1}",
+            )
+            precios_regulares[idx] = valor_actual
+            if valor_actual > 0:
+                precios_capturados.append(valor_actual)
+        with col_delete:
+            st.write(" ")
+            if len(precios_regulares) > 1 and st.button(
+                "🗑️", key=f"discount_remove_regular_{idx}", help="Quitar precio"
+            ):
+                precios_regulares.pop(idx)
+                st.session_state[DESCUENTO_REGULAR_KEY] = precios_regulares
+                st.session_state.pop(f"{DESCUENTO_INPUT_PREFIX}{idx}", None)
+                st.rerun()
+
+    st.session_state[DESCUENTO_REGULAR_KEY] = precios_regulares
+
+    # Cálculo de suma de precios regulares válidos (>0).
+    suma_precios_regulares = float(sum(precios_capturados))
+    precio_objetivo = float(st.session_state[DESCUENTO_TARGET_KEY] or 0.0)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Precio a obtener", f"{precio_objetivo:.2f}")
+    c2.metric("Suma precio regular", f"{suma_precios_regulares:.2f}")
+
+    if precio_objetivo <= 0:
+        st.warning("Ingresa un 'Precio a obtener' válido (numérico y mayor a 0).")
+    elif not precios_capturados or suma_precios_regulares <= 0:
+        st.warning("Agrega al menos un 'Precio regular' válido (numérico y mayor a 0).")
+    else:
+        # Cálculo de descuento exacto: ABS((Precio_A_Obtener / SUMA_Precio_Regular) - 1)
+        descuento_factor = abs((precio_objetivo / suma_precios_regulares) - 1)
+        descuento_porcentaje = descuento_factor * 100
+        c3.metric("Descuento a aplicar", f"{descuento_porcentaje:.2f}%")
+        st.caption(f"Factor decimal: {descuento_factor:.4f}")
+
+    st.caption(
+        "Precios capturados: "
+        + (", ".join(f"{p:.2f}" for p in precios_capturados) if precios_capturados else "Sin datos válidos")
+    )
+# --- FIN BLOQUE: Calculadora de descuento ---
+
 id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
 if id_vendedor_sesion_global:
     pendientes_devoluciones_home = obtener_devoluciones_autorizadas_sin_folio(id_vendedor_sesion_global)
