@@ -3458,12 +3458,13 @@ with tab1:
                 help="Selecciona el turno o tipo de entrega para pedidos locales."
             )
             turno_local_anterior = str(st.session_state.get("local_route_last_turno", "") or "").strip()
-            hora_manual_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
-            hora_input_actual = str(st.session_state.get("local_route_hora_entrega_input", "") or "").strip()
-            if subtipo_local != turno_local_anterior and not hora_manual_actual:
-                default_anterior = get_local_delivery_slot(turno_local_anterior) if turno_local_anterior else ""
-                if not hora_input_actual or hora_input_actual == default_anterior:
-                    st.session_state["local_route_hora_entrega_input"] = get_local_delivery_slot(subtipo_local)
+            if subtipo_local != turno_local_anterior:
+                # Forzamos sincronización automática al cambiar turno/local:
+                # ☀️ Local Mañana -> 10 am a 2 pm
+                # 🌙 Local Tarde  -> 3 pm a 7 pm
+                # 🌵 Saltillo     -> Saltillo
+                st.session_state["local_route_hora_entrega_input"] = get_local_delivery_slot(subtipo_local)
+                st.session_state["local_route_hora_entrega_manual"] = ""
             st.session_state["local_route_last_turno"] = subtipo_local
             is_local_pasa_bodega = subtipo_local == "📦 Pasa a Bodega"
             is_local_recoge_aula = subtipo_local == "🎓 Recoge en Aula"
