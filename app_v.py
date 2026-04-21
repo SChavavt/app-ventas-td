@@ -2788,41 +2788,54 @@ DESCUENTO_REGULAR_KEY = "discount_regular_prices"
 DESCUENTO_INPUT_PREFIX = "discount_regular_value_"
 
 if DESCUENTO_TARGET_KEY not in st.session_state:
-    st.session_state[DESCUENTO_TARGET_KEY] = 0.0
+    st.session_state[DESCUENTO_TARGET_KEY] = ""
 if DESCUENTO_REGULAR_KEY not in st.session_state:
-    st.session_state[DESCUENTO_REGULAR_KEY] = [0.0]
+    st.session_state[DESCUENTO_REGULAR_KEY] = [""]
+
+
+def _parse_discount_amount(raw_value: str | float | int | None) -> float | None:
+    """Convierte textos de monto a float positivo, aceptando coma y punto decimal."""
+    if raw_value is None:
+        return None
+    normalized = str(raw_value).strip().replace(",", ".")
+    if not normalized:
+        return None
+    try:
+        parsed = float(normalized)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
 
 
 def clear_discount_calculator_state() -> None:
     """Limpia todos los valores del bloque sin chocar con llaves de widgets activas."""
-    st.session_state[DESCUENTO_TARGET_KEY] = 0.0
+    st.session_state[DESCUENTO_TARGET_KEY] = ""
     for key in list(st.session_state.keys()):
         if key.startswith(DESCUENTO_INPUT_PREFIX):
             st.session_state.pop(key, None)
-    st.session_state[DESCUENTO_REGULAR_KEY] = [0.0]
+    st.session_state[DESCUENTO_REGULAR_KEY] = [""]
 
 
 with st.expander("🧮 Calculadora de descuento", expanded=False):
-    top_col_1, top_col_2 = st.columns([3.2, 1])
+    top_col_1, top_col_2 = st.columns([5, 1])
     with top_col_1:
-        st.number_input(
+        st.text_input(
             "Precio a obtener",
-            min_value=0.0,
-            step=0.01,
-            format="%.2f",
             key=DESCUENTO_TARGET_KEY,
+            placeholder="Ej. 399.99",
         )
     with top_col_2:
-        st.write("")
+        st.markdown("<div style='height:1.85rem'></div>", unsafe_allow_html=True)
         st.button(
             "🧹 Limpiar",
             key="discount_clear_all",
             on_click=clear_discount_calculator_state,
+            use_container_width=True,
         )
 
     precios_regulares = st.session_state[DESCUENTO_REGULAR_KEY]
     if st.session_state.get("discount_add_regular"):
-        precios_regulares.append(0.0)
+        precios_regulares.append("")
         st.session_state[DESCUENTO_REGULAR_KEY] = precios_regulares
         st.rerun()
 
@@ -2830,30 +2843,27 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
     with regular_header_col:
         st.markdown("**Precios regulares**")
     with regular_button_col:
-        st.write("")
-        st.button("➕ Agregar", key="discount_add_regular")
+        st.button("➕ Agregar", key="discount_add_regular", use_container_width=True)
 
     precios_capturados: list[float] = []
     for idx, valor_inicial in enumerate(precios_regulares):
         col_input, col_delete = st.columns([5, 1])
         with col_input:
-            valor_actual = st.number_input(
+            valor_actual = st.text_input(
                 f"Precio regular {idx + 1}",
-                min_value=0.0,
-                step=0.01,
-                format="%.2f",
-                value=float(valor_inicial),
+                value=str(valor_inicial or ""),
                 key=f"{DESCUENTO_INPUT_PREFIX}{idx}",
                 label_visibility="collapsed",
                 placeholder=f"Precio regular {idx + 1}",
             )
             precios_regulares[idx] = valor_actual
-            if valor_actual > 0:
-                precios_capturados.append(valor_actual)
+            valor_numerico = _parse_discount_amount(valor_actual)
+            if valor_numerico is not None:
+                precios_capturados.append(valor_numerico)
         with col_delete:
-            st.write(" ")
+            st.markdown("<div style='height:.35rem'></div>", unsafe_allow_html=True)
             if len(precios_regulares) > 1 and st.button(
-                "🗑️", key=f"discount_remove_regular_{idx}", help="Quitar precio"
+                "🗑️", key=f"discount_remove_regular_{idx}", help="Quitar precio", use_container_width=True
             ):
                 precios_regulares.pop(idx)
                 st.session_state[DESCUENTO_REGULAR_KEY] = precios_regulares
@@ -2864,11 +2874,11 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
 
     # Cálculo de suma de precios regulares válidos (>0).
     suma_precios_regulares = float(sum(precios_capturados))
-    precio_objetivo = float(st.session_state[DESCUENTO_TARGET_KEY] or 0.0)
+    precio_objetivo = _parse_discount_amount(st.session_state.get(DESCUENTO_TARGET_KEY))
 
     st.caption(f"Suma precio regular: {suma_precios_regulares:.2f}")
 
-    if precio_objetivo <= 0:
+    if precio_objetivo is None:
         st.warning("Ingresa un 'Precio a obtener' válido (numérico y mayor a 0).")
     elif not precios_capturados or suma_precios_regulares <= 0:
         st.warning("Agrega al menos un 'Precio regular' válido (numérico y mayor a 0).")
@@ -2877,40 +2887,45 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
         descuento_factor = abs((precio_objetivo / suma_precios_regulares) - 1)
         descuento_porcentaje = descuento_factor * 100
         descuento_texto = f"{descuento_porcentaje:.2f}%"
-        st.metric("Descuento a aplicar", descuento_texto)
+
+        metric_col, copy_col = st.columns([4, 1.3])
+        with metric_col:
+            st.metric("Descuento a aplicar", descuento_texto)
 
         copy_button_id = f"copyDiscountBtn-{uuid.uuid4().hex[:8]}"
         copy_status_id = f"copyDiscountStatus-{uuid.uuid4().hex[:8]}"
-        components.html(
-            f"""
-            <div style="display:flex;align-items:center;gap:.6rem;margin:.2rem 0 0.6rem 0;">
-              <button id="{copy_button_id}" style="
-                border:1px solid rgba(151, 138, 255, .45);
-                background:rgba(151, 138, 255, .15);
-                color:#fff;
-                border-radius:8px;
-                padding:.38rem .75rem;
-                font-size:.85rem;
-                cursor:pointer;
-              ">📋 Copiar {descuento_texto}</button>
-              <span id="{copy_status_id}" style="font-size:.78rem;color:#90EE90;"></span>
-            </div>
-            <script>
-              const button = document.getElementById("{copy_button_id}");
-              const status = document.getElementById("{copy_status_id}");
-              button.addEventListener("click", async () => {{
-                try {{
-                  await navigator.clipboard.writeText("{descuento_texto}");
-                  status.textContent = "Copiado";
-                  setTimeout(() => status.textContent = "", 1500);
-                }} catch (error) {{
-                  status.textContent = "No se pudo copiar";
-                }}
-              }});
-            </script>
-            """,
-            height=44,
-        )
+        with copy_col:
+            components.html(
+                f"""
+                <div style="display:flex;justify-content:flex-end;align-items:center;gap:.5rem;margin-top:1.35rem;">
+                  <button id="{copy_button_id}" style="
+                    border:1px solid rgba(151, 138, 255, .45);
+                    background:rgba(151, 138, 255, .15);
+                    color:#fff;
+                    border-radius:8px;
+                    padding:.38rem .75rem;
+                    font-size:.85rem;
+                    cursor:pointer;
+                    white-space:nowrap;
+                  ">📋 Copiar</button>
+                  <span id="{copy_status_id}" style="font-size:.78rem;color:#90EE90;"></span>
+                </div>
+                <script>
+                  const button = document.getElementById("{copy_button_id}");
+                  const status = document.getElementById("{copy_status_id}");
+                  button.addEventListener("click", async () => {{
+                    try {{
+                      await navigator.clipboard.writeText("{descuento_texto}");
+                      status.textContent = "Copiado";
+                      setTimeout(() => status.textContent = "", 1500);
+                    }} catch (error) {{
+                      status.textContent = "No se pudo copiar";
+                    }}
+                  }});
+                </script>
+                """,
+                height=58,
+            )
 # --- FIN BLOQUE: Calculadora de descuento ---
 
 id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
