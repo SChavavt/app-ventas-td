@@ -46,6 +46,7 @@ S3_UPLOAD_MAX_RETRIES = 4
 S3_UPLOAD_BASE_DELAY_SECONDS = 1.2
 CONNECTION_STATUS_TTL_SECONDS = 20
 PEDIDO_STATUS_MAX_AGE_SECONDS = 180
+TAB1_DRAFT_MAX_AGE_SECONDS = 60 * 60 * 6
 
 
 TAB1_PRESERVED_STATE_KEYS: set[str] = {
@@ -850,6 +851,70 @@ def _pending_submission_paths(cache_key: str) -> tuple[Path, Path]:
     return cache_dir, cache_dir / "payload.json"
 
 
+def _tab1_draft_path(cache_key: str) -> Path:
+    """Ruta local para recuperar borrador del formulario de tab1 tras recargas inesperadas."""
+    PENDING_SUBMISSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    return PENDING_SUBMISSIONS_DIR / f"{cache_key}_tab1_draft.json"
+
+
+def _to_json_safe_value(value):
+    """Convierte valores arbitrarios de session_state a una forma serializable en JSON."""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, datetime):
+        return {"__type__": "datetime", "value": value.isoformat()}
+    if isinstance(value, date):
+        return {"__type__": "date", "value": value.isoformat()}
+    if isinstance(value, bytes):
+        return {"__type__": "bytes_b64", "value": base64.b64encode(value).decode("utf-8")}
+    if isinstance(value, list):
+        return [_to_json_safe_value(item) for item in value]
+    if isinstance(value, tuple):
+        return {"__type__": "tuple", "value": [_to_json_safe_value(item) for item in value]}
+    if isinstance(value, set):
+        return {"__type__": "set", "value": [_to_json_safe_value(item) for item in value]}
+    if isinstance(value, dict):
+        return {str(k): _to_json_safe_value(v) for k, v in value.items()}
+    return str(value)
+
+
+def _from_json_safe_value(value):
+    """Restaura valores serializados con ``_to_json_safe_value``."""
+    if isinstance(value, list):
+        return [_from_json_safe_value(item) for item in value]
+    if isinstance(value, dict):
+        value_type = value.get("__type__")
+        if value_type == "datetime":
+            raw = value.get("value")
+            if isinstance(raw, str):
+                try:
+                    return datetime.fromisoformat(raw)
+                except ValueError:
+                    return raw
+        if value_type == "date":
+            raw = value.get("value")
+            if isinstance(raw, str):
+                try:
+                    return datetime.fromisoformat(raw).date()
+                except ValueError:
+                    try:
+                        return date.fromisoformat(raw)
+                    except ValueError:
+                        return raw
+        if value_type == "bytes_b64":
+            raw = value.get("value", "")
+            try:
+                return base64.b64decode(raw)
+            except Exception:
+                return b""
+        if value_type == "tuple":
+            return tuple(_from_json_safe_value(item) for item in value.get("value", []))
+        if value_type == "set":
+            return set(_from_json_safe_value(item) for item in value.get("value", []))
+        return {k: _from_json_safe_value(v) for k, v in value.items() if k != "__type__"}
+    return value
+
+
 def _serialize_uploaded_files(files) -> list[dict]:
     serialized: list[dict] = []
     for file_obj in files or []:
@@ -911,6 +976,56 @@ def clear_pending_submission(cache_key: str) -> None:
             cache_dir.rmdir()
         except OSError:
             pass
+
+
+def save_tab1_draft_state(cache_key: str) -> None:
+    """Guarda borrador tab1 en disco para evitar pérdida de captura por refresh/reconexión."""
+    draft_path = _tab1_draft_path(cache_key)
+    payload = {
+        "created_at": time.time(),
+        "values": {
+            key: _to_json_safe_value(st.session_state.get(key))
+            for key in TAB1_FORM_STATE_KEYS_TO_CLEAR
+            if key in st.session_state and key not in TAB1_RESTORE_EXCLUDED_KEYS
+        },
+    }
+    try:
+        draft_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        return
+
+
+def load_tab1_draft_state(cache_key: str) -> Optional[dict]:
+    """Carga borrador tab1 si existe y no expiró."""
+    draft_path = _tab1_draft_path(cache_key)
+    if not draft_path.exists():
+        return None
+    try:
+        payload = json.loads(draft_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    created_at = float(payload.get("created_at", 0) or 0)
+    if created_at and (time.time() - created_at) > TAB1_DRAFT_MAX_AGE_SECONDS:
+        try:
+            draft_path.unlink()
+        except OSError:
+            pass
+        return None
+    values = payload.get("values")
+    if not isinstance(values, dict):
+        return None
+    return {key: _from_json_safe_value(value) for key, value in values.items()}
+
+
+def clear_tab1_draft_state(cache_key: str) -> None:
+    """Elimina borrador local de tab1."""
+    draft_path = _tab1_draft_path(cache_key)
+    try:
+        if draft_path.exists():
+            draft_path.unlink()
+    except OSError:
+        pass
 
 
 def schedule_pending_submission_retry(cache_key: str, delay_seconds: int = PENDING_SUBMISSION_RETRY_SECONDS) -> None:
@@ -3262,6 +3377,24 @@ if (
 with tab1:
     restore_tab1_form_state_for_retry()
     pending_cache_key = get_pending_submission_key()
+    if not st.session_state.get("tab1_draft_recovered_once"):
+        recovered_draft_values = load_tab1_draft_state(pending_cache_key)
+        if recovered_draft_values:
+            restored_any_draft = False
+            for draft_key, draft_value in recovered_draft_values.items():
+                if draft_key in TAB1_RESTORE_EXCLUDED_KEYS:
+                    continue
+                current_value = st.session_state.get(draft_key)
+                if current_value in (None, "", [], {}):
+                    try:
+                        st.session_state[draft_key] = draft_value
+                        restored_any_draft = True
+                    except StreamlitAPIException:
+                        continue
+            if restored_any_draft:
+                st.session_state["tab1_draft_was_restored"] = True
+        st.session_state["tab1_draft_recovered_once"] = True
+
     pending_submission_record = load_pending_submission(pending_cache_key)
     has_pending_submission = bool(pending_submission_record and pending_submission_record.get("payload"))
     submission_payload_override = None
@@ -3279,6 +3412,11 @@ with tab1:
     if tab1_is_active:
         st.session_state["current_tab_index"] = TAB_INDEX_TAB1
     st.header("📝 Nuevo Pedido")
+    if st.session_state.pop("tab1_draft_was_restored", False):
+        st.info(
+            "🧩 Se recuperó automáticamente un borrador local de tu captura. "
+            "Revisa los datos y vuelve a presionar 'Registrar Pedido'."
+        )
     id_vendedor_tab1 = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
     tab1_is_dual_view_user = id_vendedor_tab1 in TAB1_DUAL_VIEW_IDS
     tab1_enable_link_pago_option = id_vendedor_tab1 in LOCAL_TURNO_CDMX_IDS
@@ -4519,6 +4657,7 @@ with tab1:
         # evitar confusión visual con mensajes de un envío pasado.
         st.session_state.pop("pedido_submission_status", None)
         st.session_state.pop("pedido_status_toast_event_id", None)
+        save_tab1_draft_state(pending_cache_key)
         st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = True
         st.session_state["current_tab_index"] = TAB_INDEX_TAB1
         st.query_params.update({"tab": "0"})
@@ -4684,6 +4823,7 @@ with tab1:
                 """Limpia el aviso y prepara el formulario para capturar un pedido nuevo."""
                 st.session_state[TAB1_SCROLL_RESTORE_FLAG_KEY] = False
                 reset_tab1_form_state()
+                clear_tab1_draft_state(get_pending_submission_key())
                 st.session_state["last_selected_vendedor"] = VENDEDOR_NOMBRE_POR_ID.get(
                     normalize_vendedor_id(st.session_state.get("id_vendedor", "")),
                     TAB1_VENDOR_EMPTY_OPTION,
@@ -5445,6 +5585,7 @@ with tab1:
                 client_name=cliente_registrado,
             )
             clear_pending_submission(pending_cache_key)
+            clear_tab1_draft_state(pending_cache_key)
             if tab1_is_active and st.session_state.get("current_tab_index") == TAB_INDEX_TAB1:
                 st.query_params.update({"tab": "0"})
             rerun_with_pedido_loading("⏳ Pedido registrado. Actualizando vista...")
