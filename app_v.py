@@ -2766,7 +2766,7 @@ def clear_discount_calculator_state() -> None:
 
 
 with st.expander("🧮 Calculadora de descuento", expanded=False):
-    top_col_1, top_col_2, top_col_3 = st.columns([2.2, 1, 1])
+    top_col_1, top_col_2 = st.columns([3.2, 1])
     with top_col_1:
         st.number_input(
             "Precio a obtener",
@@ -2776,9 +2776,6 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
             key=DESCUENTO_TARGET_KEY,
         )
     with top_col_2:
-        st.write("")
-        st.button("➕ Agregar", key="discount_add_regular")
-    with top_col_3:
         st.write("")
         st.button(
             "🧹 Limpiar",
@@ -2792,7 +2789,13 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
         st.session_state[DESCUENTO_REGULAR_KEY] = precios_regulares
         st.rerun()
 
-    st.markdown("**Precios regulares**")
+    regular_header_col, regular_button_col = st.columns([5, 1])
+    with regular_header_col:
+        st.markdown("**Precios regulares**")
+    with regular_button_col:
+        st.write("")
+        st.button("➕ Agregar", key="discount_add_regular")
+
     precios_capturados: list[float] = []
     for idx, valor_inicial in enumerate(precios_regulares):
         col_input, col_delete = st.columns([5, 1])
@@ -2836,13 +2839,41 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
         # Cálculo de descuento exacto: ABS((Precio_A_Obtener / SUMA_Precio_Regular) - 1)
         descuento_factor = abs((precio_objetivo / suma_precios_regulares) - 1)
         descuento_porcentaje = descuento_factor * 100
-        st.metric("Descuento a aplicar", f"{descuento_porcentaje:.2f}%")
-        st.caption(f"Factor decimal: {descuento_factor:.4f}")
+        descuento_texto = f"{descuento_porcentaje:.2f}%"
+        st.metric("Descuento a aplicar", descuento_texto)
 
-    st.caption(
-        "Precios capturados: "
-        + (", ".join(f"{p:.2f}" for p in precios_capturados) if precios_capturados else "Sin datos válidos")
-    )
+        copy_button_id = f"copyDiscountBtn-{uuid.uuid4().hex[:8]}"
+        copy_status_id = f"copyDiscountStatus-{uuid.uuid4().hex[:8]}"
+        components.html(
+            f"""
+            <div style="display:flex;align-items:center;gap:.6rem;margin:.2rem 0 0.6rem 0;">
+              <button id="{copy_button_id}" style="
+                border:1px solid rgba(151, 138, 255, .45);
+                background:rgba(151, 138, 255, .15);
+                color:#fff;
+                border-radius:8px;
+                padding:.38rem .75rem;
+                font-size:.85rem;
+                cursor:pointer;
+              ">📋 Copiar {descuento_texto}</button>
+              <span id="{copy_status_id}" style="font-size:.78rem;color:#90EE90;"></span>
+            </div>
+            <script>
+              const button = document.getElementById("{copy_button_id}");
+              const status = document.getElementById("{copy_status_id}");
+              button.addEventListener("click", async () => {{
+                try {{
+                  await navigator.clipboard.writeText("{descuento_texto}");
+                  status.textContent = "Copiado";
+                  setTimeout(() => status.textContent = "", 1500);
+                }} catch (error) {{
+                  status.textContent = "No se pudo copiar";
+                }}
+              }});
+            </script>
+            """,
+            height=44,
+        )
 # --- FIN BLOQUE: Calculadora de descuento ---
 
 id_vendedor_sesion_global = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
