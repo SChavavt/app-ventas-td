@@ -1931,6 +1931,43 @@ def find_clientes_locales_matches(search_text: str, dataset: pd.DataFrame, limit
     return matches[:limit]
 
 
+def get_clientes_locales_matches_with_fallback_refresh(
+    search_text: str,
+    *,
+    session_prefix: str,
+    limit: int = 8,
+) -> tuple[list[dict], bool]:
+    """
+    Busca coincidencias en Clientes_Locales y, si no encuentra nada, fuerza una recarga puntual.
+
+    Evita depender únicamente del caché de 120s cuando otro usuario acaba de registrar/editar
+    un cliente y todavía no se refleja en esta sesión.
+    """
+    query = str(search_text or "").strip()
+    normalized_query = normalize_client_history_text(query)
+    if not normalized_query:
+        st.session_state.pop(f"{session_prefix}_last_forced_refresh_query", None)
+        return [], False
+
+    dataset = load_clientes_locales_dataset()
+    matches = find_clientes_locales_matches(query, dataset, limit=limit)
+    if matches:
+        st.session_state.pop(f"{session_prefix}_last_forced_refresh_query", None)
+        return matches, False
+
+    last_refreshed_query = str(
+        st.session_state.get(f"{session_prefix}_last_forced_refresh_query", "") or ""
+    )
+    if last_refreshed_query == normalized_query:
+        return matches, False
+
+    forced_refresh_token = time.time()
+    fresh_dataset = load_clientes_locales_dataset(refresh_token=forced_refresh_token)
+    refreshed_matches = find_clientes_locales_matches(query, fresh_dataset, limit=limit)
+    st.session_state[f"{session_prefix}_last_forced_refresh_query"] = normalized_query
+    return refreshed_matches, True
+
+
 def apply_cliente_local_record_to_session(
     record: dict,
     *,
@@ -3780,8 +3817,12 @@ with tab1:
                 help="Busca coincidencias más estrictas en Clientes_Locales, priorizando nombres exactos o capturas progresivas del mismo nombre.",
             )
 
-            clientes_locales_df = load_clientes_locales_dataset()
-            client_history_matches = find_clientes_locales_matches(registro_cliente, clientes_locales_df)
+            client_history_matches, forced_refresh_used = get_clientes_locales_matches_with_fallback_refresh(
+                registro_cliente,
+                session_prefix="tab1_local_route_client_search",
+            )
+            if forced_refresh_used and client_history_matches:
+                st.caption("🔄 Se actualizó el historial automáticamente y se encontraron coincidencias.")
             client_history_options: dict[str, dict] = {}
             normalized_registro_cliente = normalize_client_history_text(registro_cliente)
             exact_match_label = None
@@ -6738,8 +6779,12 @@ with tab2:
                             key="tab2_local_route_client_search",
                             placeholder="Escribe o pega el nombre del cliente",
                         )
-                        clientes_locales_df = load_clientes_locales_dataset()
-                        tab2_matches = find_clientes_locales_matches(tab2_cliente, clientes_locales_df)
+                        tab2_matches, tab2_forced_refresh_used = get_clientes_locales_matches_with_fallback_refresh(
+                            tab2_cliente,
+                            session_prefix="tab2_local_route_client_search",
+                        )
+                        if tab2_forced_refresh_used and tab2_matches:
+                            st.caption("🔄 Se actualizó el historial automáticamente y se encontraron coincidencias.")
                         tab2_options: dict[str, dict] = {}
                         normalized_tab2_cliente = normalize_client_history_text(tab2_cliente)
                         exact_tab2_label = None
