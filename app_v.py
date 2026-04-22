@@ -3835,27 +3835,30 @@ with tab1:
             subtipo_local = "☀️ Local Mañana"
             st.session_state["subtipo_local_selector"] = subtipo_local
 
-        if is_local_recoge_aula:
+        if is_local_recoge_aula or is_local_pasa_bodega:
             usa_hoja_ruta_local = False
 
         if not usa_hoja_ruta_local:
             st.session_state["local_route_selected_history_label"] = None
             st.session_state["local_route_selected_history_row"] = None
-            if is_local_recoge_aula:
+            if is_local_recoge_aula or is_local_pasa_bodega:
                 st.session_state["local_route_hora_entrega_manual"] = ""
                 st.session_state["local_route_dia_entrega"] = ""
                 st.session_state.pop("local_route_hora_entrega_input", None)
                 st.session_state.pop("local_route_hora_entrega_selector", None)
                 st.session_state.pop("local_route_hora_entrega_custom", None)
+            if is_local_recoge_aula and is_local_pasa_bodega:
+                st.caption(
+                    "ℹ️ Para **📦 Pasa a Bodega** y **🎓 Recoge en Aula** no se usa hoja de ruta ni actualización de `Clientes_Locales`."
+                )
+            elif is_local_recoge_aula:
                 st.caption(
                     "ℹ️ Para **🎓 Recoge en Aula** no se usa hoja de ruta ni actualización de `Clientes_Locales`."
                 )
-        elif is_local_pasa_bodega:
-            st.session_state["local_route_selected_history_label"] = None
-            st.session_state["local_route_selected_history_row"] = None
-            st.caption(
-                "ℹ️ Para **📦 Pasa a Bodega** no se usa búsqueda automática de cliente ni actualización de `Clientes_Locales`."
-            )
+            elif is_local_pasa_bodega:
+                st.caption(
+                    "ℹ️ Para **📦 Pasa a Bodega** no se usa hoja de ruta ni actualización de `Clientes_Locales`."
+                )
         else:
             pending_registro_cliente = st.session_state.pop("local_route_pending_registro_cliente", None)
             if pending_registro_cliente is not None:
