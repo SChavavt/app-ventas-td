@@ -2800,9 +2800,6 @@ def render_brand_title(icon: str, prefix: str, fallback_suffix: str, logo_path: 
         f"<h1 class='ventas-brand-title'>{icon} {prefix} {fallback_suffix}</h1>",
         unsafe_allow_html=True,
     )
-    st.caption(
-        f"Tip: agrega tu logo en `{logo_path}` (PNG recomendado) para reemplazar “{fallback_suffix}”."
-    )
 
 
 def render_logo_uploader(logo_path: str = "assets/td_logo.png", section_key: str = "ventas") -> None:

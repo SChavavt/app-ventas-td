@@ -1635,9 +1635,6 @@ def render_brand_title(icon: str, prefix: str, fallback_suffix: str, logo_path: 
             pass
 
     st.title(f"{icon} {prefix} {fallback_suffix}")
-    st.caption(
-        f"Tip: agrega tu logo en `{logo_path}` (PNG recomendado) para reemplazar “{fallback_suffix}”."
-    )
 
 
 def render_logo_uploader(logo_path: str = "assets/td_logo.png", section_key: str = "admin") -> None:
