@@ -8419,11 +8419,19 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
             return pd.DataFrame()
 
         for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
-                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia","id_vendedor","Completados_Limpiado"]:
+                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia","Hoja_Ruta_Mensajero","Guias_urls","id_vendedor","Completados_Limpiado"]:
             if col not in df_ped.columns:
                 df_ped[col] = ""
 
-        df_res = df_ped[df_ped["Adjuntos_Guia"].astype(str).str.strip() != ""].copy()
+        df_work = df_ped.copy()
+        if "Adjuntos_Guia" not in df_work.columns:
+            df_work["Adjuntos_Guia"] = ""
+        for alt_col in ["Hoja_Ruta_Mensajero", "Guias_urls"]:
+            if alt_col in df_work.columns:
+                mask_vacio = df_work["Adjuntos_Guia"].astype(str).str.strip().eq("")
+                df_work.loc[mask_vacio, "Adjuntos_Guia"] = df_work.loc[mask_vacio, alt_col].astype(str)
+
+        df_res = df_work[df_work["Adjuntos_Guia"].astype(str).str.strip() != ""].copy()
         if df_res.empty:
             return df_res
 
@@ -8466,11 +8474,15 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
         ])
     else:
         for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
-                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Hoja_Ruta_Mensajero","Tipo_Caso","id_vendedor","Completados_Limpiado"]:
+                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia","Hoja_Ruta_Mensajero","Tipo_Caso","id_vendedor","Completados_Limpiado"]:
             if col not in df_casos.columns:
                 df_casos[col] = ""
 
-        df_b = df_casos[df_casos["Hoja_Ruta_Mensajero"].astype(str).str.strip() != ""].copy()
+        df_casos_work = df_casos.copy()
+        mask_casos_vacio = df_casos_work["Hoja_Ruta_Mensajero"].astype(str).str.strip().eq("")
+        df_casos_work.loc[mask_casos_vacio, "Hoja_Ruta_Mensajero"] = df_casos_work.loc[mask_casos_vacio, "Adjuntos_Guia"].astype(str)
+
+        df_b = df_casos_work[df_casos_work["Hoja_Ruta_Mensajero"].astype(str).str.strip() != ""].copy()
         if df_b.empty:
             df_b = pd.DataFrame(columns=[
                 "ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
@@ -8547,6 +8559,19 @@ with tab5:
     if df_guias.empty:
         st.info("No hay pedidos o casos especiales con guías subidas.")
     else:
+        conteo_fuentes = (
+            df_guias["Fuente"]
+            .fillna("sin_fuente")
+            .astype(str)
+            .value_counts()
+            .to_dict()
+        )
+        resumen_fuentes = " | ".join(
+            f"{fuente}: {cantidad}" for fuente, cantidad in sorted(conteo_fuentes.items())
+        )
+        if resumen_fuentes:
+            st.caption(f"Origen de registros cargados: {resumen_fuentes}")
+
         st.markdown("### 🔍 Filtros")
         col1_tab5, col2_tab5 = st.columns(2)
 
