@@ -8,6 +8,8 @@ import random
 import html
 import base64
 import re
+import unicodedata
+from difflib import SequenceMatcher
 import pandas as pd
 import boto3
 from botocore.exceptions import ClientError
@@ -264,6 +266,53 @@ def normalize_user_field(value: str | None) -> str:
         return ""
 
     return raw
+
+
+def normalize_client_name(value: str | None) -> str:
+    """Normaliza nombres de cliente para comparaciones robustas."""
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    raw = unicodedata.normalize("NFKD", raw)
+    raw = "".join(ch for ch in raw if not unicodedata.combining(ch))
+    raw = re.sub(r"[^a-z0-9\s]", " ", raw)
+    return re.sub(r"\s+", " ", raw).strip()
+
+
+def cliente_credito_match(
+    cliente_base: str | None,
+    nombres_credito_normalizados: list[str],
+    nombres_credito_lookup: set[str],
+) -> bool:
+    """
+    Determina si un cliente coincide con lista de crédito.
+    Permite diferencias muy leves con umbral conservador.
+    """
+    objetivo = normalize_client_name(cliente_base)
+    if not objetivo:
+        return False
+    if objetivo in nombres_credito_lookup:
+        return True
+
+    first_char = objetivo[0]
+    len_obj = len(objetivo)
+    for candidato in nombres_credito_normalizados:
+        if not candidato:
+            continue
+        if candidato[0] != first_char:
+            continue
+        if abs(len(candidato) - len_obj) > 2:
+            continue
+        ratio = SequenceMatcher(None, objetivo, candidato).ratio()
+        if ratio >= 0.94:
+            return True
+        if (
+            ratio >= 0.90
+            and min(len_obj, len(candidato)) >= 8
+            and (objetivo in candidato or candidato in objetivo)
+        ):
+            return True
+    return False
 
 
 def ensure_id_vendedor_column(
@@ -4525,7 +4574,71 @@ with tab2:
             columns=columnas_ordenadas_visible, fill_value=""
         )
 
-        df_confirmados_vista, columnas_expandidas_tabla = expand_link_adjuntos_columns(df_confirmados_visible)
+        st.markdown("##### 🧮 Exportar Excel de Confirmados")
+        col_filtro_estado, col_filtro_forma = st.columns(2, gap="small")
+        with col_filtro_estado:
+            excluir_estado_pago_credito = st.checkbox(
+                "Excluir Estado_Pago = 💳 CREDITO",
+                value=False,
+                key="confirmados_excluir_estado_credito",
+            )
+        with col_filtro_forma:
+            excluir_forma_pago_credito_td = st.checkbox(
+                "Excluir Forma_Pago_Comprobante = Credito TD",
+                value=False,
+                key="confirmados_excluir_forma_credito_td",
+            )
+
+        df_confirmados_filtrados = df_confirmados_visible.copy()
+        if excluir_estado_pago_credito and "Estado_Pago" in df_confirmados_filtrados.columns:
+            estado_pago_norm = df_confirmados_filtrados["Estado_Pago"].astype(str).str.strip().str.lower()
+            df_confirmados_filtrados = df_confirmados_filtrados[estado_pago_norm != "💳 credito"]
+        if excluir_forma_pago_credito_td and "Forma_Pago_Comprobante" in df_confirmados_filtrados.columns:
+            forma_pago_norm = df_confirmados_filtrados["Forma_Pago_Comprobante"].astype(str).str.strip().str.lower()
+            df_confirmados_filtrados = df_confirmados_filtrados[forma_pago_norm != "credito td"]
+
+        st.caption(f"Mostrando {len(df_confirmados_filtrados)} pedidos confirmados con filtros aplicados.")
+
+        clientes_credito_file = st.file_uploader(
+            "Subir Excel/CSV de clientes con crédito (se usará la columna B para subrayar filas)",
+            type=["xlsx", "xls", "csv"],
+            key="confirmados_clientes_credito_file",
+            help="Solo se utilizará la columna B del archivo. Se permiten diferencias leves de acentos/mayúsculas y errores mínimos.",
+        )
+
+        nombres_credito_normalizados: list[str] = []
+        if clientes_credito_file is not None:
+            try:
+                if str(clientes_credito_file.name).lower().endswith(".csv"):
+                    df_clientes_credito = pd.read_csv(clientes_credito_file)
+                else:
+                    df_clientes_credito = pd.read_excel(clientes_credito_file)
+
+                if df_clientes_credito.shape[1] < 2:
+                    st.error("❌ El archivo de crédito debe tener al menos 2 columnas (se usará la columna B).")
+                else:
+                    # Requerimiento operativo: tomar siempre la columna B del archivo
+                    # (la primera fila sigue siendo el encabezado normal del archivo).
+                    nombres_raw = df_clientes_credito.iloc[:, 1].tolist()
+                    nombres_credito_normalizados = [
+                        normalize_client_name(nombre)
+                        for nombre in nombres_raw
+                    ]
+                    nombres_credito_normalizados = [
+                        nombre for nombre in nombres_credito_normalizados if nombre
+                    ]
+                    # Evita tomar accidentalmente el encabezado ("Nombre") como cliente.
+                    nombres_credito_normalizados = [
+                        nombre for nombre in nombres_credito_normalizados if nombre != "nombre"
+                    ]
+                    nombres_credito_normalizados = list(dict.fromkeys(nombres_credito_normalizados))
+                    st.caption(
+                        f"Se detectaron {len(nombres_credito_normalizados)} clientes únicos de crédito para resaltar."
+                    )
+            except Exception as e:
+                st.error(f"❌ No se pudo leer el archivo de clientes con crédito: {e}")
+
+        df_confirmados_vista, columnas_expandidas_tabla = expand_link_adjuntos_columns(df_confirmados_filtrados)
 
         columnas_a_ocultar = list(dict.fromkeys([*columnas_expandidas_tabla]))
         columnas_a_ocultar_set = set(columnas_a_ocultar)
@@ -4576,13 +4689,40 @@ with tab2:
             ]
         )
 
-        st.dataframe(
-            df_confirmados_vista[columnas_para_tabla] if columnas_para_tabla else df_confirmados_vista,
-            use_container_width=True, hide_index=True
+        df_tabla_mostrar = (
+            df_confirmados_vista[columnas_para_tabla] if columnas_para_tabla else df_confirmados_vista
         )
+        if nombres_credito_normalizados and "Cliente" in df_tabla_mostrar.columns:
+            nombres_credito_lookup = set(nombres_credito_normalizados)
+            mask_tabla_credito = df_tabla_mostrar["Cliente"].apply(
+                lambda nombre_cliente: cliente_credito_match(
+                    nombre_cliente,
+                    nombres_credito_normalizados,
+                    nombres_credito_lookup,
+                )
+            )
 
-        # Descargar Excel (desde el DF ya ordenado)
-        df_excel, columnas_expandidas_excel = expand_link_adjuntos_columns(df_confirmados_visible)
+            df_tabla_mostrar_render = df_tabla_mostrar.copy()
+            df_tabla_mostrar_render.insert(
+                0,
+                "Credito",
+                mask_tabla_credito.apply(lambda es_credito: "🟦" if bool(es_credito) else ""),
+            )
+
+            st.dataframe(
+                df_tabla_mostrar_render,
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.dataframe(
+                df_tabla_mostrar,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        # Descargar Excel usando el mismo listado filtrado que ve el usuario
+        df_excel, columnas_expandidas_excel = expand_link_adjuntos_columns(df_confirmados_filtrados)
         columnas_a_ocultar_excel = list(dict.fromkeys([*columnas_expandidas_excel]))
         if columnas_a_ocultar_excel:
             df_excel = df_excel.drop(columnas_a_ocultar_excel, axis=1, errors="ignore")
@@ -4596,9 +4736,34 @@ with tab2:
         df_excel = df_excel.fillna("")
 
         if st.button("🧮 Preparar Excel Confirmados", key="prep_excel_confirmados"):
+            df_excel_export = df_excel.copy()
+
+            mask_clientes_credito = pd.Series([False] * len(df_excel_export), index=df_excel_export.index)
+            nombres_credito_lookup = set(nombres_credito_normalizados)
+            if nombres_credito_normalizados and "Cliente" in df_excel_export.columns:
+                mask_clientes_credito = df_excel_export["Cliente"].apply(
+                    lambda nombre_cliente: cliente_credito_match(
+                        nombre_cliente,
+                        nombres_credito_normalizados,
+                        nombres_credito_lookup,
+                    )
+                )
+
             output_confirmados = BytesIO()
             with pd.ExcelWriter(output_confirmados, engine='xlsxwriter') as writer:
-                df_excel.to_excel(writer, index=False, sheet_name='Confirmados')
+                df_excel_export.to_excel(writer, index=False, sheet_name='Confirmados')
+                if mask_clientes_credito.any():
+                    workbook = writer.book
+                    worksheet = writer.sheets["Confirmados"]
+                    credito_format = workbook.add_format(
+                        {
+                            "bg_color": "#D9EAF7",  # azul claro
+                            "font_color": "#0F172A",
+                        }
+                    )
+                    for excel_row, es_credito in enumerate(mask_clientes_credito.tolist(), start=1):
+                        if es_credito:
+                            worksheet.set_row(excel_row, None, credito_format)
             data_xlsx = output_confirmados.getvalue()
 
             st.download_button(
