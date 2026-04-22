@@ -4572,29 +4572,17 @@ with tab2:
         )
 
         st.markdown("##### 🧮 Exportar Excel de Confirmados")
-        col_filtro_estado, col_filtro_forma = st.columns(2, gap="small")
-        with col_filtro_estado:
-            excluir_estado_pago_credito = st.checkbox(
-                "Excluir Estado_Pago = 💳 CREDITO",
-                value=False,
-                key="confirmados_excluir_estado_credito",
-            )
-        with col_filtro_forma:
-            excluir_forma_pago_credito_td = st.checkbox(
-                "Excluir Forma_Pago_Comprobante = Credito TD",
-                value=False,
-                key="confirmados_excluir_forma_credito_td",
-            )
+        excluir_estado_pago_credito = st.checkbox(
+            "Excluir Estado_Pago = 💳 CREDITO",
+            value=False,
+            key="confirmados_excluir_estado_credito",
+        )
 
         df_confirmados_filtrados = df_confirmados_visible.copy()
         if excluir_estado_pago_credito and "Estado_Pago" in df_confirmados_filtrados.columns:
             estado_pago_norm = df_confirmados_filtrados["Estado_Pago"].astype(str).str.strip().str.lower()
             df_confirmados_filtrados = df_confirmados_filtrados[estado_pago_norm != "💳 credito"]
-        if excluir_forma_pago_credito_td and "Forma_Pago_Comprobante" in df_confirmados_filtrados.columns:
-            forma_pago_norm = df_confirmados_filtrados["Forma_Pago_Comprobante"].astype(str).str.strip().str.lower()
-            df_confirmados_filtrados = df_confirmados_filtrados[forma_pago_norm != "credito td"]
-
-        st.caption(f"Mostrando {len(df_confirmados_filtrados)} pedidos confirmados con filtros aplicados.")
+        st.caption(f"Mostrando {len(df_confirmados_filtrados)} pedidos confirmados con filtro aplicado.")
 
         clientes_credito_file = st.file_uploader(
             "Subir Excel/CSV de clientes con crédito (se usará la columna B para subrayar filas)",
