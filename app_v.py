@@ -8466,11 +8466,15 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
         ])
     else:
         for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
-                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Hoja_Ruta_Mensajero","Tipo_Caso","id_vendedor","Completados_Limpiado"]:
+                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia","Hoja_Ruta_Mensajero","Tipo_Caso","id_vendedor","Completados_Limpiado"]:
             if col not in df_casos.columns:
                 df_casos[col] = ""
 
-        df_b = df_casos[df_casos["Hoja_Ruta_Mensajero"].astype(str).str.strip() != ""].copy()
+        df_casos_work = df_casos.copy()
+        mask_casos_vacio = df_casos_work["Hoja_Ruta_Mensajero"].astype(str).str.strip().eq("")
+        df_casos_work.loc[mask_casos_vacio, "Hoja_Ruta_Mensajero"] = df_casos_work.loc[mask_casos_vacio, "Adjuntos_Guia"].astype(str)
+
+        df_b = df_casos_work[df_casos_work["Hoja_Ruta_Mensajero"].astype(str).str.strip() != ""].copy()
         if df_b.empty:
             df_b = pd.DataFrame(columns=[
                 "ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
@@ -8511,13 +8515,23 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
     df = pd.concat([df_a_hist, df_a_op, df_b], ignore_index=True)
 
     if not df.empty:
-        for col_fecha in ["Fecha_Entrega","Hora_Registro"]:
-            df[col_fecha] = pd.to_datetime(df[col_fecha], errors="coerce")
+        for col_fecha in ["Fecha_Entrega", "Hora_Registro"]:
+            # `format="mixed"` mejora la lectura de valores heterogéneos entre hojas.
+            try:
+                df[col_fecha] = pd.to_datetime(df[col_fecha], errors="coerce", format="mixed")
+            except (TypeError, ValueError):
+                df[col_fecha] = pd.to_datetime(df[col_fecha], errors="coerce")
+
+        df["Fecha_Filtro_Referencia"] = df["Hora_Registro"]
+        mask_ref_vacia = df["Fecha_Filtro_Referencia"].isna()
+        df.loc[mask_ref_vacia, "Fecha_Filtro_Referencia"] = df.loc[mask_ref_vacia, "Fecha_Entrega"]
 
         df["Folio_O_ID"] = df["Folio_Factura"].astype(str).str.strip()
         df.loc[df["Folio_O_ID"] == "", "Folio_O_ID"] = df["ID_Pedido"].astype(str).str.strip()
 
-        if df["Fecha_Entrega"].notna().any():
+        if df["Fecha_Filtro_Referencia"].notna().any():
+            df = df.sort_values(by="Fecha_Filtro_Referencia", ascending=False)
+        elif df["Fecha_Entrega"].notna().any():
             df = df.sort_values(by="Fecha_Entrega", ascending=False)
         elif df["Hora_Registro"].notna().any():
             df = df.sort_values(by="Hora_Registro", ascending=False)
@@ -8547,6 +8561,19 @@ with tab5:
     if df_guias.empty:
         st.info("No hay pedidos o casos especiales con guías subidas.")
     else:
+        conteo_fuentes = (
+            df_guias["Fuente"]
+            .fillna("sin_fuente")
+            .astype(str)
+            .value_counts()
+            .to_dict()
+        )
+        resumen_fuentes = " | ".join(
+            f"{fuente}: {cantidad}" for fuente, cantidad in sorted(conteo_fuentes.items())
+        )
+        if resumen_fuentes:
+            st.caption(f"Origen de registros cargados: {resumen_fuentes}")
+
         st.markdown("### 🔍 Filtros")
         col1_tab5, col2_tab5 = st.columns(2)
 
@@ -8612,7 +8639,9 @@ with tab5:
                 )
 
         fecha_col_para_filtrar = None
-        if "Hora_Registro" in df_guias.columns and df_guias["Hora_Registro"].notna().any():
+        if "Fecha_Filtro_Referencia" in df_guias.columns and df_guias["Fecha_Filtro_Referencia"].notna().any():
+            fecha_col_para_filtrar = "Fecha_Filtro_Referencia"
+        elif "Hora_Registro" in df_guias.columns and df_guias["Hora_Registro"].notna().any():
             fecha_col_para_filtrar = "Hora_Registro"
         elif "Fecha_Entrega" in df_guias.columns and df_guias["Fecha_Entrega"].notna().any():
             fecha_col_para_filtrar = "Fecha_Entrega"
@@ -8694,7 +8723,7 @@ with tab5:
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
 
-        columnas_mostrar = ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado","Fecha_Entrega","Fuente"]
+        columnas_mostrar = ["Folio_Factura","Cliente","Vendedor_Registro","Tipo_Envio","Estado","Fecha_Entrega","Fuente"]
         tabla_guias = df_guias[columnas_mostrar].copy()
         tabla_guias["Fecha_Entrega"] = pd.to_datetime(tabla_guias["Fecha_Entrega"], errors="coerce").dt.strftime("%d/%m/%y")
         st.dataframe(tabla_guias, use_container_width=True, hide_index=True)
