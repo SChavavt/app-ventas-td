@@ -2092,34 +2092,38 @@ def apply_cliente_local_to_session(record: dict) -> None:
     apply_cliente_local_record_to_session(record)
 
 
-def upsert_cliente_local_if_missing(record: dict[str, str]) -> tuple[bool, str]:
-    """Guarda un cliente nuevo solo si no existe ya en Clientes_Locales."""
+def upsert_cliente_local_if_missing(record: dict[str, str]) -> tuple[str, str]:
+    """
+    Inserta o actualiza el cliente en Clientes_Locales.
+
+    Regresa una tupla (action, message), donde action puede ser:
+    - "inserted": se agregó un cliente nuevo.
+    - "updated": se actualizó un cliente existente por coincidencia.
+    - "skipped": no hubo operación por datos inválidos.
+    """
     client_name = record.get("Cliente", "").strip()
     if not client_name:
-        return False, "Nombre de cliente vacío."
+        return "skipped", "Nombre de cliente vacío."
 
     worksheet = get_worksheet_clientes_locales()
     headers = ensure_clientes_locales_headers(worksheet)
     dataset = load_clientes_locales_dataset()
-    normalized_name = normalize_client_history_text(client_name)
-    if not dataset.empty and dataset["normalized_cliente"].astype(str).eq(normalized_name).any():
-        return False, "El cliente ya existe en el historial."
+    matches = find_clientes_locales_matches(client_name, dataset, limit=1)
+    if matches:
+        matched_row_number = int(matches[0].get("Sheet_Row_Number", 0) or 0)
+        if matched_row_number > 1:
+            start_cell = rowcol_to_a1(matched_row_number, 1)
+            end_cell = rowcol_to_a1(matched_row_number, len(headers))
+            values = [record.get(header, "") for header in headers]
+            worksheet.update(f"{start_cell}:{end_cell}", [values], value_input_option="RAW")
+            load_clientes_locales_dataset.clear()
+            return "updated", "Cliente existente actualizado en el historial."
 
     values = [record.get(header, "") for header in headers]
     worksheet.append_row(values, value_input_option="RAW")
     load_clientes_locales_dataset.clear()
-    return True, "Cliente agregado al historial."
+    return "inserted", "Cliente agregado al historial."
 
-
-def update_existing_cliente_local(row_number: int, record: dict[str, str]) -> None:
-    """Actualiza un cliente existente en Clientes_Locales usando el renglón real."""
-    worksheet = get_worksheet_clientes_locales()
-    headers = ensure_clientes_locales_headers(worksheet)
-    start_cell = rowcol_to_a1(row_number, 1)
-    end_cell = rowcol_to_a1(row_number, len(headers))
-    values = [record.get(header, "") for header in headers]
-    worksheet.update(f"{start_cell}:{end_cell}", [values], value_input_option="RAW")
-    load_clientes_locales_dataset.clear()
 
 @st.cache_data(ttl=300)
 def get_sheet_headers(sheet_name: str):
@@ -4422,23 +4426,11 @@ with tab1:
                 key="estado_pago",
             )
 
-            selected_history_row = parse_sheet_row_number(st.session_state.get("local_route_selected_history_row"))
-            show_update_client_button = (
-                usa_hoja_ruta_local
-                and (not is_local_pasa_bodega)
-                and (selected_history_row is not None)
-            )
-            if show_update_client_button:
-                update_client_history_button = st.form_submit_button(
-                    "📝 Actualizar info del cliente",
-                    help="Actualiza el registro histórico del cliente seleccionado con los datos actuales del formulario.",
-                )
+            if usa_hoja_ruta_local and not is_local_pasa_bodega:
                 st.caption(
-                    "Este botón actualiza la base histórica del cliente. "
-                    "Usar solo si se requiere almacenar nueva info del cliente del formulario actual"
+                    "ℹ️ La información de `Clientes_Locales` se actualiza automáticamente al registrar el pedido "
+                    "si ya existe coincidencia del cliente; si no existe, se crea un nuevo registro."
                 )
-            else:
-                update_client_history_button = False
 
             requiere_captura_pago = estado_pago == "✅ Pagado"
 
@@ -4503,7 +4495,6 @@ with tab1:
 
         else:
             confirm_route_button = False
-            update_client_history_button = False
 
         if tipo_envio == "🚚 Pedido Foráneo":
             direccion_guia_retorno = st.text_area(
@@ -4841,7 +4832,6 @@ with tab1:
 
     if usa_hoja_ruta_local and not is_local_pasa_bodega:
         route_template_path = Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx"
-        selected_history_row = parse_sheet_row_number(st.session_state.get("local_route_selected_history_row"))
         current_folio_for_route = (
             nota_venta.strip()
             if registrar_nota_venta and isinstance(nota_venta, str)
@@ -4871,18 +4861,6 @@ with tab1:
             folio=current_folio_for_route,
         )
         current_cliente_local_record = build_clientes_locales_record_from_form()
-
-        if update_client_history_button:
-            if selected_history_row is None:
-                st.warning("⚠️ Selecciona un cliente del historial antes de actualizar su información.")
-            elif not current_cliente_local_record["Cliente"]:
-                st.warning("⚠️ Captura el nombre del cliente antes de actualizar el historial.")
-            else:
-                try:
-                    update_existing_cliente_local(selected_history_row, current_cliente_local_record)
-                    st.success("✅ La información histórica del cliente fue actualizada correctamente.")
-                except Exception as e:
-                    st.error(f"❌ No se pudo actualizar Clientes_Locales: {e}")
 
         if confirm_route_button:
             st.session_state[LOCAL_ROUTE_CONFIRMED_PAYLOAD_KEY] = current_route_payload
@@ -5888,11 +5866,13 @@ with tab1:
             local_route_upload_notice = ""
             if usa_hoja_ruta_local and not is_local_pasa_bodega:
                 try:
-                    inserted, _history_message = upsert_cliente_local_if_missing(
+                    cliente_local_action, _history_message = upsert_cliente_local_if_missing(
                         build_clientes_locales_record_from_form()
                     )
-                    if inserted:
+                    if cliente_local_action == "inserted":
                         cliente_local_history_notice = " Se agregó el cliente al historial local."
+                    elif cliente_local_action == "updated":
+                        cliente_local_history_notice = " Se actualizó la información del cliente en el historial local."
                 except Exception as e:
                     cliente_local_history_notice = f" No se pudo actualizar Clientes_Locales: {e}"
 
