@@ -1055,6 +1055,61 @@ def schedule_pending_submission_retry(cache_key: str, delay_seconds: int = PENDI
     )
 
 
+def worksheet_to_dataframe_safe(worksheet, retries: int = 3, base_delay: float = 0.6) -> pd.DataFrame:
+    """Convierte una hoja de Google Sheets a DataFrame manejando reintentos y encabezados duplicados."""
+    if worksheet is None:
+        return pd.DataFrame()
+
+    for attempt in range(retries):
+        try:
+            return pd.DataFrame(worksheet.get_all_records())
+        except APIError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            is_transient = status in {429, 500, 502, 503, 504}
+            if is_transient and attempt < retries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+                continue
+            return pd.DataFrame()
+        except GSpreadException as e:
+            if "header row in the worksheet is not unique" not in str(e):
+                if attempt < retries - 1:
+                    time.sleep(base_delay * (2 ** attempt))
+                    continue
+                return pd.DataFrame()
+            break
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+                continue
+            return pd.DataFrame()
+
+    try:
+        values = worksheet.get_all_values()
+    except Exception:
+        return pd.DataFrame()
+    if not values:
+        return pd.DataFrame()
+
+    headers_raw = [str(h).strip() for h in values[0]]
+    headers: list[str] = []
+    seen: dict[str, int] = {}
+    for idx, header in enumerate(headers_raw, start=1):
+        base = header or f"col_{idx}"
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        headers.append(base if count == 0 else f"{base}_{count + 1}")
+
+    records: list[dict[str, str]] = []
+    max_columns = len(headers)
+    for row_values in values[1:]:
+        row = list(row_values[:max_columns])
+        if len(row) < max_columns:
+            row.extend([""] * (max_columns - len(row)))
+        records.append({headers[i]: row[i] for i in range(max_columns)})
+
+    return pd.DataFrame(records)
+
+
 @st.cache_data(ttl=60)
 def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float | None = None) -> dict:
     """Obtiene resumen de guías cargadas para mostrar aviso rápido en encabezado."""
@@ -1062,11 +1117,16 @@ def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float |
     if not id_vendedor_norm:
         return {"total": 0, "clientes": [], "keys": []}
 
-    try:
-        ws_ped = get_worksheet_operativa(refresh_token)
-        df_ped = pd.DataFrame(ws_ped.get_all_records())
-    except Exception:
-        df_ped = pd.DataFrame()
+    def _load_pedidos_sheet(ws_getter) -> pd.DataFrame:
+        try:
+            ws = ws_getter(refresh_token)
+            return worksheet_to_dataframe_safe(ws)
+        except Exception:
+            return pd.DataFrame()
+
+    df_ped_operativa = _load_pedidos_sheet(get_worksheet_operativa)
+    df_ped_historica = _load_pedidos_sheet(get_worksheet_historico)
+    df_ped = pd.concat([df_ped_operativa, df_ped_historica], ignore_index=True)
 
     try:
         ws_casos = get_worksheet_casos_especiales()
@@ -1074,17 +1134,22 @@ def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float |
     except Exception:
         df_casos = pd.DataFrame()
 
-    for col in ["id_vendedor", "Adjuntos_Guia", "Cliente", "ID_Pedido", "Folio_Factura", "Completados_Limpiado"]:
+    for col in ["id_vendedor", "Adjuntos_Guia", "Hoja_Ruta_Mensajero", "Cliente", "ID_Pedido", "Folio_Factura", "Completados_Limpiado", "Hora_Registro"]:
         if col not in df_ped.columns:
             df_ped[col] = ""
 
-    for col in ["id_vendedor", "Hoja_Ruta_Mensajero", "Adjuntos_Guia", "Cliente", "ID_Pedido", "Folio_Factura", "Completados_Limpiado"]:
+    for col in ["id_vendedor", "Hoja_Ruta_Mensajero", "Adjuntos_Guia", "Cliente", "ID_Pedido", "Folio_Factura", "Completados_Limpiado", "Hora_Registro"]:
         if col not in df_casos.columns:
             df_casos[col] = ""
 
+    df_ped = df_ped.copy()
+    ped_guides_col = df_ped["Adjuntos_Guia"].astype(str).str.strip()
+    ped_guide_fallback = df_ped["Hoja_Ruta_Mensajero"].astype(str).str.strip()
+    df_ped["Guia_Consolidada"] = ped_guides_col.mask(ped_guides_col.eq(""), ped_guide_fallback)
+
     df_ped = df_ped[
         (df_ped["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_norm)
-        & (df_ped["Adjuntos_Guia"].astype(str).str.strip() != "")
+        & (df_ped["Guia_Consolidada"].astype(str).str.strip() != "")
         & (df_ped["Completados_Limpiado"].fillna("").astype(str).str.strip() == "")
     ].copy()
 
@@ -1094,6 +1159,16 @@ def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float |
         & (df_casos["Completados_Limpiado"].fillna("").astype(str).str.strip() == "")
     ].copy()
 
+    for df_tmp in (df_ped, df_casos):
+        try:
+            df_tmp["Hora_Registro_dt"] = pd.to_datetime(df_tmp["Hora_Registro"], errors="coerce", format="mixed")
+        except (TypeError, ValueError):
+            df_tmp["Hora_Registro_dt"] = pd.to_datetime(df_tmp["Hora_Registro"], errors="coerce")
+
+    cutoff_12h = datetime.now() - timedelta(hours=12)
+    df_ped = df_ped[df_ped["Hora_Registro_dt"].notna() & (df_ped["Hora_Registro_dt"] >= cutoff_12h)].copy()
+    df_casos = df_casos[df_casos["Hora_Registro_dt"].notna() & (df_casos["Hora_Registro_dt"] >= cutoff_12h)].copy()
+
     clientes = []
     keys = []
 
@@ -1102,9 +1177,9 @@ def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float |
         if cliente:
             clientes.append(cliente)
         pedido_ref = str(row.get("ID_Pedido", "")).strip() or str(row.get("Folio_Factura", "")).strip()
-        guia_ref = str(row.get("Adjuntos_Guia", "")).strip()
+        guia_ref = str(row.get("Guia_Consolidada", "")).strip()
         if pedido_ref and guia_ref:
-            keys.append(f"{SHEET_PEDIDOS_OPERATIVOS}::{pedido_ref}::{guia_ref}")
+            keys.append(f"pedidos::{pedido_ref}::{guia_ref}")
 
     for _, row in df_casos.iterrows():
         cliente = str(row.get("Cliente", "")).strip()
@@ -8419,14 +8494,21 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
             return pd.DataFrame()
 
         for col in ["ID_Pedido","Cliente","Vendedor_Registro","Tipo_Envio","Estado",
-                    "Fecha_Entrega","Hora_Registro","Folio_Factura","Adjuntos_Guia","id_vendedor","Completados_Limpiado"]:
+                    "Fecha_Entrega","Hora_Registro","Folio_Factura","id_vendedor","Completados_Limpiado",
+                    "Adjuntos_Guia", "Hoja_Ruta_Mensajero"]:
             if col not in df_ped.columns:
                 df_ped[col] = ""
 
-        df_res = df_ped[df_ped["Adjuntos_Guia"].astype(str).str.strip() != ""].copy()
+        df_work = df_ped.copy()
+        guides_primary = df_work["Adjuntos_Guia"].astype(str).str.strip()
+        guides_fallback = df_work["Hoja_Ruta_Mensajero"].astype(str).str.strip()
+        df_work["Adjuntos_Guia_Consolidado"] = guides_primary.mask(guides_primary.eq(""), guides_fallback)
+
+        df_res = df_work[df_work["Adjuntos_Guia_Consolidado"].astype(str).str.strip() != ""].copy()
         if df_res.empty:
             return df_res
 
+        df_res["Adjuntos_Guia"] = df_res["Adjuntos_Guia_Consolidado"].astype(str)
         df_res["Fuente"] = fuente
         df_res["URLs_Guia"] = df_res["Adjuntos_Guia"].astype(str)
         df_res["Ultima_Guia"] = df_res["URLs_Guia"].apply(
@@ -8437,14 +8519,14 @@ def cargar_datos_guias_unificadas(refresh_token: float | None = None):
     # datos_pedidos (histórico)
     try:
         ws_ped_hist = get_worksheet_historico(refresh_token)
-        df_ped_hist = pd.DataFrame(ws_ped_hist.get_all_records())
+        df_ped_hist = worksheet_to_dataframe_safe(ws_ped_hist)
     except Exception:
         df_ped_hist = pd.DataFrame()
 
     # data_pedidos (operativa)
     try:
         ws_ped_op = get_worksheet_operativa(refresh_token)
-        df_ped_op = pd.DataFrame(ws_ped_op.get_all_records())
+        df_ped_op = worksheet_to_dataframe_safe(ws_ped_op)
     except Exception:
         df_ped_op = pd.DataFrame()
 
@@ -8546,17 +8628,33 @@ with tab5:
 
     id_vendedor_sesion = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
 
+    refresh_pressed = False
     if st.button("🔄 Actualizar guías"):
         if allow_refresh("guias_last_refresh", cooldown=15):
             st.session_state["guias_refresh_token"] = time.time()
+            refresh_pressed = True
 
-    try:
-        df_guias = cargar_datos_guias_unificadas(
-            st.session_state.get("guias_refresh_token")
-        )
-    except Exception as e:
-        st.error(f"❌ Error al cargar datos de guías: {e}")
-        df_guias = pd.DataFrame()
+    current_refresh_token = st.session_state.get("guias_refresh_token")
+    cache_payload = st.session_state.get("tab5_guias_dataset_cache")
+    use_cached_df = (
+        isinstance(cache_payload, dict)
+        and cache_payload.get("refresh_token") == current_refresh_token
+        and isinstance(cache_payload.get("df"), pd.DataFrame)
+        and not refresh_pressed
+    )
+
+    if use_cached_df:
+        df_guias = cache_payload["df"].copy()
+    else:
+        try:
+            df_guias = cargar_datos_guias_unificadas(current_refresh_token)
+        except Exception as e:
+            st.error(f"❌ Error al cargar datos de guías: {e}")
+            df_guias = pd.DataFrame()
+        st.session_state["tab5_guias_dataset_cache"] = {
+            "refresh_token": current_refresh_token,
+            "df": df_guias.copy(),
+        }
 
     if df_guias.empty:
         st.info("No hay pedidos o casos especiales con guías subidas.")
