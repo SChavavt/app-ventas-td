@@ -5747,7 +5747,12 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Forma_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
+                    if (
+                        estado_pago == "💳 CREDITO"
+                        and tipo_envio in ["🚚 Pedido Foráneo", "🚚 Foráneo"]
+                    ):
+                        values.append("Credito TD")
+                    elif tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "🚚 Foráneo"]:
                         values.append(forma_pago)
                     elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"):
                         values.append(local_route_forma_pago)
