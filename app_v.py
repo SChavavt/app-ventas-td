@@ -4383,6 +4383,7 @@ with tab1:
                         "💳 FORMA DE PAGO",
                         [
                             "Transferencia",
+                            "Efectivo",
                             "Depósito en Efectivo",
                             "Tarjeta de Débito",
                             "Tarjeta de Crédito",
@@ -6997,7 +6998,7 @@ with tab2:
                             tab2_forma_pago_key = f"{tab2_route_prefix}_forma_pago"
                             tab2_legacy_forma_pago_map = {
                                 "TRANSFERENCIA": "Transferencia",
-                                "EFECTIVO": "Depósito en Efectivo",
+                                "EFECTIVO": "Efectivo",
                                 "TARJETA": "Tarjeta de Crédito",
                                 "PENDIENTE": "Transferencia",
                             }
@@ -7008,6 +7009,7 @@ with tab2:
                                 "💳 FORMA DE PAGO",
                                 [
                                     "Transferencia",
+                                    "Efectivo",
                                     "Depósito en Efectivo",
                                     "Tarjeta de Débito",
                                     "Tarjeta de Crédito",
