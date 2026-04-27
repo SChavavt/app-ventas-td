@@ -987,6 +987,38 @@ def reset_pending_confirmation_selection_state() -> None:
     st.session_state.pop("last_selected_pedido_key", None)
 
 
+def release_app_memory() -> None:
+    """Libera memoria de sesión/caché para reducir reinicios por límites de recursos."""
+    keep_keys = {
+        TAB_SESSION_KEY,
+        "current_tab",
+        "id_vendedor",
+        "pedidos_reload_nonce",
+        "tab2_reload_nonce",
+        "tab3_reload_nonce",
+        "tab4_reload_nonce",
+        "comprobante_form_nonce",
+    }
+    dynamic_prefixes = (
+        "_lastgood_",
+        "_confirmados_",
+        "_tab3_",
+        "tab3_",
+        "tab4_",
+        "show_rechazo__",
+        "show_cancel__",
+    )
+
+    for key in list(st.session_state.keys()):
+        if key in keep_keys:
+            continue
+        if key.startswith(dynamic_prefixes) or key.endswith("_url"):
+            st.session_state.pop(key, None)
+
+    st.cache_data.clear()
+    st.cache_resource.clear()
+
+
 @st.cache_resource(ttl=60)
 def _get_ws_datos():
     """Devuelve la worksheet 'datos_pedidos' con reintentos (usa safe_open_worksheet)."""
@@ -1688,6 +1720,15 @@ render_brand_title("👨‍💼", "Administración", "TD")
 if can_edit_brand_logo():
     render_logo_uploader("assets/td_logo.png", "admin")
 st.write("Panel de administración para revisar y confirmar comprobantes de pago.")
+with st.expander("🧹 Mantenimiento de memoria", expanded=False):
+    st.caption(
+        "Si la app se pone lenta o aparece el error de límites de recursos, "
+        "usa este botón para limpiar cachés y estado temporal."
+    )
+    if st.button("Liberar memoria y recargar", key="admin_release_memory"):
+        release_app_memory()
+        st.toast("Memoria temporal liberada. Recargando…", icon="🧹")
+        rerun_current_tab()
 
 # --- FUNCIONES DE CARGA DE DATOS Y S3 (Adaptadas) ---
 
@@ -3960,7 +4001,7 @@ with tab2:
         deduplicados = max(registros_antes_deduplicado - len(df), 0)
 
         # Snapshot "último bueno"
-        st.session_state["_lastgood_confirmados"] = (df.copy(), headers[:])
+        st.session_state["_lastgood_confirmados"] = (df.copy(deep=False), headers[:])
         return df, headers, deduplicados, total_filas_hoja
 
     # 📄 Cargar hoja 'pedidos_confirmados' con fallback a snapshot si la API falla
@@ -4013,7 +4054,7 @@ with tab2:
 
     if isinstance(df_confirmados_guardados, pd.DataFrame):
         st.session_state["_lastgood_confirmados"] = (
-            df_confirmados_guardados.copy(),
+            df_confirmados_guardados.copy(deep=False),
             headers_confirmados[:],
         )
 
@@ -4031,7 +4072,7 @@ with tab2:
             )
         st.session_state["_confirmados_cleanup_snapshot"] = {
             "headers": headers_confirmados[:],
-            "df": df_confirmados_guardados.copy(),
+            "df": df_confirmados_guardados.copy(deep=False),
             "duplicados": duplicados_eliminados,
         }
     else:
