@@ -77,6 +77,7 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "folio_factura_input",
     "fecha_entrega_input",
     "comentario_detallado",
+    "check_dos_o_mas_facturas",
     "direccion_guia_retorno_foraneo",
     "resultado_esperado",
     "material_devuelto",
@@ -236,6 +237,19 @@ def normalize_tipo_envio_original(value: str) -> str:
     if cleaned in {"📍 Local", "📍 Pedido Local"}:
         return "📍 Pedido Local"
     return cleaned
+
+
+def apply_multi_facturas_comment_tag(comment: str, enabled: bool) -> str:
+    """Añade la etiqueta de múltiples facturas al comentario cuando aplique."""
+    base_comment = str(comment or "").strip()
+    tag = "[2+ Facturas]"
+    if not enabled:
+        return base_comment
+    if tag in base_comment:
+        return base_comment
+    if not base_comment:
+        return tag
+    return f"{base_comment} {tag}"
 
 
 MATERIAL_ROW_PATTERN = re.compile(
@@ -4076,6 +4090,7 @@ with tab1:
     folio_factura_error = ""  # 🆕 NUEVO para devoluciones
     fecha_entrega = datetime.now().date()
     comentario = ""
+    check_dos_o_mas_facturas = False
     uploaded_files = []
     credito_monto_venta = 0.0
     credito_anticipo = 0.0
@@ -4685,6 +4700,12 @@ with tab1:
         )
         render_uploaded_files_preview("Archivos del pedido seleccionados", uploaded_files)
 
+        check_dos_o_mas_facturas = st.checkbox(
+            "🧾✅ Check de 2 o más facturas",
+            key="check_dos_o_mas_facturas",
+            help="Si se activa, se agregará [2+ Facturas] en la columna Comentario al registrar el pedido.",
+        )
+
         auto_route_filename = ""
         if usa_hoja_ruta_local and not is_local_pasa_bodega:
             auto_route_filename = st.session_state.get(LOCAL_ROUTE_GENERATED_FILENAME_KEY, "")
@@ -5211,6 +5232,9 @@ with tab1:
                 monto_pago = float(submission_payload_override.get("monto_pago", monto_pago) or 0)
                 referencia_pago = submission_payload_override.get("referencia_pago", referencia_pago)
                 comentario = submission_payload_override.get("comentario", comentario)
+                check_dos_o_mas_facturas = bool(
+                    submission_payload_override.get("check_dos_o_mas_facturas", check_dos_o_mas_facturas)
+                )
                 subtipo_local = submission_payload_override.get("subtipo_local", subtipo_local)
                 local_route_dia_entrega = submission_payload_override.get("local_route_dia_entrega", local_route_dia_entrega)
                 local_route_hora_entrega = submission_payload_override.get("local_route_hora_entrega", local_route_hora_entrega)
@@ -5335,6 +5359,8 @@ with tab1:
                     st.session_state.pop("pedido_submit_disabled_at", None)
                     rerun_with_pedido_loading("⏳ Recargando formulario...")
 
+            comentario = apply_multi_facturas_comment_tag(comentario, check_dos_o_mas_facturas)
+
             if not submission_payload_override:
                 pedido_id, hora_registro, s3_prefix = build_submission_identity()
                 payload_to_retry = {
@@ -5376,6 +5402,7 @@ with tab1:
                     "monto_pago": monto_pago,
                     "referencia_pago": referencia_pago,
                     "comentario": comentario,
+                    "check_dos_o_mas_facturas": check_dos_o_mas_facturas,
                     "subtipo_local": subtipo_local,
                     "local_route_dia_entrega": local_route_dia_entrega,
                     "local_route_hora_entrega": local_route_hora_entrega,
