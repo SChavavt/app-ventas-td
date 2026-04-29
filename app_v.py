@@ -4849,6 +4849,38 @@ with tab1:
         )
 
     should_process_submission = submit_button
+    expected_auto_route_attachment = usa_hoja_ruta_local and not is_local_pasa_bodega
+    no_adjuntos_capturados = not (uploaded_files or comprobante_pago_files or comprobante_cliente)
+
+    if submit_button and no_adjuntos_capturados and not expected_auto_route_attachment and not submission_payload_override:
+        st.session_state["pedido_confirm_without_attachments_pending"] = True
+        should_process_submission = False
+
+    if st.session_state.get("pedido_confirm_without_attachments_pending") and not should_process_submission:
+        st.warning("⚠️ Este pedido se registrará SIN archivos adjuntos. Confirma si deseas continuar.")
+        confirm_col, cancel_col = st.columns(2)
+        with confirm_col:
+            confirm_without_attachments = st.button(
+                "✅ Sí, registrar sin adjuntos",
+                key="confirm_submit_without_attachments",
+            )
+        with cancel_col:
+            cancel_without_attachments = st.button(
+                "✏️ No, volver a captura",
+                key="cancel_submit_without_attachments",
+            )
+
+        if confirm_without_attachments:
+            st.session_state.pop("pedido_confirm_without_attachments_pending", None)
+            should_process_submission = True
+        elif cancel_without_attachments:
+            st.session_state.pop("pedido_confirm_without_attachments_pending", None)
+            set_pedido_submission_status(
+                "warning",
+                "⚠️ Se canceló el envío para que puedas adjuntar archivos antes de registrar.",
+            )
+            st.rerun()
+
     if route_post_confirm_notice:
         st.session_state.pop(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY, None)
 
