@@ -772,9 +772,18 @@ def ensure_selectbox_vendor_default(key: str, options: list[str], fallback: str 
 
 
 def is_empty_folio(value: object) -> bool:
-    """True cuando el folio está vacío o no tiene valor utilizable."""
+    """True cuando el folio está vacío o no es un folio válido (F + números)."""
     cleaned = str(value or "").strip()
-    return cleaned == "" or cleaned.lower() in {"nan", "none"}
+    if cleaned == "":
+        return True
+
+    normalized = cleaned.lower()
+    if normalized in {"nan", "none", "pendiente"}:
+        return True
+
+    # Se permite prefijo '*' para folios capturados post-registro (auditoría).
+    candidate = cleaned[1:].strip() if cleaned.startswith("*") else cleaned
+    return not bool(re.fullmatch(r"[Ff]\d+", candidate))
 
 
 def clean_folio_for_ui(value: object) -> str:
