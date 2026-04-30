@@ -6682,14 +6682,22 @@ with tab2:
                 return option_label_map.get(option_key, option_key)
 
             # ----------------- Selector de pedido -----------------
+            order_placeholder_option = "__select_order_placeholder__"
+            order_option_keys = [order_placeholder_option] + list(option_label_map.keys())
+
+            def _format_order_option(option_key: str) -> str:
+                if option_key == order_placeholder_option:
+                    return "— Selecciona un pedido —"
+                return _format_option(option_key)
+
             selected_option_key = st.selectbox(
                 "📝 Seleccionar Pedido para Modificar",
-                list(option_label_map.keys()),
-                format_func=_format_option,
+                order_option_keys,
+                format_func=_format_order_option,
                 key="select_order_to_modify"
             )
 
-            if selected_option_key:
+            if selected_option_key and selected_option_key != order_placeholder_option:
                 option_changed = st.session_state.get("tab2_selected_option_key") != selected_option_key
                 if option_changed:
                     st.session_state["tab2_selected_option_key"] = selected_option_key
@@ -6701,6 +6709,7 @@ with tab2:
                         "tab2_local_route_selected_history_label",
                         "tab2_local_route_selected_history_row",
                         "tab2_local_route_pending_registro_cliente",
+                        "tab2_local_route_last_query",
                     ):
                         st.session_state.pop(tab2_local_key, None)
 
@@ -6962,6 +6971,13 @@ with tab2:
                         key="tab2_local_route_client_search",
                         placeholder="Escribe o pega el nombre del cliente",
                     )
+                    normalized_tab2_cliente = normalize_client_history_text(tab2_cliente)
+                    previous_tab2_query = st.session_state.get("tab2_local_route_last_query", "")
+                    if normalized_tab2_cliente != previous_tab2_query:
+                        st.session_state["tab2_local_route_last_query"] = normalized_tab2_cliente
+                        st.session_state["tab2_local_route_selected_history_label"] = None
+                        st.session_state["tab2_local_route_selected_history_row"] = None
+
                     tab2_matches, tab2_forced_refresh_used = get_clientes_locales_matches_with_fallback_refresh(
                         tab2_cliente,
                         session_prefix="tab2_local_route_client_search",
