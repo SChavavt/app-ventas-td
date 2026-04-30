@@ -6994,6 +6994,9 @@ with tab2:
                         st.session_state["tab2_local_route_selected_history_label"] = None
                         st.session_state["tab2_local_route_selected_history_row"] = None
 
+                    if tab2_cliente:
+                        st.caption("✅ Cliente con historial local.")
+
                     tab2_matches, tab2_forced_refresh_used = get_clientes_locales_matches_with_fallback_refresh(
                         tab2_cliente,
                         session_prefix="tab2_local_route_client_search",
@@ -7067,7 +7070,6 @@ with tab2:
                                 )
                                 st.rerun()
                     elif tab2_cliente.strip():
-                        st.caption("🆕 Cliente nuevo sin historial local.")
                         st.session_state["tab2_local_route_selected_history_label"] = None
                         st.session_state["tab2_local_route_selected_history_row"] = None
 
