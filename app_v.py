@@ -6887,9 +6887,15 @@ with tab2:
                     except (TypeError, ValueError):
                         st.session_state[f"{tab2_route_prefix}_total_factura"] = 0.0
                     try:
-                        st.session_state[f"{tab2_route_prefix}_adeudo_anterior"] = float(selected_row_data.get("Adeudo_Anterior", 0) or 0)
+                        st.session_state[f"{tab2_route_prefix}_adeudo_anterior"] = float(selected_row_data.get("Monto_Comprobante", 0) or 0)
                     except (TypeError, ValueError):
                         st.session_state[f"{tab2_route_prefix}_adeudo_anterior"] = 0.0
+                    try:
+                        st.session_state[f"{tab2_route_prefix}_monto_comprobante_original"] = float(selected_row_data.get("Monto_Comprobante", 0) or 0)
+                    except (TypeError, ValueError):
+                        st.session_state[f"{tab2_route_prefix}_monto_comprobante_original"] = 0.0
+                    st.session_state[f"{tab2_route_prefix}_total_factura_original"] = float(st.session_state.get(f"{tab2_route_prefix}_total_factura", 0) or 0)
+                    st.session_state[f"{tab2_route_prefix}_adeudo_anterior_original"] = float(st.session_state.get(f"{tab2_route_prefix}_adeudo_anterior", 0) or 0)
                     st.session_state[f"{tab2_route_prefix}_referencias"] = str(selected_row_data.get("Referencias", "") or "").strip()
                     turno_local_default_tab2 = str(selected_row_data.get("Turno", "") or "").strip()
                     if turno_local_default_tab2 not in local_shift_options_tab2:
@@ -7509,7 +7515,16 @@ with tab2:
                                         "Referencias": tab2_route_payload.get("referencias", ""),
                                         "Forma_Pago_Comprobante": tab2_route_payload.get("forma_pago", ""),
                                         "Estado_Pago": st.session_state.get("tab2_local_estado_pago", "🔴 No Pagado"),
-                                        "Monto_Comprobante": f"{float(st.session_state.get(f'{tab2_route_prefix}_total_factura', 0) or 0) + float(st.session_state.get(f'{tab2_route_prefix}_adeudo_anterior', 0) or 0):.2f}",
+                                                                                "Monto_Comprobante": (
+                                            f"{(float(st.session_state.get(f'{tab2_route_prefix}_total_factura', 0) or 0) + float(st.session_state.get(f'{tab2_route_prefix}_adeudo_anterior', 0) or 0)):.2f}"
+                                            if (
+                                                float(st.session_state.get(f'{tab2_route_prefix}_total_factura', 0) or 0)
+                                                != float(st.session_state.get(f'{tab2_route_prefix}_total_factura_original', 0) or 0)
+                                                or float(st.session_state.get(f'{tab2_route_prefix}_adeudo_anterior', 0) or 0)
+                                                != float(st.session_state.get(f'{tab2_route_prefix}_adeudo_anterior_original', 0) or 0)
+                                            )
+                                            else f"{float(st.session_state.get(f'{tab2_route_prefix}_monto_comprobante_original', 0) or 0):.2f}"
+                                        ),
                                     }
                                     for col_name, col_value in tab2_route_fields_map.items():
                                         if col_exists(col_name) and str(actual_row.get(col_name, "")) != str(col_value):
