@@ -2486,10 +2486,7 @@ def upload_files_or_fail(files, s3_client, bucket, prefix):
     uploaded_urls = []
     for file_obj in files or []:
         file_obj.seek(0)
-        original_name = Path(file_obj.name).name
-        stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(original_name).stem).strip("._")
-        suffix = re.sub(r"[^A-Za-z0-9.]", "", Path(original_name).suffix)
-        safe_name = f"{stem or 'archivo'}{suffix}".replace("..", ".")
+        safe_name = file_obj.name.replace(" ", "_")
         s3_key = f"{prefix}{safe_name}"
         ok, url, error = upload_file_to_s3(s3_client, bucket, file_obj, s3_key)
         if not ok:
