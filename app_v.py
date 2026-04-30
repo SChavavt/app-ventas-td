@@ -6966,10 +6966,15 @@ with tab2:
                     if pending_tab2_cliente is not None:
                         st.session_state["tab2_local_route_client_search"] = pending_tab2_cliente
 
-                    tab2_cliente = st.text_input(
+                    tab2_cliente_fijo = str(selected_row_data.get("Cliente", "") or "").strip()
+                    if tab2_cliente_fijo:
+                        st.session_state["tab2_local_route_client_search"] = tab2_cliente_fijo
+                    tab2_cliente = str(st.session_state.get("tab2_local_route_client_search", "") or "").strip()
+                    st.text_input(
                         "🤝 Cliente",
                         key="tab2_local_route_client_search",
-                        placeholder="Escribe o pega el nombre del cliente",
+                        disabled=True,
+                        help="Cliente fijo del pedido seleccionado para modificación de Nueva Ruta.",
                     )
                     normalized_tab2_cliente = normalize_client_history_text(tab2_cliente)
                     previous_tab2_query = st.session_state.get("tab2_local_route_last_query", "")
