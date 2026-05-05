@@ -8318,10 +8318,16 @@ with tab4:
                                 placeholder="Ej. F197176",
                             )
 
+                            notas_key = f"{row_key}_notas_devolucion"
+                            nota_existente = str(row.get("Modificacion_Surtido", "") or "").strip()
+                            if notas_key not in st.session_state:
+                                st.session_state[notas_key] = nota_existente
+
                             notas_devolucion = st.text_area(
                                 "✍️ Notas de Devolucion Pendiente",
-                                key=f"{row_key}_notas_devolucion",
+                                key=notas_key,
                                 height=100,
+                                help="Se carga el comentario previo para que puedas conservarlo, editarlo, eliminarlo o agregar más información.",
                             )
                             direccion_guia_retorno_pendiente = st.text_area(
                                 "📬 Dirección Guia_Retorno (Opcional)",
