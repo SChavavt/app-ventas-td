@@ -8436,19 +8436,6 @@ with tab4:
                                             "values": [[updated_adjuntos]],
                                         })
 
-                                    if col_exists("Estado"):
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(row_idx, col_idx("Estado")),
-                                            "values": [["✏️ Modificación"]],
-                                        })
-
-                                    completado_actual = str(current_row.get("Completados_Limpiado", "")).strip().lower()
-                                    if col_exists("Completados_Limpiado") and completado_actual in {"si", "sí"}:
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(row_idx, col_idx("Completados_Limpiado")),
-                                            "values": [[""]],
-                                        })
-
                                     if cell_updates:
                                         safe_batch_update(ws_casos_ref, cell_updates)
 
