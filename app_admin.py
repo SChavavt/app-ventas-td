@@ -999,24 +999,60 @@ def release_app_memory() -> None:
         "tab4_reload_nonce",
         "comprobante_form_nonce",
     }
-    dynamic_prefixes = (
-        "_lastgood_",
-        "_confirmados_",
-        "_tab3_",
-        "tab3_",
-        "tab4_",
-        "show_rechazo__",
-        "show_cancel__",
-    )
+    preserve_prefixes = ("auth_",)
 
     for key in list(st.session_state.keys()):
         if key in keep_keys:
             continue
-        if key.startswith(dynamic_prefixes) or key.endswith("_url"):
-            st.session_state.pop(key, None)
+        if key.startswith(preserve_prefixes):
+            continue
+        # Limpieza agresiva: elimina DataFrames y llaves temporales para recuperar RAM.
+        st.session_state.pop(key, None)
 
     st.cache_data.clear()
     st.cache_resource.clear()
+
+
+def estimate_session_state_df_memory_mb() -> float:
+    """Estima memoria total en MB ocupada por DataFrames en session_state."""
+    total_bytes = 0
+    for value in st.session_state.values():
+        if isinstance(value, pd.DataFrame):
+            try:
+                total_bytes += int(value.memory_usage(deep=True).sum())
+            except Exception:
+                continue
+    return total_bytes / (1024 * 1024)
+
+
+def maybe_run_proactive_memory_guard(
+    *,
+    threshold_mb: float = 180.0,
+    min_interval_sec: int = 120,
+) -> None:
+    """
+    Limpieza preventiva: si los DataFrames en session_state superan el umbral,
+    libera memoria antes de llegar al límite duro de Streamlit Cloud.
+    """
+    now = time.time()
+    last_guard = float(st.session_state.get("_last_memory_guard_ts", 0.0) or 0.0)
+    if (now - last_guard) < min_interval_sec:
+        return
+
+    st.session_state["_last_memory_guard_ts"] = now
+    current_mb = estimate_session_state_df_memory_mb()
+    st.session_state["_session_df_memory_mb"] = round(current_mb, 2)
+    if current_mb < threshold_mb:
+        return
+
+    active_tab = st.session_state.get(TAB_SESSION_KEY, 0)
+    release_app_memory()
+    st.session_state[TAB_SESSION_KEY] = active_tab
+    st.session_state["current_tab"] = str(active_tab)
+    st.warning(
+        "🧹 Se aplicó una limpieza preventiva de memoria para evitar el error de límites de recursos. "
+        "Si estabas llenando un formulario, vuelve a abrirlo."
+    )
 
 
 @st.cache_resource(ttl=60)
@@ -1720,11 +1756,15 @@ render_brand_title("👨‍💼", "Administración", "TD")
 if can_edit_brand_logo():
     render_logo_uploader("assets/td_logo.png", "admin")
 st.write("Panel de administración para revisar y confirmar comprobantes de pago.")
+maybe_run_proactive_memory_guard()
 with st.expander("🧹 Mantenimiento de memoria", expanded=False):
     st.caption(
         "Si la app se pone lenta o aparece el error de límites de recursos, "
         "usa este botón para limpiar cachés y estado temporal."
     )
+    current_df_mb = st.session_state.get("_session_df_memory_mb")
+    if isinstance(current_df_mb, (int, float)):
+        st.caption(f"Uso estimado actual en DataFrames de sesión: **{current_df_mb:.2f} MB**")
     if st.button("Liberar memoria y recargar", key="admin_release_memory"):
         release_app_memory()
         st.toast("Memoria temporal liberada. Recargando…", icon="🧹")
