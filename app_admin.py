@@ -27,8 +27,6 @@ from urllib.parse import urlparse, unquote, quote
 from contextlib import suppress
 from streamlit.runtime.scriptrunner import StopException
 import numbers
-import gc
-import sys
 
 # Reintentos robustos para Google Sheets
 RETRIABLE_CODES = {429, 500, 502, 503, 504}
@@ -1013,11 +1011,10 @@ def release_app_memory() -> None:
 
     st.cache_data.clear()
     st.cache_resource.clear()
-    gc.collect()
 
 
 def estimate_session_state_df_memory_mb() -> float:
-    """Estima memoria total en MB ocupada por DataFrames y blobs en session_state."""
+    """Estima memoria total en MB ocupada por DataFrames en session_state."""
     total_bytes = 0
     for value in st.session_state.values():
         if isinstance(value, pd.DataFrame):
@@ -1025,18 +1022,13 @@ def estimate_session_state_df_memory_mb() -> float:
                 total_bytes += int(value.memory_usage(deep=True).sum())
             except Exception:
                 continue
-        elif isinstance(value, (bytes, bytearray, memoryview, str)):
-            total_bytes += sys.getsizeof(value)
-        elif isinstance(value, (list, tuple, set, dict)):
-            # Estimación ligera (shallow) para colecciones temporales grandes.
-            total_bytes += sys.getsizeof(value)
     return total_bytes / (1024 * 1024)
 
 
 def maybe_run_proactive_memory_guard(
     *,
-    threshold_mb: float = 120.0,
-    min_interval_sec: int = 90,
+    threshold_mb: float = 180.0,
+    min_interval_sec: int = 120,
 ) -> None:
     """
     Limpieza preventiva: si los DataFrames en session_state superan el umbral,
