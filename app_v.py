@@ -5879,7 +5879,7 @@ with tab1:
                 elif header == "Adjuntos_Surtido":
                     values.append("")
                 elif header == "Estado":
-                    values.append("No Aplica" if es_envio_historico_especial else "🟡 Pendiente")
+                    values.append("🟡 Pendiente")
                 elif header == "Estado_Pago":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
                         tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
