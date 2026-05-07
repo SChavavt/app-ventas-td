@@ -4571,7 +4571,7 @@ with tab1:
         if tipo_envio == "🚚 Pedido Foráneo":
             with st.expander("📬 Dirección guía Manual  (Obligatorio al Solicitar Guia)", expanded=False):
                 solicitar_guia_manual = st.checkbox("✅ Solicitar guía manual en este pedido", key="foraneo_solicitar_guia_manual")
-                st.caption("Si activas esta opción, los campos obligatorios de DHL se validan antes de registrar.")
+                st.caption("SI NO SE ACTIVA ESTE CHECK NO SE ENVIARA LA NOTIFICACIÓN A BODEGA.")
                 st.markdown("**CAMPOS OBLIGATORIOS DHL (MÉXICO)**")
                 col_dhl_1, col_dhl_2 = st.columns(2)
                 with col_dhl_1:
