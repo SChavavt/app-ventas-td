@@ -4569,7 +4569,7 @@ with tab1:
 
         dhl_address_payload = {}
         if tipo_envio == "🚚 Pedido Foráneo":
-            with st.expander("📬 Solicitar guía DHL (México)", expanded=False):
+            with st.expander("📬 Dirección guía Manual  (Obligatorio al Solicitar Guia)", expanded=False):
                 st.markdown("**CAMPOS OBLIGATORIOS DHL (MÉXICO)**")
                 col_dhl_1, col_dhl_2 = st.columns(2)
                 with col_dhl_1:
