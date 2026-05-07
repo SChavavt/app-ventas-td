@@ -1136,49 +1136,6 @@ def worksheet_to_dataframe_safe(worksheet, retries: int = 3, base_delay: float =
 
 
 @st.cache_data(ttl=60)
-
-
-def build_dhl_mexico_address_payload(address_data: dict[str, str]) -> str:
-    """Serializa campos de dirección DHL México en texto para guardar en una sola columna."""
-    ordered_fields = [
-        ("Nombre", "nombre"),
-        ("Calle y número", "calle_numero"),
-        ("Colonia", "colonia"),
-        ("Código Postal", "codigo_postal"),
-        ("Ciudad", "ciudad"),
-        ("Estado", "estado"),
-        ("País", "pais"),
-        ("Teléfono", "telefono"),
-        ("Interior / Depto", "interior"),
-        ("Municipio / Alcaldía", "municipio"),
-        ("Correo electrónico", "correo"),
-        ("Referencias de dirección", "referencias"),
-    ]
-    rows = []
-    for label, key in ordered_fields:
-        value = str(address_data.get(key, "") or "").strip()
-        if value:
-            rows.append(f"{label}: {value}")
-    return "\n".join(rows)
-
-
-def get_missing_dhl_mexico_required_fields(address_data: dict[str, str]) -> list[str]:
-    """Devuelve los campos obligatorios de DHL México que faltan."""
-    required = [
-        ("Nombre", "nombre"),
-        ("Calle y número", "calle_numero"),
-        ("Colonia", "colonia"),
-        ("Código Postal", "codigo_postal"),
-        ("Ciudad", "ciudad"),
-        ("Estado", "estado"),
-        ("País", "pais"),
-        ("Teléfono", "telefono"),
-    ]
-    missing = []
-    for label, key in required:
-        if not str(address_data.get(key, "") or "").strip():
-            missing.append(label)
-    return missing
 def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float | None = None) -> dict:
     """Obtiene resumen de guías cargadas para mostrar aviso rápido en encabezado."""
     _ = refresh_token
@@ -4567,45 +4524,11 @@ with tab1:
         else:
             confirm_route_button = False
 
-        dhl_address_payload = {}
         if tipo_envio == "🚚 Pedido Foráneo":
-            with st.expander("📬 Dirección guía Manual  (Obligatorio al Solicitar Guia)", expanded=False):
-                solicitar_guia_manual = st.checkbox("✅ Solicitar guía manual en este pedido", key="foraneo_solicitar_guia_manual")
-                st.caption("Si activas esta opción, los campos obligatorios de DHL se validan antes de registrar.")
-                st.markdown("**CAMPOS OBLIGATORIOS DHL (MÉXICO)**")
-                col_dhl_1, col_dhl_2 = st.columns(2)
-                with col_dhl_1:
-                    dhl_nombre = st.text_input("Nombre *", key="foraneo_dhl_nombre")
-                    dhl_calle_numero = st.text_input("Calle y número *", key="foraneo_dhl_calle_numero")
-                    dhl_colonia = st.text_input("Colonia *", key="foraneo_dhl_colonia")
-                    dhl_codigo_postal = st.text_input("Código Postal *", key="foraneo_dhl_codigo_postal")
-                with col_dhl_2:
-                    dhl_ciudad = st.text_input("Ciudad *", key="foraneo_dhl_ciudad")
-                    dhl_estado = st.text_input("Estado *", key="foraneo_dhl_estado")
-                    dhl_pais = st.text_input("País *", key="foraneo_dhl_pais", value=st.session_state.get("foraneo_dhl_pais", "México"))
-                    dhl_telefono = st.text_input("Teléfono *", key="foraneo_dhl_telefono")
-
-                st.markdown("**CAMPOS OPCIONALES / RECOMENDADOS**")
-                dhl_interior = st.text_input("Interior / Depto", key="foraneo_dhl_interior")
-                dhl_municipio = st.text_input("Municipio / Alcaldía", key="foraneo_dhl_municipio")
-                dhl_correo = st.text_input("Correo electrónico", key="foraneo_dhl_correo")
-                dhl_referencias = st.text_area("Referencias de dirección", key="foraneo_dhl_referencias")
-
-                dhl_address_payload = {
-                    "nombre": dhl_nombre,
-                    "calle_numero": dhl_calle_numero,
-                    "colonia": dhl_colonia,
-                    "codigo_postal": dhl_codigo_postal,
-                    "ciudad": dhl_ciudad,
-                    "estado": dhl_estado,
-                    "pais": dhl_pais,
-                    "telefono": dhl_telefono,
-                    "interior": dhl_interior,
-                    "municipio": dhl_municipio,
-                    "correo": dhl_correo,
-                    "referencias": dhl_referencias,
-                    "solicitar_guia_manual": solicitar_guia_manual,
-                }
+            direccion_guia_retorno = st.text_area(
+                "📬 Dirección para Envió (Obligatorio al Solicitar Guia)",
+                key="direccion_guia_retorno_foraneo",
+            )
 
         # --- Campos adicionales para Devolución ---
         if tipo_envio == "🔁 Devolución":
@@ -5487,22 +5410,6 @@ with tab1:
                     st.session_state["pedido_submit_disabled"] = False
                     st.session_state.pop("pedido_submit_disabled_at", None)
                     rerun_with_pedido_loading("⏳ Recargando formulario...")
-
-            if tipo_envio == "🚚 Pedido Foráneo":
-                missing_dhl_fields = get_missing_dhl_mexico_required_fields(dhl_address_payload)
-                solicitar_guia_manual = bool(dhl_address_payload.get("solicitar_guia_manual", False))
-                if solicitar_guia_manual and missing_dhl_fields:
-                    set_pedido_submission_status(
-                        "warning",
-                        "⚠️ El pedido no se subió. Completa los campos obligatorios para solicitar guía manual.",
-                        "Faltan: " + ", ".join(missing_dhl_fields),
-                    )
-                    st.session_state["pedido_submit_disabled"] = False
-                    st.session_state.pop("pedido_submit_disabled_at", None)
-                    rerun_with_pedido_loading("⏳ Recargando formulario...")
-                if (not solicitar_guia_manual) and missing_dhl_fields:
-                    st.caption("ℹ️ No se solicitó guía manual en este pedido. Los campos DHL faltantes no bloquean el registro.")
-                direccion_guia_retorno = build_dhl_mexico_address_payload(dhl_address_payload)
 
             comentario = apply_multi_facturas_comment_tag(comentario, check_dos_o_mas_facturas)
 
