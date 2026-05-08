@@ -5601,8 +5601,6 @@ with tab1:
                     st.session_state["pedido_submit_disabled"] = False
                     st.session_state.pop("pedido_submit_disabled_at", None)
                     rerun_with_pedido_loading("⏳ Recargando formulario...")
-                if (not solicitar_guia_manual) and missing_dhl_fields:
-                    st.caption("ℹ️ No se solicitó guía manual en este pedido. Los campos DHL faltantes no bloquean el registro.")
                 direccion_guia_retorno_serializada = build_dhl_mexico_address_payload(dhl_address_payload)
                 direccion_guia_retorno = (
                     direccion_guia_retorno_serializada
