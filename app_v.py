@@ -533,79 +533,6 @@ def get_weekday_options_es() -> list[str]:
     return ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO"]
 
 
-
-
-def parse_route_header_date(text: str) -> Optional[date]:
-    """Parse headers like |JUEVES 07 DE MAYO| into a concrete date for the current year."""
-    if not text:
-        return None
-    normalized = str(text).upper().strip()
-    normalized = normalized.replace("Á", "A").replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U")
-    match = re.search(r"\|?\s*[A-Z]+\s+(\d{1,2})\s+DE\s+([A-Z]+)\s*\|?", normalized)
-    if not match:
-        return None
-    day = int(match.group(1))
-    month_name = match.group(2)
-    months = {"ENERO":1,"FEBRERO":2,"MARZO":3,"ABRIL":4,"MAYO":5,"JUNIO":6,"JULIO":7,"AGOSTO":8,"SEPTIEMBRE":9,"OCTUBRE":10,"NOVIEMBRE":11,"DICIEMBRE":12}
-    month = months.get(month_name)
-    if not month:
-        return None
-    year = datetime.now().year
-    try:
-        return date(year, month, day)
-    except ValueError:
-        return None
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def get_local_route_closure_map(sheet_id: str) -> Dict[str, set[str]]:
-    """Read route sheets and return closed shifts by ISO date."""
-    closures: Dict[str, set[str]] = {}
-    if not sheet_id:
-        return closures
-    try:
-        client = build_gspread_client()
-        spreadsheet = client.open_by_key(sheet_id)
-    except Exception:
-        return closures
-
-    configs = [
-        ("Hoja_Ruta_Manana", "☀️ Local Mañana", "LOCAL MANANA"),
-        ("Hoja_Ruta_Tarde", "🌙 Local Tarde", "LOCAL TARDE"),
-        ("Hoja_Ruta_Saltillo", "🌵 Saltillo", "SALTILLO"),
-    ]
-    for ws_name, shift_label, section_tag in configs:
-        try:
-            values = spreadsheet.worksheet(ws_name).get_all_values()
-        except Exception:
-            continue
-        last_header_date = None
-        last_line_was_cerrada = False
-        for row in values:
-            line = " ".join(str(cell or "").strip() for cell in row if str(cell or "").strip())
-            if not line:
-                continue
-            parsed_date = parse_route_header_date(line)
-            if parsed_date:
-                last_header_date = parsed_date
-            normalized_line = line.upper().replace("Á", "A").replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U")
-            if "CERRADA" in normalized_line:
-                last_line_was_cerrada = True
-                continue
-            if section_tag in normalized_line and last_line_was_cerrada and last_header_date:
-                closures.setdefault(last_header_date.isoformat(), set()).add(shift_label)
-            if section_tag in normalized_line:
-                last_line_was_cerrada = False
-    return closures
-
-
-def get_blocked_local_shifts_for_date(delivery_date: date) -> set[str]:
-    sheet_id = str(st.secrets.get("reportes_almacen_sheet_id", "") or "").strip()
-    if not sheet_id or not isinstance(delivery_date, date):
-        return set()
-    closure_map = get_local_route_closure_map(sheet_id)
-    return closure_map.get(delivery_date.isoformat(), set())
-
 def build_local_route_sheet(template_path: Path, payload: Dict[str, object]) -> BytesIO:
     """Fill the local delivery Excel template and return it in memory."""
     workbook = load_workbook(template_path)
@@ -4039,12 +3966,6 @@ with tab1:
         if tipo_envio == "📍 Pedido Local":
             st.markdown("---")
             st.subheader("⏰ Detalle de Pedido Local")
-            if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
-                fecha_entrega = st.date_input(
-                    "🗓 Fecha de Entrega Requerida",
-                    value=st.session_state.get("fecha_entrega_input", datetime.now().date()),
-                    key="fecha_entrega_input",
-                )
             local_shift_options = get_local_shift_options(
                 (
                     st.session_state.get("id_vendedor", "")
@@ -4053,14 +3974,7 @@ with tab1:
                 ),
                 force_cdmx_view=tab1_special_shipping,
             )
-            blocked_shifts_for_date = get_blocked_local_shifts_for_date(st.session_state.get("fecha_entrega_input", datetime.now().date()))
-            if blocked_shifts_for_date:
-                local_shift_options = [opt for opt in local_shift_options if opt not in blocked_shifts_for_date]
-                if not local_shift_options:
-                    st.warning("No hay turnos locales disponibles para la fecha seleccionada (aparecen como CERRADA en reporte de almacén).")
-            current_subtipo_local = st.session_state.get("subtipo_local_selector", local_shift_options[0] if local_shift_options else "")
-            if not local_shift_options:
-                local_shift_options = ["📦 Pasa a Bodega"]
+            current_subtipo_local = st.session_state.get("subtipo_local_selector", local_shift_options[0])
             if current_subtipo_local not in local_shift_options:
                 current_subtipo_local = local_shift_options[0]
                 st.session_state["subtipo_local_selector"] = current_subtipo_local
@@ -4453,7 +4367,11 @@ with tab1:
 
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
-            fecha_entrega = st.session_state.get("fecha_entrega_input", datetime.now().date())
+            fecha_entrega = st.date_input(
+                "🗓 Fecha de Entrega Requerida",
+                value=datetime.now().date(),
+                key="fecha_entrega_input",
+            )
             if (
                 usa_logica_local
                 and usa_hoja_ruta_local
