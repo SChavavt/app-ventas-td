@@ -4676,7 +4676,7 @@ with tab1:
         if tipo_envio == "🚚 Pedido Foráneo":
             with st.expander("📬 Dirección guía Manual  (Obligatorio al Solicitar Guia)", expanded=False):
                 solicitar_guia_manual = st.checkbox("✅ Solicitar guía manual en este pedido", key="foraneo_solicitar_guia_manual")
-                st.caption("SI NO SE ACTIVA ESTE CHECK NO SE ENVIARA LA NOTIFICACIÓN A BODEGA.")
+                st.caption("Si capturas dirección, se enviará tal como se escribió aunque no actives el check.")
                 st.markdown("**CAMPOS OBLIGATORIOS DHL (MÉXICO)**")
                 col_dhl_1, col_dhl_2 = st.columns(2)
                 with col_dhl_1:
@@ -5605,11 +5605,13 @@ with tab1:
                     st.session_state["pedido_submit_disabled"] = False
                     st.session_state.pop("pedido_submit_disabled_at", None)
                     rerun_with_pedido_loading("⏳ Recargando formulario...")
-                if (not solicitar_guia_manual) and missing_dhl_fields:
-                    st.caption("ℹ️ No se solicitó guía manual en este pedido. Los campos DHL faltantes no bloquean el registro.")
+                dhl_address_payload_to_serialize = dict(dhl_address_payload)
+                if not solicitar_guia_manual:
+                    dhl_address_payload_to_serialize["pais"] = ""
+                direccion_guia_retorno_serializada = build_dhl_mexico_address_payload(dhl_address_payload_to_serialize)
                 direccion_guia_retorno = (
-                    build_dhl_mexico_address_payload(dhl_address_payload)
-                    if solicitar_guia_manual
+                    direccion_guia_retorno_serializada
+                    if solicitar_guia_manual or direccion_guia_retorno_serializada.strip()
                     else ""
                 )
 
