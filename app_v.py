@@ -1835,6 +1835,10 @@ CLIENTES_LOCALES_HEADERS = [
     "C_P.",
     "Referencias",
 ]
+EMPTY_CLIENTES_LOCALES_DATASET = pd.DataFrame(
+    columns=CLIENTES_LOCALES_HEADERS + ["Sheet_Row_Number", "normalized_cliente"]
+)
+LAST_SUCCESSFUL_CLIENTES_LOCALES_DATASET = EMPTY_CLIENTES_LOCALES_DATASET.copy()
 
 def build_gspread_client():
     credentials_json_str = st.secrets["google_credentials"]
@@ -2060,20 +2064,33 @@ def ensure_clientes_locales_headers(worksheet) -> list[str]:
 @st.cache_data(ttl=120)
 def load_clientes_locales_dataset(refresh_token: float | None = None) -> pd.DataFrame:
     """Carga Clientes_Locales con metadatos normalizados para coincidencias flexibles."""
+    global LAST_SUCCESSFUL_CLIENTES_LOCALES_DATASET
     worksheet = get_worksheet_clientes_locales(refresh_token)
     if worksheet is None:
-        return pd.DataFrame()
+        return LAST_SUCCESSFUL_CLIENTES_LOCALES_DATASET.copy()
 
     last_header_cell = rowcol_to_a1(1, len(CLIENTES_LOCALES_HEADERS))
     headers_range = f"A1:{last_header_cell}"
-    rows = worksheet.get_all_values()
+    try:
+        rows = worksheet.get_all_values()
+    except (APIError, GSpreadException):
+        # Error transitorio de Google Sheets (cuota, timeout, backend) durante la lectura.
+        # Reusamos el último dataset válido para no perder autocompletado/hoja de ruta si
+        # el backend falla temporalmente; si no existe, devolvemos estructura vacía.
+        return LAST_SUCCESSFUL_CLIENTES_LOCALES_DATASET.copy()
     if not rows:
-        worksheet.update(headers_range, [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
-        return pd.DataFrame(columns=CLIENTES_LOCALES_HEADERS + ["Sheet_Row_Number", "normalized_cliente"])
+        try:
+            worksheet.update(headers_range, [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        except (APIError, GSpreadException):
+            return LAST_SUCCESSFUL_CLIENTES_LOCALES_DATASET.copy()
+        return EMPTY_CLIENTES_LOCALES_DATASET.copy()
 
     headers = [str(value).strip() for value in rows[0]]
     if headers != CLIENTES_LOCALES_HEADERS:
-        worksheet.update(headers_range, [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        try:
+            worksheet.update(headers_range, [CLIENTES_LOCALES_HEADERS], value_input_option="RAW")
+        except (APIError, GSpreadException):
+            return LAST_SUCCESSFUL_CLIENTES_LOCALES_DATASET.copy()
         headers = CLIENTES_LOCALES_HEADERS
 
     records = []
@@ -2088,7 +2105,9 @@ def load_clientes_locales_dataset(refresh_token: float | None = None) -> pd.Data
         record["normalized_cliente"] = normalize_client_history_text(record.get("Cliente", ""))
         records.append(record)
 
-    return pd.DataFrame(records)
+    dataset = pd.DataFrame(records)
+    LAST_SUCCESSFUL_CLIENTES_LOCALES_DATASET = dataset.copy()
+    return dataset
 
 
 def _client_name_prefix_tokens_match(query_tokens: list[str], name_tokens: list[str]) -> bool:
