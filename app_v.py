@@ -6788,6 +6788,9 @@ with tab2:
                 selected_vendedor_mod = "Todos"
 
         with col2:
+            if "tab2_modificar_filtro_ultimos_4_dias" not in st.session_state:
+                st.session_state["tab2_modificar_filtro_ultimos_4_dias"] = True
+
             (
                 fecha_inicio_mod,
                 fecha_fin_mod,
