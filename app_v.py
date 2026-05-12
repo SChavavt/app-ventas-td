@@ -573,19 +573,14 @@ def get_local_route_closure_map(sheet_id: str) -> Dict[str, set[str]]:
         return closures
 
     configs = [
-        (["Hoja_Ruta_Mañana", "Hoja_Ruta_Manana"], "☀️ Local Mañana", "LOCAL MANANA"),
-        (["Hoja_Ruta_Tarde"], "🌙 Local Tarde", "LOCAL TARDE"),
-        (["Hoja_Ruta_Saltillo"], "🌵 Saltillo", "SALTILLO"),
+        ("Hoja_Ruta_Manana", "☀️ Local Mañana", "LOCAL MANANA"),
+        ("Hoja_Ruta_Tarde", "🌙 Local Tarde", "LOCAL TARDE"),
+        ("Hoja_Ruta_Saltillo", "🌵 Saltillo", "SALTILLO"),
     ]
-    for ws_name_candidates, shift_label, section_tag in configs:
-        values = None
-        for ws_name in ws_name_candidates:
-            try:
-                values = spreadsheet.worksheet(ws_name).get_all_values()
-                break
-            except Exception:
-                continue
-        if values is None:
+    for ws_name, shift_label, section_tag in configs:
+        try:
+            values = spreadsheet.worksheet(ws_name).get_all_values()
+        except Exception:
             continue
         last_header_date = None
         last_line_was_cerrada = False
@@ -597,23 +592,12 @@ def get_local_route_closure_map(sheet_id: str) -> Dict[str, set[str]]:
             if parsed_date:
                 last_header_date = parsed_date
             normalized_line = line.upper().replace("Á", "A").replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U")
-            contains_section = section_tag in normalized_line
-            contains_cerrada = "CERRADA" in normalized_line
-
-            if contains_cerrada and last_header_date:
-                # Each worksheet maps to one shift label, so "CERRADA" under a dated header
-                # is enough to mark that shift as closed for that date.
-                closures.setdefault(last_header_date.isoformat(), set()).add(shift_label)
-                last_line_was_cerrada = False
-                continue
-
-            if contains_cerrada:
+            if "CERRADA" in normalized_line:
                 last_line_was_cerrada = True
                 continue
-
-            if contains_section and last_line_was_cerrada and last_header_date:
+            if section_tag in normalized_line and last_line_was_cerrada and last_header_date:
                 closures.setdefault(last_header_date.isoformat(), set()).add(shift_label)
-            if contains_section:
+            if section_tag in normalized_line:
                 last_line_was_cerrada = False
     return closures
 
