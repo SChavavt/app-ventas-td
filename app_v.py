@@ -6742,16 +6742,13 @@ with tab2:
     if loading_message_tab2:
         message_placeholder_tab2.info(loading_message_tab2)
 
-    if not tab2_is_active:
-        st.caption("Pestaña en espera. Los datos se cargan al activar esta vista para reducir latencia global.")
-        df_pedidos = pd.DataFrame()
-    else:
-        # 🔄 Cargar pedidos combinados solo cuando la pestaña está activa
-        try:
-            df_pedidos = cargar_pedidos_combinados()
-        except Exception as e:
-            message_placeholder_tab2.error(f"❌ Error al cargar pedidos para modificación: {e}")
-            st.stop()
+
+    # 🔄 Cargar pedidos combinados siempre (Tab 1 y Tab 2 activos de forma permanente)
+    try:
+        df_pedidos = cargar_pedidos_combinados()
+    except Exception as e:
+        message_placeholder_tab2.error(f"❌ Error al cargar pedidos para modificación: {e}")
+        st.stop()
 
     # ----------------- Estado local -----------------
     selected_order_id = None
@@ -6773,11 +6770,11 @@ with tab2:
             fallback_v = df_pedidos['Vendedor'].astype(str).str.strip()
             df_pedidos.loc[df_pedidos['Vendedor_Registro'] == "", 'Vendedor_Registro'] = fallback_v
 
-        # 🔽 Filtro combinado por envío (usa Turno si es Local) con operación vectorizada
-        tipo_envio_col = df_pedidos.get('Tipo_Envio', pd.Series('', index=df_pedidos.index)).fillna('').astype(str)
-        turno_col = df_pedidos.get('Turno', pd.Series('', index=df_pedidos.index)).fillna('').astype(str)
-        mask_local_con_turno = tipo_envio_col.eq("📍 Pedido Local") & turno_col.str.strip().ne('')
-        df_pedidos['Filtro_Envio_Combinado'] = tipo_envio_col.where(~mask_local_con_turno, turno_col)
+        # 🔽 Filtro combinado por envío (usa Turno si es Local)
+        df_pedidos['Filtro_Envio_Combinado'] = df_pedidos.apply(
+            lambda row: row['Turno'] if (str(row.get('Tipo_Envio',"")) == "📍 Pedido Local" and pd.notna(row.get('Turno')) and str(row.get('Turno')).strip()) else row.get('Tipo_Envio', ''),
+            axis=1
+        )
 
         # ----------------- Controles de filtro -----------------
         col1, col2 = st.columns(2)
