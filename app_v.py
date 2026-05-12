@@ -1601,6 +1601,17 @@ def clear_app_caches() -> None:
             clear_fn()
 
 
+def clear_orders_domain_caches() -> None:
+    """Limpia únicamente cachés del dominio de pedidos usados en Tab 2."""
+    for cached_fn in (
+        cargar_pedidos_combinados,
+        cargar_pedidos,
+    ):
+        clear_fn = getattr(cached_fn, "clear", None)
+        if callable(clear_fn):
+            clear_fn()
+
+
 def ensure_user_logged_in() -> str:
     """Muestra una pantalla de inicio de sesión simple y detiene la app hasta autenticar."""
     st.session_state.setdefault("id_vendedor", "")
@@ -6735,20 +6746,27 @@ with tab2:
     st.header("✏️ Modificar Pedido Existente")
     st.caption("ℹ️ En esta sección solo saldrán los pedidos que no han viajado.")
     if st.button("🔄 Actualizar pedidos"):
-        cargar_pedidos_combinados.clear()
+        clear_orders_domain_caches()
 
     message_placeholder_tab2 = st.empty()
     loading_message_tab2 = st.session_state.pop(TAB2_LOADING_MESSAGE_KEY, None)
     if loading_message_tab2:
         message_placeholder_tab2.info(loading_message_tab2)
 
-
-    # 🔄 Cargar pedidos combinados siempre (Tab 1 y Tab 2 activos de forma permanente)
-    try:
-        df_pedidos = cargar_pedidos_combinados()
-    except Exception as e:
-        message_placeholder_tab2.error(f"❌ Error al cargar pedidos para modificación: {e}")
-        st.stop()
+    if not tab2_is_active:
+        render_lazy_tab_placeholder(
+            TAB_INDEX_TAB2,
+            "tab2_modificar",
+            "ℹ️ Tab 2 está inactiva para mejorar rendimiento. Cárgala solo cuando la necesites.",
+        )
+        df_pedidos = None
+    else:
+        # 🔄 Cargar pedidos combinados solo cuando la pestaña está activa
+        try:
+            df_pedidos = cargar_pedidos_combinados()
+        except Exception as e:
+            message_placeholder_tab2.error(f"❌ Error al cargar pedidos para modificación: {e}")
+            st.stop()
 
     # ----------------- Estado local -----------------
     selected_order_id = None
@@ -6759,7 +6777,9 @@ with tab2:
     current_adjuntos_list = []
     current_adjuntos_surtido_list = []
 
-    if df_pedidos.empty:
+    if df_pedidos is None:
+        pass
+    elif df_pedidos.empty:
         message_placeholder_tab2.warning("No hay pedidos registrados para modificar.")
     else:
         # 🔧 Normaliza 'Vendedor_Registro' usando 'Vendedor' como respaldo
@@ -6770,11 +6790,11 @@ with tab2:
             fallback_v = df_pedidos['Vendedor'].astype(str).str.strip()
             df_pedidos.loc[df_pedidos['Vendedor_Registro'] == "", 'Vendedor_Registro'] = fallback_v
 
-        # 🔽 Filtro combinado por envío (usa Turno si es Local)
-        df_pedidos['Filtro_Envio_Combinado'] = df_pedidos.apply(
-            lambda row: row['Turno'] if (str(row.get('Tipo_Envio',"")) == "📍 Pedido Local" and pd.notna(row.get('Turno')) and str(row.get('Turno')).strip()) else row.get('Tipo_Envio', ''),
-            axis=1
-        )
+        # 🔽 Filtro combinado por envío (usa Turno si es Local) con operación vectorizada
+        tipo_envio_col = df_pedidos.get('Tipo_Envio', pd.Series('', index=df_pedidos.index)).fillna('').astype(str)
+        turno_col = df_pedidos.get('Turno', pd.Series('', index=df_pedidos.index)).fillna('').astype(str)
+        mask_local_con_turno = tipo_envio_col.eq("📍 Pedido Local") & turno_col.str.strip().ne('')
+        df_pedidos['Filtro_Envio_Combinado'] = tipo_envio_col.where(~mask_local_con_turno, turno_col)
 
         # ----------------- Controles de filtro -----------------
         col1, col2 = st.columns(2)
