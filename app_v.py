@@ -17,6 +17,7 @@ import unicodedata
 from io import BytesIO
 import time
 import socket
+import random
 import re
 import gspread
 import html
@@ -41,6 +42,8 @@ st.set_page_config(page_title="App Vendedores TD", layout="wide")
 REFRESH_COOLDOWN = 60
 PENDING_SUBMISSION_RETRY_SECONDS = 8
 PENDING_SUBMISSION_MAX_RETRY_SECONDS = 60
+PENDING_SUBMISSION_MAX_ATTEMPTS = 10
+PENDING_SUBMISSION_JITTER_SECONDS = 0.25
 PENDING_SUBMISSIONS_DIR = Path(".pedido_retry_cache")
 S3_UPLOAD_MAX_RETRIES = 4
 S3_UPLOAD_BASE_DELAY_SECONDS = 1.2
@@ -1135,22 +1138,27 @@ def clear_tab1_draft_state(cache_key: str) -> None:
         pass
 
 
-def schedule_pending_submission_retry(cache_key: str, delay_seconds: int = PENDING_SUBMISSION_RETRY_SECONDS) -> None:
-    """Agenda reintento automático con backoff para evitar saturar APIs externas."""
+def schedule_pending_submission_retry(cache_key: str, delay_seconds: int = PENDING_SUBMISSION_RETRY_SECONDS) -> bool:
+    """Agenda reintento automático con backoff+jitter para evitar saturar APIs externas."""
     pending = load_pending_submission(cache_key)
     if not pending:
-        return
+        return False
     attempts = int(pending.get("attempts", 0) or 0) + 1
-    retry_seconds = min(
+    if attempts > PENDING_SUBMISSION_MAX_ATTEMPTS:
+        return False
+    retry_base_seconds = min(
         PENDING_SUBMISSION_MAX_RETRY_SECONDS,
         max(1, delay_seconds) * (2 ** max(0, attempts - 1)),
     )
+    jitter_factor = 1 + random.uniform(-PENDING_SUBMISSION_JITTER_SECONDS, PENDING_SUBMISSION_JITTER_SECONDS)
+    retry_seconds = max(1, int(round(retry_base_seconds * jitter_factor)))
     save_pending_submission(
         cache_key,
         pending.get("payload", {}),
         attempts=attempts,
         next_retry_at=time.time() + retry_seconds,
     )
+    return True
 
 
 def worksheet_to_dataframe_safe(worksheet, retries: int = 3, base_delay: float = 0.6) -> pd.DataFrame:
@@ -2544,7 +2552,7 @@ def display_connection_status_badge(statuses: list[dict[str, object]]) -> None:
 g_spread_client = get_google_sheets_client()
 s3_client = get_s3_client()
 
-def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
+def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key, max_retries: Optional[int] = None):
     """
     Sube un archivo a un bucket de S3.
 
@@ -2594,7 +2602,8 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
         return False
 
     last_error: Optional[Exception] = None
-    for attempt in range(1, S3_UPLOAD_MAX_RETRIES + 1):
+    max_attempts = max(1, int(max_retries or S3_UPLOAD_MAX_RETRIES))
+    for attempt in range(1, max_attempts + 1):
         try:
             # Asegúrate de que el puntero del archivo esté al principio
             file_obj.seek(0)
@@ -2603,7 +2612,7 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
             return True, file_url, None
         except Exception as e:
             last_error = e
-            if attempt >= S3_UPLOAD_MAX_RETRIES or not _is_retryable_upload_error(e):
+            if attempt >= max_attempts or not _is_retryable_upload_error(e):
                 break
 
             sleep_seconds = S3_UPLOAD_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
@@ -2611,13 +2620,13 @@ def upload_file_to_s3(s3_client, bucket_name, file_obj, s3_key):
 
     error_detail = str(last_error) if last_error else "Error desconocido"
     return False, None, (
-        f"{error_detail} (reintentos agotados: {S3_UPLOAD_MAX_RETRIES})"
+        f"{error_detail} (reintentos agotados: {max_attempts})"
         if last_error
         else error_detail
     )
 
 
-def upload_files_or_fail(files, s3_client, bucket, prefix):
+def upload_files_or_fail(files, s3_client, bucket, prefix, max_retries: Optional[int] = None):
     uploaded_urls = []
     for file_obj in files or []:
         file_obj.seek(0)
@@ -2626,7 +2635,7 @@ def upload_files_or_fail(files, s3_client, bucket, prefix):
         suffix = re.sub(r"[^A-Za-z0-9.]", "", Path(original_name).suffix)
         safe_name = f"{stem or 'archivo'}{suffix}".replace("..", ".")
         s3_key = f"{prefix}{safe_name}"
-        ok, url, error = upload_file_to_s3(s3_client, bucket, file_obj, s3_key)
+        ok, url, error = upload_file_to_s3(s3_client, bucket, file_obj, s3_key, max_retries=max_retries)
         if not ok:
             raise Exception(f"Error subiendo {file_obj.name}: {error}")
         uploaded_urls.append(url)
@@ -5235,9 +5244,13 @@ with tab1:
         retry_at = float(pending_submission_record.get("next_retry_at", 0) or 0)
         attempts_done = int(pending_submission_record.get("attempts", 0) or 0)
         remaining_seconds = max(0, int(retry_at - time.time()))
+        attempts_left = max(0, PENDING_SUBMISSION_MAX_ATTEMPTS - attempts_done)
 
         st.warning(
             "⚠️ Hay un pedido pendiente de reintento. Para evitar duplicados se bloqueó temporalmente el botón de registrar."
+        )
+        st.caption(
+            f"Intentos realizados: {attempts_done}/{PENDING_SUBMISSION_MAX_ATTEMPTS}. Intentos restantes: {attempts_left}."
         )
         action_col1, action_col2 = st.columns(2)
         with action_col1:
@@ -5267,7 +5280,7 @@ with tab1:
             )
         else:
             st.info(
-                f"⏱️ Reintento automático en {remaining_seconds}s (intentos previos: {attempts_done})."
+                f"⏱️ Reintento automático en {remaining_seconds}s (intentos previos: {attempts_done}; restantes: {attempts_left})."
             )
             time.sleep(min(1, remaining_seconds))
             st.rerun()
@@ -5869,6 +5882,7 @@ with tab1:
                     rerun_with_pedido_loading()
 
             adjuntos_urls = []
+            s3_retry_override = 2 if pending_submission_record else None
             try:
                 adjuntos_urls.extend(
                     upload_files_or_fail(
@@ -5876,6 +5890,7 @@ with tab1:
                         s3_client,
                         S3_BUCKET_NAME,
                         s3_prefix,
+                        max_retries=s3_retry_override,
                     )
                 )
                 adjuntos_urls.extend(
@@ -5884,6 +5899,7 @@ with tab1:
                         s3_client,
                         S3_BUCKET_NAME,
                         s3_prefix,
+                        max_retries=s3_retry_override,
                     )
                 )
                 adjuntos_urls.extend(
@@ -5892,6 +5908,7 @@ with tab1:
                         s3_client,
                         S3_BUCKET_NAME,
                         s3_prefix,
+                        max_retries=s3_retry_override,
                     )
                 )
                 adjuntos_urls.extend(
@@ -5900,14 +5917,19 @@ with tab1:
                         s3_client,
                         S3_BUCKET_NAME,
                         s3_prefix,
+                        max_retries=s3_retry_override,
                     )
                 )
             except Exception as e:
-                schedule_pending_submission_retry(pending_cache_key)
+                retry_scheduled = schedule_pending_submission_retry(pending_cache_key)
+                detalle_error = str(e)
+                if not retry_scheduled:
+                    clear_pending_submission(pending_cache_key)
+                    detalle_error = f"{detalle_error} | Se alcanzó el límite de {PENDING_SUBMISSION_MAX_ATTEMPTS} reintentos automáticos."
                 set_pedido_submission_status(
                     status="error",
                     message="❌ No se pudieron subir los archivos del pedido.",
-                    detail=str(e),
+                    detail=detalle_error,
                 )
                 rerun_with_pedido_loading()
 
@@ -6138,11 +6160,15 @@ with tab1:
                         id_col_index=id_col_index,
                     )
             except Exception as e:
-                schedule_pending_submission_retry(pending_cache_key)
+                retry_scheduled = schedule_pending_submission_retry(pending_cache_key)
+                error_detalle = f"Error al registrar el pedido: {e}"
+                if not retry_scheduled:
+                    clear_pending_submission(pending_cache_key)
+                    error_detalle = f"{error_detalle} | Se alcanzó el límite de {PENDING_SUBMISSION_MAX_ATTEMPTS} reintentos automáticos."
                 set_pedido_submission_status(
                     "error",
                     "❌ Falla al subir el pedido.",
-                    f"Error al registrar el pedido: {e}",
+                    error_detalle,
                 )
                 rerun_with_pedido_loading()
 
@@ -6201,11 +6227,15 @@ with tab1:
             rerun_with_pedido_loading("⏳ Pedido registrado. Actualizando vista...")
 
         except Exception as e:
-            schedule_pending_submission_retry(pending_cache_key)
+            retry_scheduled = schedule_pending_submission_retry(pending_cache_key)
+            error_detalle = f"Error inesperado al registrar el pedido: {e}"
+            if not retry_scheduled:
+                clear_pending_submission(pending_cache_key)
+                error_detalle = f"{error_detalle} | Se alcanzó el límite de {PENDING_SUBMISSION_MAX_ATTEMPTS} reintentos automáticos."
             set_pedido_submission_status(
                 "error",
                 "❌ Falla al subir el pedido.",
-                f"Error inesperado al registrar el pedido: {e}",
+                error_detalle,
             )
             rerun_with_pedido_loading()
 
