@@ -6258,29 +6258,8 @@ with tab4:
         if c not in df_ce.columns:
             df_ce[c] = ""
 
-    def _resolve_urls_for_output(value) -> list[str]:
-        urls = _normalize_urls(value)
-        if not urls:
-            return []
-
-        resolved = []
-        for url in urls:
-            if s3_client and is_s3_url(url):
-                resolved.append(
-                    get_s3_file_download_url(
-                        s3_client,
-                        url,
-                        prefer_inline_view=True,
-                    )
-                )
-            else:
-                resolved.append(url)
-        return resolved
-
     # Links listos para tabla/Excel
-    df_ce["Links_Adjuntos"] = df_ce["Adjuntos"].apply(
-        lambda v: "\n".join(_resolve_urls_for_output(v)) if str(v).strip() else ""
-    )
+    df_ce["Links_Adjuntos"] = df_ce["Adjuntos"].apply(lambda v: "\n".join(_normalize_urls(v)) if str(v).strip() else "")
     df_ce["Link_Guia"] = df_ce["Hoja_Ruta_Mensajero"].astype(str).fillna("")
     # prioriza dictamen garantía; si no, nota crédito
     df_ce["Link_Dictamen_o_Nota"] = df_ce.apply(
