@@ -2055,6 +2055,7 @@ def get_s3_file_download_url(
     expires_in=3600,
     *,
     prefer_inline_view: bool = False,
+    force_presigned: bool = False,
 ): # Acepta s3_client_instance
     clean_key = extract_s3_key(object_key_or_url)
     if not clean_key:
@@ -2066,7 +2067,7 @@ def get_s3_file_download_url(
 
     clean_key_lower = clean_key.lower()
 
-    use_permanent_url = S3_USE_PERMANENT_URLS and S3_PUBLIC_BASE_URL
+    use_permanent_url = (S3_USE_PERMANENT_URLS and S3_PUBLIC_BASE_URL) and not force_presigned
     if prefer_inline_view and clean_key_lower.endswith(INLINE_EXT):
         use_permanent_url = False
 
@@ -6263,7 +6264,11 @@ with tab4:
         resolved_urls = []
         for url in _normalize_urls(value):
             if is_s3_url(url):
-                resolved_urls.append(get_s3_file_download_url(s3_client, url, prefer_inline_view=True))
+                resolved_urls.append(
+                    get_s3_file_download_url(
+                        s3_client, url, prefer_inline_view=True, force_presigned=True
+                    )
+                )
             else:
                 resolved_urls.append(url)
         return resolved_urls
