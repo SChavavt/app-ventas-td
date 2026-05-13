@@ -6258,8 +6258,29 @@ with tab4:
         if c not in df_ce.columns:
             df_ce[c] = ""
 
+    def _resolve_urls_for_output(value) -> list[str]:
+        urls = _normalize_urls(value)
+        if not urls:
+            return []
+
+        resolved = []
+        for url in urls:
+            if s3_client and is_s3_url(url):
+                resolved.append(
+                    get_s3_file_download_url(
+                        s3_client,
+                        url,
+                        prefer_inline_view=True,
+                    )
+                )
+            else:
+                resolved.append(url)
+        return resolved
+
     # Links listos para tabla/Excel
-    df_ce["Links_Adjuntos"] = df_ce["Adjuntos"].apply(lambda v: "\n".join(_normalize_urls(v)) if str(v).strip() else "")
+    df_ce["Links_Adjuntos"] = df_ce["Adjuntos"].apply(
+        lambda v: "\n".join(_resolve_urls_for_output(v)) if str(v).strip() else ""
+    )
     df_ce["Link_Guia"] = df_ce["Hoja_Ruta_Mensajero"].astype(str).fillna("")
     # prioriza dictamen garantía; si no, nota crédito
     df_ce["Link_Dictamen_o_Nota"] = df_ce.apply(
@@ -6394,7 +6415,11 @@ with tab4:
     # ------- Descargar Excel (on-demand para evitar picos de memoria) -------
     if st.button("🧮 Preparar Excel Casos Especiales", key="prep_excel_casos"):
         output_casos = BytesIO()
-        with pd.ExcelWriter(output_casos, engine="xlsxwriter") as writer:
+        with pd.ExcelWriter(
+            output_casos,
+            engine="xlsxwriter",
+            engine_kwargs={"options": {"strings_to_urls": False}},
+        ) as writer:
             # Exporta exactamente lo que se muestra en la previsualización de la tabla
             # (incluyendo normalización de fechas y links procesados).
             df_view_table[columnas_existentes].to_excel(writer, index=False, sheet_name="casos_especiales")
