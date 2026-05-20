@@ -600,14 +600,15 @@ def get_local_route_closure_map(sheet_id: str) -> Dict[str, set[str]]:
             contains_section = section_tag in normalized_line
             contains_cerrada = "CERRADA" in normalized_line
 
+            if contains_cerrada and last_header_date:
+                # Each worksheet maps to one shift label, so "CERRADA" under a dated header
+                # is enough to mark that shift as closed for that date.
+                closures.setdefault(last_header_date.isoformat(), set()).add(shift_label)
+                last_line_was_cerrada = False
+                continue
+
             if contains_cerrada:
-                # Mark closure only when CERRADA belongs to this section (same line) or
-                # appears immediately above the section label.
-                if contains_section and last_header_date:
-                    closures.setdefault(last_header_date.isoformat(), set()).add(shift_label)
-                    last_line_was_cerrada = False
-                else:
-                    last_line_was_cerrada = True
+                last_line_was_cerrada = True
                 continue
 
             if contains_section and last_line_was_cerrada and last_header_date:
