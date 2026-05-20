@@ -3920,7 +3920,6 @@ with tab1:
     tab1_is_active = default_tab == TAB_INDEX_TAB1
     if tab1_is_active:
         st.session_state["current_tab_index"] = TAB_INDEX_TAB1
-    st.header("📝 Nuevo Pedido")
     if st.session_state.pop("tab1_draft_was_restored", False):
         st.info(
             "🧩 Se recuperó automáticamente un borrador local de tu captura. "
@@ -3938,22 +3937,41 @@ with tab1:
             current_view_mode = "mty"
             st.session_state[tab1_view_mode_key] = current_view_mode
         st.caption("Vista de captura para vendedores:")
+        st.markdown(
+            f"**Vista activa:** {'🔴 CDMX' if current_view_mode == 'cdmx' else '🔴 MTY'}"
+        )
         col_view_mty, col_view_cdmx = st.columns(2)
         with col_view_mty:
-            if st.button("Vista vendedores MTY", use_container_width=True):
+            if st.button(
+                "🔴 Vista vendedores MTY" if current_view_mode == "mty" else "Vista vendedores MTY",
+                type="primary" if current_view_mode == "mty" else "secondary",
+                use_container_width=True,
+            ):
                 if st.session_state.get(tab1_view_mode_key) != "mty":
                     st.session_state[tab1_view_mode_key] = "mty"
-                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
+                    st.rerun()
                 current_view_mode = "mty"
         with col_view_cdmx:
-            if st.button("Vista vendedores CDMX", use_container_width=True):
+            if st.button(
+                "🔴 Vista vendedores CDMX" if current_view_mode == "cdmx" else "Vista vendedores CDMX",
+                type="primary" if current_view_mode == "cdmx" else "secondary",
+                use_container_width=True,
+            ):
                 if st.session_state.get(tab1_view_mode_key) != "cdmx":
                     st.session_state[tab1_view_mode_key] = "cdmx"
-                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
+                    st.rerun()
                 current_view_mode = "cdmx"
     else:
         st.session_state.pop(tab1_view_mode_key, None)
         current_view_mode = "mty"
+
+    if tab1_can_toggle_view_mode:
+        if current_view_mode == "cdmx":
+            st.header("🏙️ Nuevo Pedido CDMX")
+        else:
+            st.header("🏔️ Nuevo Pedido MTY")
+    else:
+        st.header("📝 Nuevo Pedido")
 
     tab1_special_shipping = current_view_mode == "cdmx"
     tab1_emulate_cdmx_vendor_view = (
