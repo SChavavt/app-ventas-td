@@ -47,7 +47,7 @@ PENDING_SUBMISSION_JITTER_SECONDS = 0.25
 PENDING_SUBMISSIONS_DIR = Path(".pedido_retry_cache")
 S3_UPLOAD_MAX_RETRIES = 4
 S3_UPLOAD_BASE_DELAY_SECONDS = 1.2
-CONNECTION_STATUS_TTL_SECONDS = 20
+CONNECTION_STATUS_TTL_SECONDS = 120
 PEDIDO_STATUS_MAX_AGE_SECONDS = 180
 TAB1_DRAFT_MAX_AGE_SECONDS = 60 * 60 * 6
 
@@ -1618,6 +1618,7 @@ def clear_app_caches() -> None:
         get_worksheet_historico,
         get_worksheet_clientes_locales,
         get_worksheet_zonas_remotas,
+        get_worksheet_casos_especiales,
         get_s3_client,
     ):
         clear_fn = getattr(cached_fn, "clear", None)
@@ -1991,9 +1992,14 @@ def get_worksheet_zonas_remotas(refresh_token: float | None = None):
         return None
     return spreadsheet.worksheet(SHEET_ZONAS_REMOTAS)
 
-def get_worksheet_casos_especiales():
-    client = build_gspread_client()
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+@st.cache_resource
+def get_worksheet_casos_especiales(refresh_token: float | None = None):
+    client = get_google_sheets_client(refresh_token)
+    if client is None:
+        return None
+    spreadsheet = open_google_sheet(client)
+    if spreadsheet is None:
+        return None
     return spreadsheet.worksheet("casos_especiales")
 
 
