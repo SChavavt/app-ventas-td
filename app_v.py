@@ -8644,6 +8644,11 @@ with tab4:
                                 accept_multiple_files=True,
                                 key=f"{row_key}_comprobantes_extra",
                             )
+                            enviar_aviso_bodega_modificacion = st.checkbox(
+                                "📦 Enviar aviso a bodega como modificación",
+                                key=f"{row_key}_enviar_aviso_bodega_modificacion",
+                                help="Si se marca, el caso cambia a ✏️ Modificación y se limpia Completados_Limpiado.",
+                            )
                             submit_folio_nuevo = st.form_submit_button("Guardar Folio Nuevo")
 
                         if submit_folio_nuevo:
@@ -8682,6 +8687,18 @@ with tab4:
                                             "range": rowcol_to_a1(row_idx, col_idx("Modificacion_Surtido")),
                                             "values": [[str(notas_devolucion).strip()]],
                                         })
+
+                                    if enviar_aviso_bodega_modificacion:
+                                        if col_exists("Seguimiento"):
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(row_idx, col_idx("Seguimiento")),
+                                                "values": [["✏️ Modificación"]],
+                                            })
+                                        if col_exists("Completados_Limpiado"):
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(row_idx, col_idx("Completados_Limpiado")),
+                                                "values": [[""]],
+                                            })
 
                                     direccion_guia_retorno_normalizada = str(direccion_guia_retorno_pendiente or "").strip()
                                     if col_exists("Direccion_Guia_Retorno"):
