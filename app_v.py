@@ -1618,6 +1618,7 @@ def clear_app_caches() -> None:
         get_worksheet_historico,
         get_worksheet_clientes_locales,
         get_worksheet_zonas_remotas,
+        get_worksheet_casos_especiales,
         get_s3_client,
     ):
         clear_fn = getattr(cached_fn, "clear", None)
@@ -1991,9 +1992,14 @@ def get_worksheet_zonas_remotas(refresh_token: float | None = None):
         return None
     return spreadsheet.worksheet(SHEET_ZONAS_REMOTAS)
 
-def get_worksheet_casos_especiales():
-    client = build_gspread_client()
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+@st.cache_resource
+def get_worksheet_casos_especiales(refresh_token: float | None = None):
+    client = get_google_sheets_client(refresh_token)
+    if client is None:
+        return None
+    spreadsheet = open_google_sheet(client)
+    if spreadsheet is None:
+        return None
     return spreadsheet.worksheet("casos_especiales")
 
 
