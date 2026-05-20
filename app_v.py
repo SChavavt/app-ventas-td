@@ -587,34 +587,45 @@ def get_local_route_closure_map(sheet_id: str) -> Dict[str, set[str]]:
                 continue
         if values is None:
             continue
-        last_header_date = None
-        last_line_was_cerrada = False
+
+        pending_cerrada = False
         for row in values:
-            line = " ".join(str(cell or "").strip() for cell in row if str(cell or "").strip())
-            if not line:
+            # El reporte operativo usa la columna C para estados/encabezados de turno.
+            # Leemos primero esa columna para evitar falsos positivos en otras columnas.
+            col_c = str(row[2] if len(row) > 2 else "" or "").strip()
+            if not col_c:
                 continue
-            parsed_date = parse_route_header_date(line)
-            if parsed_date:
-                last_header_date = parsed_date
-            normalized_line = line.upper().replace("Á", "A").replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U").replace("Ñ", "N")
-            contains_section = section_tag in normalized_line
+
+            normalized_line = (
+                col_c.upper()
+                .replace("Á", "A")
+                .replace("É", "E")
+                .replace("Í", "I")
+                .replace("Ó", "O")
+                .replace("Ú", "U")
+                .replace("Ñ", "N")
+            )
             contains_cerrada = "CERRADA" in normalized_line
+            parsed_date = parse_route_header_date(col_c)
+            contains_section = section_tag in normalized_line
 
-            if contains_cerrada and last_header_date:
-                # Each worksheet maps to one shift label, so "CERRADA" under a dated header
-                # is enough to mark that shift as closed for that date.
-                closures.setdefault(last_header_date.isoformat(), set()).add(shift_label)
-                last_line_was_cerrada = False
+            # Casos soportados en columna C:
+            # 1) "CERRADA" en fila previa, y después encabezado+turno.
+            # 2) Encabezado+turno y "CERRADA" en la misma celda (con saltos de línea).
+            if contains_cerrada and not parsed_date and not contains_section:
+                pending_cerrada = True
                 continue
 
-            if contains_cerrada:
-                last_line_was_cerrada = True
+            if parsed_date and contains_section:
+                if contains_cerrada or pending_cerrada:
+                    closures.setdefault(parsed_date.isoformat(), set()).add(shift_label)
+                pending_cerrada = False
                 continue
 
-            if contains_section and last_line_was_cerrada and last_header_date:
-                closures.setdefault(last_header_date.isoformat(), set()).add(shift_label)
-            if contains_section:
-                last_line_was_cerrada = False
+            # Si aparece un nuevo encabezado/turno sin CERRADA, limpiamos pendiente.
+            if parsed_date or contains_section:
+                pending_cerrada = False
+
     return closures
 
 
