@@ -1652,7 +1652,7 @@ def ensure_user_logged_in() -> str:
             normalized_candidate = candidate.upper()
             st.session_state["id_vendedor"] = normalized_candidate
             st.query_params["usuario"] = normalized_candidate
-            st.rerun()
+            pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
         else:
             st.error("❌ Usuario no válido. Verifica tu nombre y número.")
 
@@ -1763,7 +1763,7 @@ def render_lazy_tab_placeholder(tab_index: int, key_prefix: str, message: str) -
         st.query_params.update({"tab": str(tab_index)})
         clear_app_caches()
         get_cached_connection_statuses.clear()
-        st.rerun()
+        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
 
 LAZY_TAB_MESSAGE = "ℹ️ Esta pestaña está inactiva. Presiona el botón '🔄 Cargar esta pestaña ahora' de abajo para activarla."
@@ -2752,13 +2752,13 @@ def set_pedido_submission_status(
 def rerun_with_pedido_loading(message: str = "⏳ Actualizando el estado del pedido...") -> None:
     """Muestra aviso de carga para tab1 y relanza la app sin forzar cambio de pestaña."""
     st.session_state["pedido_submission_loading_message"] = message
-    st.rerun()
+    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
 
 def rerun_with_tab2_loading(message: str = "⏳ Actualizando la modificación del pedido...") -> None:
     """Muestra aviso de carga al modificar antes de relanzar la app."""
     st.session_state[TAB2_LOADING_MESSAGE_KEY] = message
-    st.rerun()
+    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
 
 def clear_order_related_caches() -> None:
@@ -2834,7 +2834,7 @@ if gsheet_status and not gsheet_status.get("ok", False):
         get_google_sheets_client.clear()
         get_cached_connection_statuses.clear()
         st.session_state.pop("gsheet_error", None)
-        st.rerun()
+        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
     st.stop()
 
 s3_status = status_by_name.get("AWS S3")
@@ -2844,7 +2844,7 @@ if s3_status and not s3_status.get("ok", False):
         get_s3_client.clear()
         get_cached_connection_statuses.clear()
         st.session_state.pop("s3_error", None)
-        st.rerun()
+        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
     st.stop()
 
 nombre_vendedor_activo = get_session_vendedor_name() or usuario_activo
@@ -2965,7 +2965,7 @@ if st.button("🔄 Recargar Página y Conexión", help="Haz clic aquí si algo n
     if allow_refresh("main_last_refresh"):
         clear_app_caches()
         get_cached_connection_statuses.clear()
-        st.rerun()
+        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
 def render_brand_title(icon: str, prefix: str, fallback_suffix: str, logo_path: str = "assets/td_logo.png") -> None:
     """Renderiza un título con logo configurable para reemplazar el texto 'TD'."""
@@ -3101,7 +3101,7 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
     if st.session_state.get("discount_add_regular"):
         precios_regulares.append("")
         st.session_state[DESCUENTO_REGULAR_KEY] = precios_regulares
-        st.rerun()
+        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
     regular_header_col, regular_button_col = st.columns([5, 1])
     with regular_header_col:
@@ -3177,7 +3177,7 @@ with st.expander("🧮 Calculadora de descuento", expanded=False):
                 precios_regulares.pop(idx)
                 st.session_state[DESCUENTO_REGULAR_KEY] = precios_regulares
                 st.session_state.pop(f"{DESCUENTO_INPUT_PREFIX}{idx}", None)
-                st.rerun()
+                pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
     st.session_state[DESCUENTO_REGULAR_KEY] = precios_regulares
 
@@ -3943,13 +3943,13 @@ with tab1:
             if st.button("Vista vendedores MTY", use_container_width=True):
                 if st.session_state.get(tab1_view_mode_key) != "mty":
                     st.session_state[tab1_view_mode_key] = "mty"
-                    st.rerun()
+                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
                 current_view_mode = "mty"
         with col_view_cdmx:
             if st.button("Vista vendedores CDMX", use_container_width=True):
                 if st.session_state.get(tab1_view_mode_key) != "cdmx":
                     st.session_state[tab1_view_mode_key] = "cdmx"
-                    st.rerun()
+                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
                 current_view_mode = "cdmx"
     else:
         st.session_state.pop(tab1_view_mode_key, None)
@@ -4192,7 +4192,7 @@ with tab1:
                     st.session_state["local_route_selected_history_label"] = selected_history_label
                     st.session_state["local_route_selected_history_row"] = selected_row_number
                     apply_cliente_local_to_session(selected_history_record)
-                    st.rerun()
+                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
             elif len(client_history_options) == 1:
                 selected_history_label, selected_history_record = next(iter(client_history_options.items()))
                 st.caption(f"✅ Coincidencia encontrada: {selected_history_label}")
@@ -4204,7 +4204,7 @@ with tab1:
                     st.session_state["local_route_selected_history_label"] = selected_history_label
                     st.session_state["local_route_selected_history_row"] = selected_row_number
                     apply_cliente_local_to_session(selected_history_record)
-                    st.rerun()
+                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
             elif client_history_options:
                 option_labels = list(client_history_options.keys())
                 selected_history_index = None
@@ -4228,7 +4228,7 @@ with tab1:
                     ):
                         st.session_state["local_route_selected_history_row"] = selected_row_number
                         apply_cliente_local_to_session(selected_history_record)
-                        st.rerun()
+                        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
             elif registro_cliente.strip():
                 st.caption("🆕 Cliente nuevo sin historial. Puedes continuar y al registrar el pedido se agregará al historial local.")
                 st.session_state["local_route_selected_history_label"] = None
@@ -5098,7 +5098,7 @@ with tab1:
                 "warning",
                 "⚠️ Se canceló el envío para que puedas adjuntar archivos antes de registrar.",
             )
-            st.rerun()
+            pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
     if route_post_confirm_notice:
         st.session_state.pop(LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY, None)
@@ -5299,7 +5299,7 @@ with tab1:
                 f"⏱️ Reintento automático en {remaining_seconds}s (intentos previos: {attempts_done}; restantes: {attempts_left})."
             )
             time.sleep(min(1, remaining_seconds))
-            st.rerun()
+            pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
     if not registrar_nota_venta:
         nota_venta = ""
@@ -7221,14 +7221,10 @@ with tab2:
 
                     refact_folio_nuevo = st.text_input("📄 Folio de la Nueva Factura", key="folio_refact_outside")
 
-                apply_local_route_update = False
+                apply_local_route_update = bool(tab2_local_order and tipo_modificacion_seleccionada == "Nueva Ruta")
                 tab2_route_payload = None
-                if tab2_local_order and tipo_modificacion_seleccionada == "Nueva Ruta":
+                if apply_local_route_update:
                     st.markdown("### 🗺️ Hoja de Ruta Local")
-                    apply_local_route_update = True
-                    st.caption(
-                        "🤝 Cliente con búsqueda automática\n\nEscribe el nombre del cliente y dale ENTER. La app buscará coincidencias en el historial local."
-                    )
                     pending_tab2_cliente = st.session_state.pop(
                         "tab2_local_route_pending_registro_cliente",
                         None,
@@ -7246,209 +7242,215 @@ with tab2:
                         disabled=True,
                         help="Cliente fijo del pedido seleccionado para modificación de Nueva Ruta.",
                     )
-                    normalized_tab2_cliente = normalize_client_history_text(tab2_cliente)
-                    previous_tab2_query = st.session_state.get("tab2_local_route_last_query", "")
-                    if normalized_tab2_cliente != previous_tab2_query:
-                        st.session_state["tab2_local_route_last_query"] = normalized_tab2_cliente
-                        st.session_state["tab2_local_route_selected_history_label"] = None
-                        st.session_state["tab2_local_route_selected_history_row"] = None
 
-                    tab2_matches, tab2_forced_refresh_used = get_clientes_locales_matches_with_fallback_refresh(
-                        tab2_cliente,
-                        session_prefix="tab2_local_route_client_search",
-                    )
-                    if tab2_forced_refresh_used and tab2_matches:
-                        st.caption("🔄 Se actualizó el historial automáticamente y se encontraron coincidencias.")
-                    tab2_options: dict[str, dict] = {}
-                    normalized_tab2_cliente = normalize_client_history_text(tab2_cliente)
-                    exact_tab2_label = None
-                    for match in tab2_matches:
-                        display_label = f"{str(match.get('Cliente', '')).strip()} | C.P. {str(match.get('C_P.', '')).strip() or 'N/A'}"
-                        suffix = 2
-                        base_label = display_label
-                        while display_label in tab2_options:
-                            display_label = f"{base_label} ({suffix})"
-                            suffix += 1
-                        tab2_options[display_label] = match
-                        if (
-                            normalized_tab2_cliente
-                            and normalize_client_history_text(match.get("Cliente", "")) == normalized_tab2_cliente
-                        ):
-                            exact_tab2_label = display_label
+                # ----------------- Formulario de modificación -----------------
+                with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
+                    if apply_local_route_update:
+                        normalized_tab2_cliente = normalize_client_history_text(tab2_cliente)
+                        previous_tab2_query = st.session_state.get("tab2_local_route_last_query", "")
+                        if normalized_tab2_cliente != previous_tab2_query:
+                            st.session_state["tab2_local_route_last_query"] = normalized_tab2_cliente
+                            st.session_state["tab2_local_route_selected_history_label"] = None
+                            st.session_state["tab2_local_route_selected_history_row"] = None
 
-                    selected_tab2_row = st.session_state.get("tab2_local_route_selected_history_row")
-                    previous_tab2_label = st.session_state.get("tab2_local_route_selected_history_label")
-                    if exact_tab2_label and exact_tab2_label in tab2_options:
-                        selected_tab2_label = exact_tab2_label
-                        selected_tab2_record = tab2_options[exact_tab2_label]
-                        st.caption(f"✅ Cliente encontrado en historial: {selected_tab2_label}")
-                        selected_tab2_row_number = parse_sheet_row_number(selected_tab2_record.get("Sheet_Row_Number"))
-                        if selected_tab2_row != selected_tab2_row_number:
-                            st.session_state["tab2_local_route_selected_history_label"] = selected_tab2_label
-                            st.session_state["tab2_local_route_selected_history_row"] = selected_tab2_row_number
-                            apply_cliente_local_record_to_session(
-                                selected_tab2_record,
-                                route_prefix=tab2_route_prefix,
-                                pending_cliente_key="tab2_local_route_pending_registro_cliente",
+                        try:
+                            tab2_matches, _tab2_forced_refresh_used = get_clientes_locales_matches_with_fallback_refresh(
+                                tab2_cliente,
+                                session_prefix="tab2_local_route_client_search",
+                                limit=8,
                             )
-                            st.rerun()
-                    elif len(tab2_options) == 1:
-                        selected_tab2_label, selected_tab2_record = next(iter(tab2_options.items()))
-                        st.caption(f"✅ Coincidencia encontrada: {selected_tab2_label}")
-                        selected_tab2_row_number = parse_sheet_row_number(selected_tab2_record.get("Sheet_Row_Number"))
-                        if selected_tab2_row != selected_tab2_row_number:
-                            st.session_state["tab2_local_route_selected_history_label"] = selected_tab2_label
-                            st.session_state["tab2_local_route_selected_history_row"] = selected_tab2_row_number
-                            apply_cliente_local_record_to_session(
-                                selected_tab2_record,
-                                route_prefix=tab2_route_prefix,
-                                pending_cliente_key="tab2_local_route_pending_registro_cliente",
-                            )
-                            st.rerun()
-                    elif tab2_options:
-                        option_labels = list(tab2_options.keys())
-                        selected_history_index = option_labels.index(previous_tab2_label) if previous_tab2_label in tab2_options else None
-                        selected_tab2_label = st.radio(
-                            "Coincidencias encontradas",
-                            options=option_labels,
-                            index=selected_history_index,
-                            key="tab2_local_route_selected_history_label",
-                        )
-                        selected_tab2_record = tab2_options.get(selected_tab2_label)
-                        if selected_tab2_record:
+                        except (APIError, GSpreadException):
+                            tab2_dataset = LAST_SUCCESSFUL_CLIENTES_LOCALES_DATASET.copy()
+                            tab2_matches = find_clientes_locales_matches(tab2_cliente, tab2_dataset, limit=8)
+                        except Exception:
+                            tab2_dataset = LAST_SUCCESSFUL_CLIENTES_LOCALES_DATASET.copy()
+                            tab2_matches = find_clientes_locales_matches(tab2_cliente, tab2_dataset, limit=8)
+                        tab2_options: dict[str, dict] = {}
+                        normalized_tab2_cliente = normalize_client_history_text(tab2_cliente)
+                        exact_tab2_label = None
+                        for match in tab2_matches:
+                            display_label = f"{str(match.get('Cliente', '')).strip()} | C.P. {str(match.get('C_P.', '')).strip() or 'N/A'}"
+                            suffix = 2
+                            base_label = display_label
+                            while display_label in tab2_options:
+                                display_label = f"{base_label} ({suffix})"
+                                suffix += 1
+                            tab2_options[display_label] = match
+                            if (
+                                normalized_tab2_cliente
+                                and normalize_client_history_text(match.get("Cliente", "")) == normalized_tab2_cliente
+                            ):
+                                exact_tab2_label = display_label
+
+                        selected_tab2_row = st.session_state.get("tab2_local_route_selected_history_row")
+                        previous_tab2_label = st.session_state.get("tab2_local_route_selected_history_label")
+                        if exact_tab2_label and exact_tab2_label in tab2_options:
+                            selected_tab2_label = exact_tab2_label
+                            selected_tab2_record = tab2_options[exact_tab2_label]
+                            st.caption(f"✅ Cliente encontrado en historial: {selected_tab2_label}")
                             selected_tab2_row_number = parse_sheet_row_number(selected_tab2_record.get("Sheet_Row_Number"))
-                            if selected_tab2_row != selected_tab2_row_number:
+                            needs_prefill = not str(st.session_state.get(f"{tab2_route_prefix}_calle_no", "") or "").strip()
+                            if selected_tab2_row != selected_tab2_row_number or needs_prefill:
+                                st.session_state["tab2_local_route_selected_history_label"] = selected_tab2_label
                                 st.session_state["tab2_local_route_selected_history_row"] = selected_tab2_row_number
                                 apply_cliente_local_record_to_session(
                                     selected_tab2_record,
                                     route_prefix=tab2_route_prefix,
                                     pending_cliente_key="tab2_local_route_pending_registro_cliente",
                                 )
-                                st.rerun()
-                    elif tab2_cliente.strip():
-                        st.session_state["tab2_local_route_selected_history_label"] = None
-                        st.session_state["tab2_local_route_selected_history_row"] = None
+                        elif len(tab2_options) == 1:
+                            selected_tab2_label, selected_tab2_record = next(iter(tab2_options.items()))
+                            st.caption(f"✅ Coincidencia encontrada: {selected_tab2_label}")
+                            selected_tab2_row_number = parse_sheet_row_number(selected_tab2_record.get("Sheet_Row_Number"))
+                            if selected_tab2_row != selected_tab2_row_number:
+                                st.session_state["tab2_local_route_selected_history_label"] = selected_tab2_label
+                                st.session_state["tab2_local_route_selected_history_row"] = selected_tab2_row_number
+                                apply_cliente_local_record_to_session(
+                                    selected_tab2_record,
+                                    route_prefix=tab2_route_prefix,
+                                    pending_cliente_key="tab2_local_route_pending_registro_cliente",
+                                )
+                        elif tab2_options:
+                            option_labels = list(tab2_options.keys())
+                            selected_history_index = option_labels.index(previous_tab2_label) if previous_tab2_label in tab2_options else None
+                            selected_tab2_label = st.radio(
+                                "Coincidencias encontradas",
+                                options=option_labels,
+                                index=selected_history_index,
+                                key="tab2_local_route_selected_history_label",
+                            )
+                            selected_tab2_record = tab2_options.get(selected_tab2_label)
+                            if selected_tab2_record:
+                                selected_tab2_row_number = parse_sheet_row_number(selected_tab2_record.get("Sheet_Row_Number"))
+                                if selected_tab2_row != selected_tab2_row_number:
+                                    st.session_state["tab2_local_route_selected_history_row"] = selected_tab2_row_number
+                                    apply_cliente_local_record_to_session(
+                                        selected_tab2_record,
+                                        route_prefix=tab2_route_prefix,
+                                        pending_cliente_key="tab2_local_route_pending_registro_cliente",
+                                    )
+                        elif tab2_cliente.strip():
+                            st.session_state["tab2_local_route_selected_history_label"] = None
+                            st.session_state["tab2_local_route_selected_history_row"] = None
 
-                    col_local_1, col_local_2 = st.columns(2)
-                    with col_local_1:
-                        tab2_local_route_recibe = st.text_input("🙋 Recibe", key=f"{tab2_route_prefix}_recibe")
-                        tab2_local_route_calle_no = st.text_input("📍 CALLE Y NO.", key=f"{tab2_route_prefix}_calle_no")
-                        tab2_local_route_tipo_inmueble = st.selectbox(
-                            "🏢 TIPO INMUEBLE",
-                            ["Consultorio", "Clínica", "Hospital", "Casa", "Departamento", "Oficina", "Local comercial", "Otro"],
-                            key=f"{tab2_route_prefix}_tipo_inmueble",
+                        col_local_1, col_local_2 = st.columns(2)
+                        with col_local_1:
+                            tab2_local_route_recibe = st.text_input("🙋 Recibe", key=f"{tab2_route_prefix}_recibe")
+                            tab2_local_route_calle_no = st.text_input("📍 CALLE Y NO.", key=f"{tab2_route_prefix}_calle_no")
+                            tab2_local_route_tipo_inmueble = st.selectbox(
+                                "🏢 TIPO INMUEBLE",
+                                ["Consultorio", "Clínica", "Hospital", "Casa", "Departamento", "Oficina", "Local comercial", "Otro"],
+                                key=f"{tab2_route_prefix}_tipo_inmueble",
+                            )
+                            tab2_local_route_acceso_privada = st.selectbox(
+                                "🚧 ACCESO PRIVADA",
+                                ["No aplica", "Aplica", "Acceso controlado", "Requiere autorización previa"],
+                                key=f"{tab2_route_prefix}_acceso_privada",
+                            )
+                            tab2_local_route_municipio = st.text_input("🗺️ MUNICIPIO", key=f"{tab2_route_prefix}_municipio")
+                            tab2_local_route_telefonos = st.text_input("☎️ TELS", key=f"{tab2_route_prefix}_telefonos")
+                        with col_local_2:
+                            tab2_local_route_interior = st.text_input("🚪 INTERIOR", key=f"{tab2_route_prefix}_interior")
+                            tab2_local_route_colonia = st.text_input("🏘️ COL.", key=f"{tab2_route_prefix}_colonia")
+                            tab2_local_route_cp = st.text_input("📮 C.P.", key=f"{tab2_route_prefix}_cp")
+                            tab2_forma_pago_key = f"{tab2_route_prefix}_forma_pago"
+                            tab2_legacy_forma_pago_map = {
+                                "TRANSFERENCIA": "Transferencia",
+                                "EFECTIVO": "Efectivo",
+                                "TARJETA": "Tarjeta de Crédito",
+                                "PENDIENTE": "Transferencia",
+                            }
+                            tab2_current_forma_pago = str(st.session_state.get(tab2_forma_pago_key, "") or "").strip()
+                            if tab2_current_forma_pago in tab2_legacy_forma_pago_map:
+                                st.session_state[tab2_forma_pago_key] = tab2_legacy_forma_pago_map[tab2_current_forma_pago]
+                            tab2_local_route_forma_pago = st.selectbox(
+                                "💳 FORMA DE PAGO",
+                                [
+                                    "Transferencia",
+                                    "Efectivo",
+                                    "Depósito en Efectivo",
+                                    "Tarjeta de Débito",
+                                    "Tarjeta de Crédito",
+                                    "Credito TD",
+                                    "Cheque",
+                                ],
+                                key=tab2_forma_pago_key,
+                            )
+                            tab2_local_route_total_factura = st.number_input(
+                                "💵 TOTAL FACTURA",
+                                min_value=0.0,
+                                format="%.2f",
+                                key=f"{tab2_route_prefix}_total_factura",
+                            )
+                            tab2_local_route_adeudo_anterior = st.number_input(
+                                "💸 ADEUDO ANT.",
+                                min_value=0.0,
+                                format="%.2f",
+                                key=f"{tab2_route_prefix}_adeudo_anterior",
+                            )
+                        tab2_local_route_referencias = st.text_area(
+                            "📝 REFERENCIAS Y/O COMENTARIOS (solo hoja de ruta)",
+                            key=f"{tab2_route_prefix}_referencias",
                         )
-                        tab2_local_route_acceso_privada = st.selectbox(
-                            "🚧 ACCESO PRIVADA",
-                            ["No aplica", "Aplica", "Acceso controlado", "Requiere autorización previa"],
-                            key=f"{tab2_route_prefix}_acceso_privada",
-                        )
-                        tab2_local_route_municipio = st.text_input("🗺️ MUNICIPIO", key=f"{tab2_route_prefix}_municipio")
-                        tab2_local_route_telefonos = st.text_input("☎️ TELS", key=f"{tab2_route_prefix}_telefonos")
-                    with col_local_2:
-                        tab2_local_route_interior = st.text_input("🚪 INTERIOR", key=f"{tab2_route_prefix}_interior")
-                        tab2_local_route_colonia = st.text_input("🏘️ COL.", key=f"{tab2_route_prefix}_colonia")
-                        tab2_local_route_cp = st.text_input("📮 C.P.", key=f"{tab2_route_prefix}_cp")
-                        tab2_forma_pago_key = f"{tab2_route_prefix}_forma_pago"
-                        tab2_legacy_forma_pago_map = {
-                            "TRANSFERENCIA": "Transferencia",
-                            "EFECTIVO": "Efectivo",
-                            "TARJETA": "Tarjeta de Crédito",
-                            "PENDIENTE": "Transferencia",
-                        }
-                        tab2_current_forma_pago = str(st.session_state.get(tab2_forma_pago_key, "") or "").strip()
-                        if tab2_current_forma_pago in tab2_legacy_forma_pago_map:
-                            st.session_state[tab2_forma_pago_key] = tab2_legacy_forma_pago_map[tab2_current_forma_pago]
-                        tab2_local_route_forma_pago = st.selectbox(
-                            "💳 FORMA DE PAGO",
-                            [
-                                "Transferencia",
-                                "Efectivo",
-                                "Depósito en Efectivo",
-                                "Tarjeta de Débito",
-                                "Tarjeta de Crédito",
-                                "Credito TD",
-                                "Cheque",
-                            ],
-                            key=tab2_forma_pago_key,
-                        )
-                        tab2_local_route_total_factura = st.number_input(
-                            "💵 TOTAL FACTURA",
-                            min_value=0.0,
-                            format="%.2f",
-                            key=f"{tab2_route_prefix}_total_factura",
-                        )
-                        tab2_local_route_adeudo_anterior = st.number_input(
-                            "💸 ADEUDO ANT.",
-                            min_value=0.0,
-                            format="%.2f",
-                            key=f"{tab2_route_prefix}_adeudo_anterior",
-                        )
-                    tab2_local_route_referencias = st.text_area(
-                        "📝 REFERENCIAS Y/O COMENTARIOS (solo hoja de ruta)",
-                        key=f"{tab2_route_prefix}_referencias",
-                    )
 
-                    tab2_fecha_entrega_requerida = st.date_input(
-                        "🗓 Fecha de Entrega Requerida",
-                        value=st.session_state.get(tab2_fecha_entrega_key, datetime.now().date()),
-                        key=tab2_fecha_entrega_key,
-                    )
-                    tab2_turno_local = st.selectbox(
-                        "⏰ Turno / Local",
-                        local_shift_options_tab2,
-                        key=tab2_turno_selector_key,
-                        help="Usa las mismas opciones de turno del Tab 1 para pedidos locales.",
-                    )
-                    if tab2_turno_local not in ["☀️ Local Mañana", "🏙️ Local Mty", "🌙 Local Tarde"]:
-                        st.warning("⚠️ La hoja de ruta asigna horario automático para ☀️ Local Mañana (10 am a 2 pm) y 🌙 Local Tarde (3 pm a 7 pm). Para otros turnos se usará el texto del turno seleccionado.")
+                        tab2_fecha_entrega_requerida = st.date_input(
+                            "🗓 Fecha de Entrega Requerida",
+                            value=st.session_state.get(tab2_fecha_entrega_key, datetime.now().date()),
+                            key=tab2_fecha_entrega_key,
+                        )
+                        tab2_turno_local = st.selectbox(
+                            "⏰ Turno / Local",
+                            local_shift_options_tab2,
+                            key=tab2_turno_selector_key,
+                            help="Usa las mismas opciones de turno del Tab 1 para pedidos locales.",
+                        )
+                        if tab2_turno_local not in ["☀️ Local Mañana", "🏙️ Local Mty", "🌙 Local Tarde"]:
+                            st.warning("⚠️ La hoja de ruta asigna horario automático para ☀️ Local Mañana (10 am a 2 pm) y 🌙 Local Tarde (3 pm a 7 pm). Para otros turnos se usará el texto del turno seleccionado.")
 
-                    st.subheader("💰 Estado de Pago")
-                    if st.session_state.get("tab2_local_estado_pago") not in tab2_estado_pago_options:
-                        st.session_state["tab2_local_estado_pago"] = "✅ Pagado" if current_has_comprobante_effective else "🔴 No Pagado"
+                        st.subheader("💰 Estado de Pago")
+                        if st.session_state.get("tab2_local_estado_pago") not in tab2_estado_pago_options:
+                            st.session_state["tab2_local_estado_pago"] = "✅ Pagado" if current_has_comprobante_effective else "🔴 No Pagado"
 
-                    tab2_estado_pago = st.selectbox(
-                        "Estado de Pago",
-                        tab2_estado_pago_options,
-                        index=tab2_estado_pago_options.index(st.session_state.get("tab2_local_estado_pago", "🔴 No Pagado")),
-                        key="tab2_local_estado_pago",
-                    )
-                    if tab2_estado_pago == "✅ Pagado":
-                        if current_has_comprobante_effective:
-                            st.info("ℹ️ El pedido ya tiene comprobante previo; puedes guardar sin subir uno adicional.")
+                        tab2_estado_pago = st.selectbox(
+                            "Estado de Pago",
+                            tab2_estado_pago_options,
+                            index=tab2_estado_pago_options.index(st.session_state.get("tab2_local_estado_pago", "🔴 No Pagado")),
+                            key="tab2_local_estado_pago",
+                        )
+                        if tab2_estado_pago == "✅ Pagado":
+                            if current_has_comprobante_effective:
+                                st.info("ℹ️ El pedido ya tiene comprobante previo; puedes guardar sin subir uno adicional.")
+                            else:
+                                st.warning("⚠️ Estado en PAGADO: debes adjuntar al menos un comprobante para guardar la modificación.")
                         else:
-                            st.warning("⚠️ Estado en PAGADO: debes adjuntar al menos un comprobante para guardar la modificación.")
-                    else:
-                        st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado' y no haya comprobantes registrados.")
+                            st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado' y no haya comprobantes registrados.")
 
-                    tab2_route_payload = build_local_route_payload(
-                        fecha_entrega=tab2_fecha_entrega_requerida,
-                        registro_cliente=tab2_cliente,
-                        subtipo_local=str(tab2_turno_local or local_shift_options_tab2[0]),
-                        recibe=tab2_local_route_recibe,
-                        referencias_hoja_ruta=tab2_local_route_referencias,
-                        calle_no=tab2_local_route_calle_no,
-                        tipo_inmueble=tab2_local_route_tipo_inmueble,
-                        interior=tab2_local_route_interior,
-                        acceso_privada=tab2_local_route_acceso_privada,
-                        colonia=tab2_local_route_colonia,
-                        municipio=tab2_local_route_municipio,
-                        cp=tab2_local_route_cp,
-                        telefonos=tab2_local_route_telefonos,
-                        estado_pago=tab2_estado_pago,
-                        forma_pago=tab2_local_route_forma_pago,
-                        vendedor=get_session_vendedor_name() or str(selected_row_data.get("Vendedor", "") or ""),
-                        total_factura=tab2_local_route_total_factura,
-                        adeudo_anterior=tab2_local_route_adeudo_anterior,
-                        folio=str(selected_row_data.get("Folio_Factura", "") or ""),
-                    )
-                    st.caption(
-                        f"📅 Día de entrega: {tab2_route_payload.get('dia_entrega', 'N/A')} | "
-                        f"🕒 Horario asignado: {tab2_route_payload.get('hora_entrega', 'N/A')}"
+                        tab2_route_payload = build_local_route_payload(
+                            fecha_entrega=tab2_fecha_entrega_requerida,
+                            registro_cliente=tab2_cliente,
+                            subtipo_local=str(tab2_turno_local or local_shift_options_tab2[0]),
+                            recibe=tab2_local_route_recibe,
+                            referencias_hoja_ruta=tab2_local_route_referencias,
+                            calle_no=tab2_local_route_calle_no,
+                            tipo_inmueble=tab2_local_route_tipo_inmueble,
+                            interior=tab2_local_route_interior,
+                            acceso_privada=tab2_local_route_acceso_privada,
+                            colonia=tab2_local_route_colonia,
+                            municipio=tab2_local_route_municipio,
+                            cp=tab2_local_route_cp,
+                            telefonos=tab2_local_route_telefonos,
+                            estado_pago=tab2_estado_pago,
+                            forma_pago=tab2_local_route_forma_pago,
+                            vendedor=get_session_vendedor_name() or str(selected_row_data.get("Vendedor", "") or ""),
+                            total_factura=tab2_local_route_total_factura,
+                            adeudo_anterior=tab2_local_route_adeudo_anterior,
+                            folio=str(selected_row_data.get("Folio_Factura", "") or ""),
+                        )
+                        st.caption(
+                            f"📅 Día de entrega: {tab2_route_payload.get('dia_entrega', 'N/A')} | "
+                            f"🕒 Horario asignado: {tab2_route_payload.get('hora_entrega', 'N/A')}"
                         )
 
-                # ----------------- Formulario de modificación -----------------
-                with st.form(key="modify_pedido_form_inner", clear_on_submit=False):
                     if reset_inputs_tab2_flag:
                         st.session_state["new_modificacion_surtido_input"] = ""
                     elif "new_modificacion_surtido_input" not in st.session_state:
@@ -7933,7 +7935,7 @@ with tab2:
                             "_mod_tab2_success_feedback_sent",
                         ):
                             st.session_state.pop(state_key, None)
-                        st.rerun()
+                        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
                     if not st.session_state.get("_mod_tab2_success_feedback_sent"):
                         st.toast(f"✅ Pedido de {referencia_actualizada} actualizado", icon="📦")
                         st.session_state["_mod_tab2_success_feedback_sent"] = True
@@ -8236,7 +8238,7 @@ with tab3:
                                     st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
                                     st.session_state["tab3_pending_comprobante_refresh_token"] = time.time()
                                     get_tab3_pending_comprobante_dataset.clear()
-                                    st.rerun()
+                                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
                                 else:
                                     st.warning("⚠️ No se subió ningún archivo correctamente.")
                             except Exception as e:
@@ -8327,7 +8329,7 @@ with tab3:
                         st.success("✅ Pedido marcado como pagado sin comprobante.")
                         st.session_state["tab3_pending_comprobante_refresh_token"] = time.time()
                         get_tab3_pending_comprobante_dataset.clear()
-                        st.rerun()
+                        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
 
@@ -8717,7 +8719,7 @@ with tab4:
                                     get_tab4_casos_especiales_dataset.clear()
                                     st.session_state["tab4_casos_refresh_token"] = time.time()
                                     obtener_devoluciones_autorizadas_sin_folio.clear()
-                                    st.rerun()
+                                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
                                 except Exception as e:
                                     st.error(f"❌ No se pudo guardar el Folio Nuevo: {e}")
 
@@ -9220,7 +9222,7 @@ with tab6:
         if allow_refresh("no_entregados_last_refresh"):
             cargar_pedidos.clear()
             st.toast("🔄 Datos de pedidos recargados")
-            st.rerun()
+            pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
     if tab6_is_active:
         try:
@@ -9471,7 +9473,7 @@ with tab6:
                                                 safe_batch_update(worksheet, updates)
                                                 cargar_pedidos.clear()
                                                 st.success("✅ Pedido actualizado correctamente.")
-                                                st.rerun()
+                                                pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
                                             except Exception as e:
                                                 st.error(f"❌ Error al actualizar el pedido: {e}")
 
