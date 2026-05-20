@@ -2797,36 +2797,23 @@ def cargar_pedidos():
 
 @st.cache_data(ttl=300)
 def cargar_pedidos_ventas_reportes():
-    """Carga pedidos de datos_pedidos filtrando solo turnos CDMX/Aula para la vista de reportes."""
+    """Carga pedidos de data_pedidos + datos_pedidos para la vista de reportes."""
     spreadsheet = g_spread_client.open_by_key("1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY")
+    frames: list[pd.DataFrame] = []
+    for nombre_hoja in (SHEET_PEDIDOS_OPERATIVOS, SHEET_PEDIDOS_HISTORICOS):
+        try:
+            sheet = spreadsheet.worksheet(nombre_hoja)
+            frame = pd.DataFrame(sheet.get_all_records())
+            if not frame.empty:
+                frame["Fuente"] = nombre_hoja
+            frames.append(frame)
+        except Exception:
+            continue
 
-    try:
-        sheet = spreadsheet.worksheet(SHEET_PEDIDOS_HISTORICOS)
-    except Exception:
+    if not frames:
         return pd.DataFrame()
 
-    frame = pd.DataFrame(sheet.get_all_records())
-    if frame.empty:
-        return frame
-
-    if "Turno" not in frame.columns:
-        return pd.DataFrame()
-
-    turnos_validos_norm = {
-        normalizar("🌆 Local CDMX").strip().lower(),
-        normalizar("🎓 Recoge en Aula").strip().lower(),
-    }
-    frame["Turno_norm"] = (
-        frame["Turno"]
-        .astype(str)
-        .apply(normalizar)
-        .str.strip()
-        .str.lower()
-    )
-    frame = frame[frame["Turno_norm"].isin(turnos_validos_norm)].copy()
-    frame.drop(columns=["Turno_norm"], inplace=True)
-    frame["Fuente"] = SHEET_PEDIDOS_HISTORICOS
-    return frame
+    return pd.concat(frames, ignore_index=True, sort=False)
 
 
 usuario_activo = ensure_user_logged_in()
@@ -6447,6 +6434,7 @@ if tab_ventas_reportes is not None:
             st.session_state["current_tab_index"] = TAB_INDEX_REPORTES
 
         st.header("📊 Ventas y Reportes")
+        st.caption("Pedidos registrados por CARITO82 y KAREN58.")
 
         try:
             df_ventas = cargar_pedidos_ventas_reportes()
@@ -6457,6 +6445,11 @@ if tab_ventas_reportes is not None:
         if df_ventas.empty:
             st.info("No hay pedidos para mostrar.")
         else:
+            if "id_vendedor" not in df_ventas.columns:
+                df_ventas["id_vendedor"] = ""
+
+            df_ventas["id_vendedor_norm"] = df_ventas["id_vendedor"].apply(normalize_vendedor_id)
+            df_ventas = df_ventas[df_ventas["id_vendedor_norm"].isin(LOCAL_TURNO_COMBINADO_IDS)].copy()
 
             columnas_reporte = [
                 "Folio_Factura",
