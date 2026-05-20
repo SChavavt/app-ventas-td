@@ -3518,7 +3518,7 @@ def add_url_preview_expander(url: str, display_label: str) -> None:
 
 
 def render_attachment_link(url: str, label: str | None = None, icon: str | None = None, bullet: bool = True) -> None:
-    """Render a file link and automatically include an expandable preview."""
+    """Render a file link without generating inline preview expanders."""
     if not __has(url):
         return
 
@@ -3537,10 +3537,6 @@ def render_attachment_link(url: str, label: str | None = None, icon: str | None 
             st.markdown(f"{prefix}[{display_label}]({sanitized or url})")
         else:
             st.markdown(f"{prefix}{__s(url)}")
-
-    if __is_url(url):
-        add_url_preview_expander(url, display_label)
-
 
 def render_uploaded_file_preview(file_obj) -> None:
     """Show a preview expander for an uploaded Streamlit file."""
