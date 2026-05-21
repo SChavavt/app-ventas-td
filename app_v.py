@@ -9457,7 +9457,7 @@ with tab6:
                         if nuevo_turno == "":
                             st.warning("Selecciona un turno para continuar.")
                         else:
-                            worksheet = get_worksheet()
+                            worksheet = get_worksheet_operativa()
                             if worksheet is None:
                                 st.error("❌ No se pudo acceder a la hoja de Google Sheets para actualizar el pedido.")
                             else:
