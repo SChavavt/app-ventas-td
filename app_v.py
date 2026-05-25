@@ -139,6 +139,8 @@ TAB1_FORM_STATE_KEYS_TO_CLEAR: set[str] = {
     "local_route_client_search",
     "local_route_selected_history_label",
     "local_route_selected_history_row",
+    "local_route_selected_address_label",
+    "local_route_selected_address_row",
 }
 
 TAB1_WARNING_FORM_BACKUP_KEY = "tab1_warning_form_backup"
@@ -1870,6 +1872,7 @@ CLIENTES_LOCALES_HEADERS = [
     "Col",
     "C_P.",
     "Referencias",
+    "Fecha_Ultimo_Uso",
 ]
 EMPTY_CLIENTES_LOCALES_DATASET = pd.DataFrame(
     columns=CLIENTES_LOCALES_HEADERS + ["Sheet_Row_Number", "normalized_cliente"]
@@ -2080,7 +2083,61 @@ def build_clientes_locales_record_from_form() -> dict[str, str]:
         "Col": str(st.session_state.get("local_route_colonia", "") or "").strip(),
         "C_P.": str(st.session_state.get("local_route_cp", "") or "").strip(),
         "Referencias": str(st.session_state.get("local_route_referencias", "") or "").strip(),
+        "Fecha_Ultimo_Uso": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+
+
+def build_cliente_local_direccion_normalizada(record: dict[str, object]) -> str:
+    """Construye una firma normalizada de dirección para deduplicar historial."""
+    parts = [
+        str(record.get("CalleyNumero", "") or "").strip(),
+        str(record.get("Tipo_Inmueble", "") or "").strip(),
+        str(record.get("Acceso_Privada", "") or "").strip(),
+        str(record.get("Municipio", "") or "").strip(),
+        str(record.get("Interior", "") or "").strip(),
+        str(record.get("Col", "") or "").strip(),
+        str(record.get("C_P.", "") or "").strip(),
+        str(record.get("Referencias", "") or "").strip(),
+    ]
+    merged = " | ".join(parts)
+    return normalize_client_history_text(merged)
+
+
+def get_cliente_local_direcciones_historial(
+    dataset: pd.DataFrame,
+    cliente: str,
+    *,
+    max_items: int = 3,
+) -> list[dict]:
+    """Devuelve hasta `max_items` direcciones guardadas del cliente más recientes primero."""
+    if dataset.empty:
+        return []
+    normalized_cliente = normalize_client_history_text(cliente)
+    if not normalized_cliente:
+        return []
+
+    matches: list[dict] = []
+    for _, row in dataset.iterrows():
+        if str(row.get("normalized_cliente", "") or "") != normalized_cliente:
+            continue
+        row_dict = row.to_dict()
+        fecha_txt = str(row_dict.get("Fecha_Ultimo_Uso", "") or "").strip()
+        try:
+            fecha_dt = datetime.strptime(fecha_txt, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            fecha_dt = datetime.min
+        row_dict["_fecha_sort"] = fecha_dt
+        row_dict["_direccion_normalizada"] = build_cliente_local_direccion_normalizada(row_dict)
+        matches.append(row_dict)
+
+    matches.sort(
+        key=lambda item: (
+            item.get("_fecha_sort", datetime.min),
+            int(item.get("Sheet_Row_Number", 0) or 0),
+        ),
+        reverse=True,
+    )
+    return matches[:max_items]
 
 
 def ensure_clientes_locales_headers(worksheet) -> list[str]:
@@ -2307,21 +2364,37 @@ def upsert_cliente_local_if_missing(record: dict[str, str]) -> tuple[str, str]:
     worksheet = get_worksheet_clientes_locales()
     headers = ensure_clientes_locales_headers(worksheet)
     dataset = load_clientes_locales_dataset()
-    matches = find_clientes_locales_matches(client_name, dataset, limit=1)
-    if matches:
-        matched_row_number = int(matches[0].get("Sheet_Row_Number", 0) or 0)
+    history_rows = get_cliente_local_direcciones_historial(dataset, client_name, max_items=10)
+    input_dir_signature = build_cliente_local_direccion_normalizada(record)
+
+    for history_row in history_rows:
+        if history_row.get("_direccion_normalizada") != input_dir_signature:
+            continue
+        matched_row_number = int(history_row.get("Sheet_Row_Number", 0) or 0)
         if matched_row_number > 1:
             start_cell = rowcol_to_a1(matched_row_number, 1)
             end_cell = rowcol_to_a1(matched_row_number, len(headers))
-            values = [record.get(header, "") for header in headers]
+            updated_record = dict(record)
+            updated_record["Fecha_Ultimo_Uso"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            values = [updated_record.get(header, "") for header in headers]
             worksheet.update(f"{start_cell}:{end_cell}", [values], value_input_option="RAW")
             load_clientes_locales_dataset.clear()
-            return "updated", "Cliente existente actualizado en el historial."
+            return "updated", "Dirección existente actualizada como último uso."
 
     values = [record.get(header, "") for header in headers]
-    worksheet.append_row(values, value_input_option="RAW")
+    row_col_count = len(headers)
+    worksheet.append_row(values, value_input_option="RAW", table_range=f"A:{rowcol_to_a1(1, row_col_count)[:-1]}")
+
+    # Limitar historial a 3 direcciones por cliente (conserva las más recientes).
+    refreshed_dataset = load_clientes_locales_dataset(refresh_token=time.time())
+    refreshed_history = get_cliente_local_direcciones_historial(refreshed_dataset, client_name, max_items=100)
+    stale_rows = refreshed_history[3:]
+    for stale in sorted(stale_rows, key=lambda item: int(item.get("Sheet_Row_Number", 0) or 0), reverse=True):
+        stale_row_number = int(stale.get("Sheet_Row_Number", 0) or 0)
+        if stale_row_number > 1:
+            worksheet.delete_rows(stale_row_number)
     load_clientes_locales_dataset.clear()
-    return "inserted", "Cliente agregado al historial."
+    return "inserted", "Dirección agregada al historial del cliente."
 
 
 @st.cache_data(ttl=300)
@@ -4298,6 +4371,52 @@ with tab1:
                 st.caption("🆕 Cliente nuevo sin historial. Puedes continuar y al registrar el pedido se agregará al historial local.")
                 st.session_state["local_route_selected_history_label"] = None
                 st.session_state["local_route_selected_history_row"] = None
+
+            # Historial de direcciones (máximo 3 por cliente) ordenado por último uso.
+            direccion_history = get_cliente_local_direcciones_historial(
+                load_clientes_locales_dataset(),
+                st.session_state.get("registro_cliente", ""),
+                max_items=3,
+            )
+            if direccion_history:
+                st.markdown("#### 🧭 Direcciones guardadas (últimas 3)")
+                direccion_options: dict[str, dict] = {}
+                default_address_label = None
+                for idx, row in enumerate(direccion_history, start=1):
+                    fecha_uso = str(row.get("Fecha_Ultimo_Uso", "") or "").strip() or "Sin fecha"
+                    calle = str(row.get("CalleyNumero", "") or "").strip() or "Sin calle"
+                    colonia = str(row.get("Col", "") or "").strip()
+                    cp = str(row.get("C_P.", "") or "").strip()
+                    label = f"{idx}) {calle} | {colonia or 'Sin colonia'} | C.P. {cp or 'N/A'} | Último uso: {fecha_uso}"
+                    direccion_options[label] = row
+                    if idx == 1:
+                        default_address_label = label
+
+                if (
+                    default_address_label
+                    and st.session_state.get("local_route_selected_address_label") not in direccion_options
+                ):
+                    st.session_state["local_route_selected_address_label"] = default_address_label
+                option_labels = list(direccion_options.keys())
+                if len(option_labels) == 1:
+                    selected_address_label = option_labels[0]
+                    st.session_state["local_route_selected_address_label"] = selected_address_label
+                    st.caption(f"✅ Dirección autoseleccionada: {selected_address_label}")
+                else:
+                    selected_address_label = st.radio(
+                        "Selecciona una dirección guardada para autollenar",
+                        options=option_labels,
+                        key="local_route_selected_address_label",
+                    )
+                selected_address_record = direccion_options.get(selected_address_label)
+                if selected_address_record:
+                    selected_row_number = parse_sheet_row_number(selected_address_record.get("Sheet_Row_Number"))
+                    if st.session_state.get("local_route_selected_address_row") != selected_row_number:
+                        st.session_state["local_route_selected_address_row"] = selected_row_number
+                        st.session_state["local_route_selected_history_row"] = selected_row_number
+                        apply_cliente_local_to_session(selected_address_record)
+            else:
+                st.session_state["local_route_selected_address_row"] = None
 
     form_nonce = int(st.session_state.get(TAB1_FORM_NONCE_KEY, 0) or 0)
     registrar_nota_venta_widget_key = f"registrar_nota_venta_checkbox_widget_{form_nonce}"
