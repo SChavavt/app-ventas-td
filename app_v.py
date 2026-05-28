@@ -4666,7 +4666,16 @@ with tab1:
 
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
-            fecha_entrega = st.session_state.get("fecha_entrega_input", datetime.now().date())
+            if not usa_logica_local:
+                fecha_entrega = st.date_input(
+                    "🗓 Fecha de Entrega Requerida",
+                    value=st.session_state.get("fecha_entrega_input", datetime.now().date()),
+                    key="fecha_entrega_input",
+                    format="DD/MM/YYYY",
+                    help="Selecciona la fecha requerida de entrega para este pedido.",
+                )
+            else:
+                fecha_entrega = st.session_state.get("fecha_entrega_input", datetime.now().date())
             if (
                 usa_logica_local
                 and usa_hoja_ruta_local
