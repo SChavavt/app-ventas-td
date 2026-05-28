@@ -241,7 +241,14 @@ def normalize_tipo_envio_original(value: str) -> str:
         return "🚚 Pedido Foráneo"
     if cleaned in {"📍 Local", "📍 Pedido Local"}:
         return "📍 Pedido Local"
+    if cleaned in {"🌆 Local CDMX", "📍 Local CDMX"}:
+        return "🌆 Local CDMX"
     return cleaned
+
+
+def is_tipo_envio_original_local(value: str) -> bool:
+    """Return True when an original shipment value should use local-order logic."""
+    return normalize_tipo_envio_original(value) in {"📍 Pedido Local", "🌆 Local CDMX"}
 
 
 def apply_multi_facturas_comment_tag(comment: str, enabled: bool) -> str:
@@ -500,9 +507,9 @@ def get_subtipo_local_excel_value(subtipo_local: str) -> str:
     return turno_normalizado
 
 
-LOCAL_TURNO_COMBINADO_IDS = {"CARITO82", "KAREN58"}
+LOCAL_TURNO_COMBINADO_IDS: set[str] = set()
 TAB1_DUAL_VIEW_IDS = {"ALEJANDRO38", "CECILIA94", "CARITO82", "KAREN58"}
-TAB1_VIEW_TOGGLE_IDS = {"ALEJANDRO38", "CECILIA94"}
+TAB1_VIEW_TOGGLE_IDS = TAB1_DUAL_VIEW_IDS
 
 
 def get_local_shift_options(id_vendedor: str | None = None, force_cdmx_view: bool = False) -> list[str]:
@@ -4106,11 +4113,9 @@ with tab1:
         tab1_enable_link_pago_option = True
     if tab1_special_shipping:
         tipo_envio_options = [
-            "🚚 Foráneo",
             "📍 Local",
             "🔁 Devolución",
             "🛠 Garantía",
-            "📋 Solicitudes de Guía",
             "🎓 Cursos y Eventos",
         ]
     else:
@@ -4178,20 +4183,35 @@ with tab1:
 
     tipo_envio_original = ""
     if tipo_envio == "🔁 Devolución":
-        tipo_envio_original = st.selectbox(
-            "📦 Tipo de Envío Original",
-            ["🚚 Foráneo","📍 Local"],
-            index=0,
-            key="tipo_envio_original",
-            help="Selecciona el tipo de envío del pedido que se va a devolver.",
-        )
+        if tab1_special_shipping:
+            if st.session_state.get("tipo_envio_original") != "🌆 Local CDMX":
+                st.session_state["tipo_envio_original"] = "🌆 Local CDMX"
+            tipo_envio_original = st.selectbox(
+                "📦 Tipo de Envío Original",
+                ["🌆 Local CDMX"],
+                index=0,
+                key="tipo_envio_original",
+                disabled=True,
+                help="En vista CDMX las devoluciones se registran siempre como Local CDMX.",
+            )
+        else:
+            tipo_envio_original = st.selectbox(
+                "📦 Tipo de Envío Original",
+                ["🚚 Foráneo","📍 Local"],
+                index=0,
+                key="tipo_envio_original",
+                help="Selecciona el tipo de envío del pedido que se va a devolver.",
+            )
     else:
         st.session_state.pop("tipo_envio_original", None)
+
+    if tab1_special_shipping and tipo_envio == "🛠 Garantía":
+        tipo_envio_original = "🌆 Local CDMX"
 
     subtipo_local = ""
     is_local_pasa_bodega = False
     is_local_recoge_aula = False
-    is_devolucion_local = tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
+    is_devolucion_local = tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
     usa_logica_local = tipo_envio == "📍 Pedido Local" or is_devolucion_local
     expand_payment_details_default = (
         id_vendedor_tab1 in TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS
@@ -4251,7 +4271,7 @@ with tab1:
             is_local_recoge_aula = subtipo_local == "🎓 Recoge en Aula"
         else:
             # Para devolución local no se muestra selector de turno/locales.
-            subtipo_local = "☀️ Local Mañana"
+            subtipo_local = "🌆 Local CDMX" if tab1_special_shipping else "☀️ Local Mañana"
             st.session_state["subtipo_local_selector"] = subtipo_local
 
         if is_local_recoge_aula or is_local_pasa_bodega:
@@ -4527,6 +4547,10 @@ with tab1:
     local_route_dia_entrega = str(st.session_state.get("local_route_dia_entrega", "") or "").strip()
     local_route_hora_entrega = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
 
+    if tab1_special_shipping and tipo_envio in {"🛠 Garantía", "🎓 Cursos y Eventos"}:
+        subtipo_local = "🌆 Local CDMX"
+        st.session_state["subtipo_local_selector"] = subtipo_local
+
     # -------------------------------
     # --- FORMULARIO PRINCIPAL ---
     # -------------------------------
@@ -4684,17 +4708,23 @@ with tab1:
                 and not is_devolucion_local
             ):
                 hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
-                if "local_route_hora_entrega_input" not in st.session_state:
-                    st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or get_local_delivery_slot(subtipo_local)
+                default_hora_entrega = "Horario Libre" if tab1_special_shipping else get_local_delivery_slot(subtipo_local)
+                if (
+                    "local_route_hora_entrega_input" not in st.session_state
+                    or (tab1_special_shipping and not hora_entrega_actual)
+                ):
+                    st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or default_hora_entrega
 
                 hora_capturada = st.text_input(
                     "🕒 HORA DE ENTREGA",
                     key="local_route_hora_entrega_input",
-                    placeholder="Ej. 10 am a 2 pm",
-                    help="Campo editable: se enviará tal como lo escriba el usuario.",
+                    placeholder="Ej. Horario Libre o 10 am a 2 pm",
+                    help="Puedes dejar 'Horario Libre' o escribir manualmente un horario específico; se enviará tal como lo captures.",
                 ).strip()
-                local_route_hora_entrega = hora_capturada or get_local_delivery_slot(subtipo_local)
-                st.session_state["local_route_hora_entrega_manual"] = hora_capturada
+                if tab1_special_shipping:
+                    st.caption("ℹ️ Puedes dejar `Horario Libre` o escribir manualmente un horario específico para esta entrega CDMX.")
+                local_route_hora_entrega = hora_capturada or default_hora_entrega
+                st.session_state["local_route_hora_entrega_manual"] = local_route_hora_entrega if tab1_special_shipping else hora_capturada
 
         comentario = st.text_area(
             "💬 Comentario / Descripción Detallada",
@@ -4711,8 +4741,12 @@ with tab1:
                         st.session_state["local_route_dia_entrega"] = opciones_dia_entrega[indice_dia_actual]
 
                     hora_entrega_actual = str(st.session_state.get("local_route_hora_entrega_manual", "") or "").strip()
-                    if "local_route_hora_entrega_input" not in st.session_state:
-                        st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or get_local_delivery_slot(subtipo_local)
+                    default_hora_entrega = "Horario Libre" if tab1_special_shipping else get_local_delivery_slot(subtipo_local)
+                    if (
+                        "local_route_hora_entrega_input" not in st.session_state
+                        or (tab1_special_shipping and not hora_entrega_actual)
+                    ):
+                        st.session_state["local_route_hora_entrega_input"] = hora_entrega_actual or default_hora_entrega
 
                     col_entrega_1, col_entrega_2 = st.columns(2)
                     with col_entrega_1:
@@ -4725,11 +4759,13 @@ with tab1:
                         hora_capturada = st.text_input(
                             "🕒 HORA DE ENTREGA",
                             key="local_route_hora_entrega_input",
-                            placeholder="Ej. 10 am a 2 pm",
-                            help="Campo editable: se enviará tal como lo escriba el usuario.",
+                            placeholder="Ej. Horario Libre o 10 am a 2 pm",
+                            help="Puedes dejar 'Horario Libre' o escribir manualmente un horario específico; se enviará tal como lo captures.",
                         ).strip()
-                        local_route_hora_entrega = hora_capturada or get_local_delivery_slot(subtipo_local)
-                        st.session_state["local_route_hora_entrega_manual"] = hora_capturada
+                        if tab1_special_shipping:
+                            st.caption("ℹ️ Puedes dejar `Horario Libre` o escribir manualmente un horario específico para esta entrega CDMX.")
+                        local_route_hora_entrega = hora_capturada or default_hora_entrega
+                        st.session_state["local_route_hora_entrega_manual"] = local_route_hora_entrega if tab1_special_shipping else hora_capturada
                         st.session_state.pop("local_route_hora_entrega_custom", None)
                 else:
                     local_route_dia_entrega = ""
@@ -5917,7 +5953,7 @@ with tab1:
                 if not all([pedido_id, hora_registro, s3_prefix]):
                     pedido_id, hora_registro, s3_prefix = build_submission_identity()
 
-            if tipo_envio == "🔁 Devolución" and not tipo_envio_original:
+            if tipo_envio in {"🔁 Devolución", "🛠 Garantía"} and not tipo_envio_original:
                 tipo_envio_original = normalize_tipo_envio_original(
                     st.session_state.get("tipo_envio_original", "")
                 )
@@ -5935,7 +5971,7 @@ with tab1:
                 "📍 Pedido Local",
                 "🎓 Cursos y Eventos",
             ]
-            if tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local":
+            if tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original):
                 pedidos_con_estado_pago.append("🔁 Devolución")
 
             if (
@@ -5984,7 +6020,7 @@ with tab1:
             es_envio_historico_especial = (
                 tipo_envio_excel == "🏙️ Pedidos CDMX"
                 or (
-                    tipo_envio == "📍 Pedido Local"
+                    tipo_envio in {"📍 Pedido Local", "🎓 Cursos y Eventos"}
                     and subtipo_local in {"🌆 Local CDMX", "🎓 Recoge en Aula"}
                 )
             )
@@ -6203,7 +6239,7 @@ with tab1:
                 elif header == "Tipo_Envio_Original":
                     values.append(
                         normalize_tipo_envio_original(tipo_envio_original)
-                        if tipo_envio == "🔁 Devolución"
+                        if tipo_envio in {"🔁 Devolución", "🛠 Garantía"}
                         else ""
                     )
                 elif header == "Estatus_OrigenF":
@@ -6225,7 +6261,7 @@ with tab1:
                     values.append("🟡 Pendiente")
                 elif header == "Estado_Pago":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
+                        tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(estado_pago)
                     else:
@@ -6234,7 +6270,7 @@ with tab1:
                     values.append("Sí" if aplica_pago == "Sí" else "No")
                 elif header == "Fecha_Pago_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
+                        tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
                     else:
@@ -6247,20 +6283,20 @@ with tab1:
                         values.append("Credito TD")
                     elif tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "🚚 Foráneo"]:
                         values.append(forma_pago)
-                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"):
+                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)):
                         values.append(local_route_forma_pago)
                     else:
                         values.append("")
                 elif header == "Terminal":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
+                        tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(terminal)
                     else:
                         values.append("")
                 elif header == "Banco_Destino_Pago":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
+                        tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(banco_destino)
                     else:
@@ -6270,14 +6306,14 @@ with tab1:
                         values.append(f"{credito_monto_venta:.2f}" if credito_monto_venta > 0 else "")
                     elif tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
                         values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
-                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"):
+                    elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)):
                         monto_comprobante_local = float(local_route_total_factura or 0) + float(local_route_adeudo_anterior or 0)
                         values.append(f"{monto_comprobante_local:.2f}" if monto_comprobante_local > 0 else "")
                     else:
                         values.append("")
                 elif header == "Referencia_Comprobante":
                     if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
-                        tipo_envio == "🔁 Devolución" and normalize_tipo_envio_original(tipo_envio_original) == "📍 Pedido Local"
+                        tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(referencia_pago)
                     else:
@@ -6607,7 +6643,7 @@ def cargar_pedidos_combinados():
     df_all = pd.concat([df_datos, df_casos], ignore_index=True)
     return df_all
 
-# --- TAB VENTAS Y REPORTES (solo CARITO82/KAREN58) ---
+# --- TAB VENTAS Y REPORTES (vista CDMX de usuarios duales) ---
 if tab_ventas_reportes is not None:
     with tab_ventas_reportes:
         if TAB_INDEX_REPORTES is not None and default_tab == TAB_INDEX_REPORTES:
