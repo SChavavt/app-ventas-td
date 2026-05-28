@@ -7576,9 +7576,33 @@ with tab2:
                             value=st.session_state.get(tab2_fecha_entrega_key, datetime.now().date()),
                             key=tab2_fecha_entrega_key,
                         )
+                        blocked_shifts_tab2 = get_blocked_local_shifts_for_date(tab2_fecha_entrega_requerida)
+                        local_shift_options_tab2_filtered = [
+                            opt for opt in local_shift_options_tab2 if opt not in blocked_shifts_tab2
+                        ]
+                        if blocked_shifts_tab2:
+                            fecha_cierre_tab2_txt = (
+                                tab2_fecha_entrega_requerida.strftime("%d/%m/%Y")
+                                if isinstance(tab2_fecha_entrega_requerida, date)
+                                else str(tab2_fecha_entrega_requerida)
+                            )
+                            turnos_cerrados_tab2_txt = ", ".join(sorted(blocked_shifts_tab2))
+                            st.info(
+                                f"ℹ️ Para la fecha {fecha_cierre_tab2_txt} los siguientes turnos están cerrados: {turnos_cerrados_tab2_txt}."
+                            )
+                            if not local_shift_options_tab2_filtered:
+                                st.warning(
+                                    "No hay turnos locales disponibles para la fecha seleccionada (aparecen como CERRADA en reporte de almacén)."
+                                )
+                                local_shift_options_tab2_filtered = ["📦 Pasa a Bodega"]
+
+                        turno_actual_tab2_selector = st.session_state.get(tab2_turno_selector_key)
+                        if turno_actual_tab2_selector not in local_shift_options_tab2_filtered:
+                            st.session_state[tab2_turno_selector_key] = local_shift_options_tab2_filtered[0]
+
                         tab2_turno_local = st.selectbox(
                             "⏰ Turno / Local",
-                            local_shift_options_tab2,
+                            local_shift_options_tab2_filtered,
                             key=tab2_turno_selector_key,
                             help="Usa las mismas opciones de turno del Tab 1 para pedidos locales.",
                         )
