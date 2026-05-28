@@ -4748,6 +4748,7 @@ with tab1:
                             "Consultorio",
                             "Clínica",
                             "Hospital",
+                            "Universidad",
                             "Casa",
                             "Departamento",
                             "Oficina",
@@ -7526,7 +7527,7 @@ with tab2:
                             tab2_local_route_calle_no = st.text_input("📍 CALLE Y NO.", key=f"{tab2_route_prefix}_calle_no")
                             tab2_local_route_tipo_inmueble = st.selectbox(
                                 "🏢 TIPO INMUEBLE",
-                                ["Consultorio", "Clínica", "Hospital", "Casa", "Departamento", "Oficina", "Local comercial", "Otro"],
+                                ["Consultorio", "Clínica", "Hospital", "Universidad", "Casa", "Departamento", "Oficina", "Local comercial", "Otro"],
                                 key=f"{tab2_route_prefix}_tipo_inmueble",
                             )
                             tab2_local_route_acceso_privada = st.selectbox(
