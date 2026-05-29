@@ -8313,20 +8313,19 @@ with tab3:
             filtered_pedidos_comprobante['Folio_Factura'].astype(str).str.strip().ne('')
         ]
 
-        if 'Estado_Pago' in filtered_pedidos_comprobante.columns and 'Adjuntos' in filtered_pedidos_comprobante.columns:
+        if 'Estado_Pago' in filtered_pedidos_comprobante.columns:
             pedidos_sin_comprobante = filtered_pedidos_comprobante[
-                (filtered_pedidos_comprobante['Estado_Pago'] == '🔴 No Pagado') &
-                (~filtered_pedidos_comprobante['Adjuntos'].astype(str).str.contains('comprobante', na=False, case=False))
+                filtered_pedidos_comprobante['Estado_Pago'] == '🔴 No Pagado'
             ].copy()
         else:
-            st.warning("Las columnas 'Estado_Pago' o 'Adjuntos' no se encontraron. No se puede filtrar por comprobantes.")
+            st.warning("La columna 'Estado_Pago' no se encontró. No se puede filtrar por pedidos no pagados.")
             pedidos_sin_comprobante = pd.DataFrame()
 
         if pedidos_sin_comprobante.empty:
             if not rango_valido_comp:
                 st.info("Ajusta el rango de fechas para continuar.")
             else:
-                st.success("🎉 Todos los pedidos están marcados como pagados o tienen comprobante.")
+                st.success("🎉 Todos los pedidos están marcados como pagados.")
         else:
             st.warning(f"⚠️ Hay {len(pedidos_sin_comprobante)} pedidos pendientes de comprobante.")
 
