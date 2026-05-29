@@ -169,6 +169,10 @@ LOCAL_ROUTE_GENERATED_AT_KEY = "local_route_generated_at"
 LOCAL_ROUTE_POST_CONFIRM_NOTICE_KEY = "local_route_post_confirm_notice"
 LOCAL_ROUTE_HOUR_AUTOMATIC_OPTION = "🧠 Automático por turno"
 LOCAL_ROUTE_HOUR_CUSTOM_OPTION = "✍️ Escribir manualmente"
+UBER_TIPO_ENVIO = "🚗 Uber"
+UBER_TURNO_CLIENTE = "👤 Cliente Uber"
+UBER_TURNO_TD = "🏢 TD Uber"
+UBER_TURNO_OPTIONS = [UBER_TURNO_CLIENTE, UBER_TURNO_TD]
 
 
 
@@ -2009,9 +2013,9 @@ def should_route_pedido_to_historico(
     tipo_envio_excel_limpio = str(tipo_envio_excel or "").strip()
     subtipo_local_limpio = str(subtipo_local or "").strip()
 
-    if tipo_envio_excel_limpio == "🏙️ Pedidos CDMX":
+    if tipo_envio_excel_limpio in {"🏙️ Pedidos CDMX", UBER_TIPO_ENVIO}:
         return True
-    if subtipo_local_limpio in {"🌆 Local CDMX", "🎓 Recoge en Aula"}:
+    if subtipo_local_limpio in {"🌆 Local CDMX", "🎓 Recoge en Aula", *UBER_TURNO_OPTIONS}:
         return tipo_envio_limpio in {"📍 Pedido Local", "🎓 Cursos y Eventos"}
     if cdmx_view_active and tipo_envio_limpio == "🎓 Cursos y Eventos":
         return True
@@ -2959,6 +2963,7 @@ def cargar_pedidos_ventas_reportes():
     turnos_validos_norm = {
         normalizar("🌆 Local CDMX").strip().lower(),
         normalizar("🎓 Recoge en Aula").strip().lower(),
+        *(normalizar(turno_uber).strip().lower() for turno_uber in UBER_TURNO_OPTIONS),
     }
     frame["Turno_norm"] = (
         frame["Turno"]
@@ -4140,6 +4145,7 @@ with tab1:
     if tab1_special_shipping:
         tipo_envio_options = [
             "📍 Local",
+            UBER_TIPO_ENVIO,
             "🔁 Devolución",
             "🛠 Garantía",
             "🎓 Cursos y Eventos",
@@ -4238,14 +4244,14 @@ with tab1:
     is_local_pasa_bodega = False
     is_local_recoge_aula = False
     is_devolucion_local = tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
-    usa_logica_local = tipo_envio == "📍 Pedido Local" or is_devolucion_local
+    usa_logica_local = tipo_envio in {"📍 Pedido Local", UBER_TIPO_ENVIO} or is_devolucion_local
     expand_payment_details_default = (
         id_vendedor_tab1 in TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS
         or (tab1_is_dual_view_user and tab1_special_shipping)
     )
     usa_hoja_ruta_local = usa_logica_local
     if usa_logica_local:
-        if tipo_envio == "📍 Pedido Local":
+        if tipo_envio in {"📍 Pedido Local", UBER_TIPO_ENVIO}:
             st.markdown("---")
             st.subheader("⏰ Detalle de Pedido Local")
             if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
@@ -4254,14 +4260,17 @@ with tab1:
                     value=st.session_state.get("fecha_entrega_input", datetime.now().date()),
                     key="fecha_entrega_input",
                 )
-            local_shift_options = get_local_shift_options(
-                (
-                    st.session_state.get("id_vendedor", "")
-                    if (tab1_special_shipping or id_vendedor_tab1 in LOCAL_TURNO_COMBINADO_IDS)
-                    else None
-                ),
-                force_cdmx_view=tab1_special_shipping,
-            )
+            if tipo_envio == UBER_TIPO_ENVIO:
+                local_shift_options = UBER_TURNO_OPTIONS.copy()
+            else:
+                local_shift_options = get_local_shift_options(
+                    (
+                        st.session_state.get("id_vendedor", "")
+                        if (tab1_special_shipping or id_vendedor_tab1 in LOCAL_TURNO_COMBINADO_IDS)
+                        else None
+                    ),
+                    force_cdmx_view=tab1_special_shipping,
+                )
             fecha_entrega_local_ui = st.session_state.get("fecha_entrega_input", datetime.now().date())
             blocked_shifts_for_date = get_blocked_local_shifts_for_date(fecha_entrega_local_ui)
             if blocked_shifts_for_date:
@@ -4300,7 +4309,7 @@ with tab1:
             subtipo_local = "🌆 Local CDMX" if tab1_special_shipping else "☀️ Local Mañana"
             st.session_state["subtipo_local_selector"] = subtipo_local
 
-        if is_local_recoge_aula or is_local_pasa_bodega:
+        if is_local_recoge_aula or is_local_pasa_bodega or tipo_envio == UBER_TIPO_ENVIO:
             usa_hoja_ruta_local = False
 
         if not usa_hoja_ruta_local:
@@ -4312,7 +4321,11 @@ with tab1:
                 st.session_state.pop("local_route_hora_entrega_input", None)
                 st.session_state.pop("local_route_hora_entrega_selector", None)
                 st.session_state.pop("local_route_hora_entrega_custom", None)
-            if is_local_recoge_aula and is_local_pasa_bodega:
+            if tipo_envio == UBER_TIPO_ENVIO:
+                st.caption(
+                    f"ℹ️ Para **{UBER_TIPO_ENVIO}** se guarda el turno elegido (**{UBER_TURNO_CLIENTE}** o **{UBER_TURNO_TD}**) y no se genera hoja de ruta ni actualización de `Clientes_Locales`."
+                )
+            elif is_local_recoge_aula and is_local_pasa_bodega:
                 st.caption(
                     "ℹ️ Para **📦 Pasa a Bodega** y **🎓 Recoge en Aula** no se usa hoja de ruta ni actualización de `Clientes_Locales`."
                 )
@@ -5228,7 +5241,7 @@ with tab1:
             fecha_entrega_texto = fecha_entrega.strftime("%d/%m/%Y") if hasattr(fecha_entrega, "strftime") else str(fecha_entrega)
             confirmation_detail += f" | Fecha de Entrega Seleccionada: {fecha_entrega_texto}"
 
-        if tipo_envio == "📍 Pedido Local":
+        if tipo_envio in {"📍 Pedido Local", UBER_TIPO_ENVIO}:
             turno_local = subtipo_local if subtipo_local else "Sin turno"
             confirmation_detail += f" | Turno: {turno_local}"
 
@@ -5995,6 +6008,7 @@ with tab1:
                 "🚚 Pedido Foráneo",
                 "🏙️ Pedido CDMX",
                 "📍 Pedido Local",
+                UBER_TIPO_ENVIO,
                 "🎓 Cursos y Eventos",
             ]
             if tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original):
@@ -6285,7 +6299,7 @@ with tab1:
                 elif header == "Estado":
                     values.append("🟡 Pendiente")
                 elif header == "Estado_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local", UBER_TIPO_ENVIO] or (
                         tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(estado_pago)
@@ -6294,7 +6308,7 @@ with tab1:
                 elif header == "Aplica_Pago":
                     values.append("Sí" if aplica_pago == "Sí" else "No")
                 elif header == "Fecha_Pago_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local", UBER_TIPO_ENVIO] or (
                         tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(fecha_pago if isinstance(fecha_pago, str) else (fecha_pago.strftime('%Y-%m-%d') if fecha_pago else ""))
@@ -6306,21 +6320,21 @@ with tab1:
                         and tipo_envio in ["🚚 Pedido Foráneo", "🚚 Foráneo"]
                     ):
                         values.append("Credito TD")
-                    elif tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "🚚 Foráneo"]:
+                    elif tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "🚚 Foráneo", UBER_TIPO_ENVIO]:
                         values.append(forma_pago)
                     elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)):
                         values.append(local_route_forma_pago)
                     else:
                         values.append("")
                 elif header == "Terminal":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local", UBER_TIPO_ENVIO] or (
                         tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(terminal)
                     else:
                         values.append("")
                 elif header == "Banco_Destino_Pago":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local", UBER_TIPO_ENVIO] or (
                         tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(banco_destino)
@@ -6329,7 +6343,7 @@ with tab1:
                 elif header == "Monto_Comprobante":
                     if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
                         values.append(f"{credito_monto_venta:.2f}" if credito_monto_venta > 0 else "")
-                    elif tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX"]:
+                    elif tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", UBER_TIPO_ENVIO]:
                         values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
                     elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)):
                         monto_comprobante_local = float(local_route_total_factura or 0) + float(local_route_adeudo_anterior or 0)
@@ -6337,7 +6351,7 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Referencia_Comprobante":
-                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local"] or (
+                    if tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", "📍 Pedido Local", UBER_TIPO_ENVIO] or (
                         tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)
                     ):
                         values.append(referencia_pago)
@@ -9953,6 +9967,7 @@ with tab7:
                 "Todos",
                 "📍 Pedido Local",
                 "🚚 Pedido Foráneo",
+                UBER_TIPO_ENVIO,
                 "🎓 Cursos y Eventos",
                 "🔁 Devolución",
                 "🛠 Garantía",
