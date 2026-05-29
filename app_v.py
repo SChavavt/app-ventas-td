@@ -1338,9 +1338,13 @@ def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float |
         & (df_ped["Completados_Limpiado"].fillna("").astype(str).str.strip() == "")
     ].copy()
 
+    casos_guides_col = df_casos["Hoja_Ruta_Mensajero"].astype(str).str.strip()
+    casos_guide_fallback = df_casos["Adjuntos_Guia"].astype(str).str.strip()
+    df_casos["Guia_Consolidada"] = casos_guides_col.mask(casos_guides_col.eq(""), casos_guide_fallback)
+
     df_casos = df_casos[
         (df_casos["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_norm)
-        & (df_casos["Hoja_Ruta_Mensajero"].astype(str).str.strip() != "")
+        & (df_casos["Guia_Consolidada"].astype(str).str.strip() != "")
         & (df_casos["Completados_Limpiado"].fillna("").astype(str).str.strip() == "")
     ].copy()
 
@@ -1371,14 +1375,15 @@ def obtener_resumen_guias_vendedor(id_vendedor_norm: str, refresh_token: float |
         if cliente:
             clientes.append(cliente)
         pedido_ref = str(row.get("ID_Pedido", "")).strip() or str(row.get("Folio_Factura", "")).strip()
-        guia_ref = str(row.get("Hoja_Ruta_Mensajero", "")).strip()
+        guia_ref = str(row.get("Guia_Consolidada", "")).strip()
         if pedido_ref and guia_ref:
             keys.append(f"casos_especiales::{pedido_ref}::{guia_ref}")
 
+    unique_keys = sorted(set(keys))
     return {
-        "total": int(len(df_ped) + len(df_casos)),
+        "total": int(len(unique_keys)),
         "clientes": list(dict.fromkeys(clientes)),
-        "keys": sorted(set(keys)),
+        "keys": unique_keys,
     }
 
 
@@ -9281,6 +9286,90 @@ with tab5:
         if resumen_fuentes:
             st.caption(f"Origen de registros cargados: {resumen_fuentes}")
 
+        # Aviso de guías para el vendedor de la sesión. Se calcula antes de
+        # aplicar filtros visuales para que el aviso por ID vendedor no se
+        # esconda por la fecha o vendedor seleccionados en la tabla.
+        df_guias_alert_source = df_guias.copy()
+        if "id_vendedor" not in df_guias_alert_source.columns:
+            df_guias_alert_source["id_vendedor"] = ""
+        if "Hora_Registro" not in df_guias_alert_source.columns:
+            df_guias_alert_source["Hora_Registro"] = pd.NaT
+
+        try:
+            df_guias_alert_source["Hora_Registro_alerta"] = pd.to_datetime(
+                df_guias_alert_source["Hora_Registro"], errors="coerce", format="mixed"
+            )
+        except (TypeError, ValueError):
+            df_guias_alert_source["Hora_Registro_alerta"] = pd.to_datetime(
+                df_guias_alert_source["Hora_Registro"], errors="coerce"
+            )
+        cutoff_guias_alerta = datetime.now() - timedelta(hours=12)
+        df_guias_alert_source = df_guias_alert_source[
+            df_guias_alert_source["Hora_Registro_alerta"].notna()
+            & (df_guias_alert_source["Hora_Registro_alerta"] >= cutoff_guias_alerta)
+        ].copy()
+
+        df_guias_alert_source["id_vendedor_norm"] = df_guias_alert_source["id_vendedor"].apply(normalize_vendedor_id)
+        if id_vendedor_sesion:
+            df_guias_sesion = df_guias_alert_source[
+                df_guias_alert_source["id_vendedor_norm"] == id_vendedor_sesion
+            ].copy()
+        else:
+            df_guias_sesion = pd.DataFrame(columns=df_guias_alert_source.columns)
+
+        if "Completados_Limpiado" not in df_guias_sesion.columns:
+            df_guias_sesion["Completados_Limpiado"] = ""
+        df_guias_alertas = df_guias_sesion[
+            df_guias_sesion["Completados_Limpiado"].fillna("").astype(str).str.strip() == ""
+        ].copy()
+
+        current_guias_map: Dict[str, str] = {}
+        if not df_guias_alertas.empty:
+            for _, row in df_guias_alertas.iterrows():
+                row_key = "::".join([
+                    str(row.get("Fuente", "")).strip(),
+                    str(row.get("ID_Pedido", "")).strip(),
+                    str(row.get("Ultima_Guia", "")).strip(),
+                ])
+                cliente = str(row.get("Cliente", "")).strip() or "Cliente sin nombre"
+                current_guias_map[row_key] = cliente
+
+        guias_signature = "|".join(sorted(current_guias_map.keys()))
+        prev_keys_raw = st.session_state.get("tab5_guias_keys", [])
+        prev_keys = set(prev_keys_raw if isinstance(prev_keys_raw, list) else [])
+        current_keys = set(current_guias_map.keys())
+        current_count = int(len(current_keys))
+        nuevas_keys = sorted(current_keys - prev_keys)
+
+        if id_vendedor_sesion and prev_keys and nuevas_keys:
+            nuevas = len(nuevas_keys)
+            clientes_nuevos = [current_guias_map.get(k, "Cliente sin nombre") for k in nuevas_keys]
+            clientes_unicos = list(dict.fromkeys(clientes_nuevos))
+            detalle_clientes = ", ".join(clientes_unicos[:3])
+            if len(clientes_unicos) > 3:
+                detalle_clientes = f"{detalle_clientes} y {len(clientes_unicos) - 3} más"
+
+            st.success(
+                f"🔔 Se cargaron {nuevas} guía(s) nueva(s) para tus pedidos (ID vendedor: {id_vendedor_sesion})."
+            )
+            st.info(f"👤 Clientes con nuevas guías: {detalle_clientes}.")
+            st.toast(
+                f"🔔 Nuevas guías detectadas: {nuevas}",
+                icon="📦"
+            )
+        elif id_vendedor_sesion and current_count > 0:
+            st.info(
+                f"📦 Tienes {current_count} pedido(s) con guía cargada pendiente (ID vendedor: {id_vendedor_sesion})."
+            )
+        elif id_vendedor_sesion:
+            st.caption(
+                f"Sin nuevas guías detectadas aún para el ID vendedor {id_vendedor_sesion}."
+            )
+
+        st.session_state["tab5_guias_signature"] = guias_signature
+        st.session_state["tab5_guias_count"] = current_count
+        st.session_state["tab5_guias_keys"] = sorted(current_keys)
+
         st.markdown("### 🔍 Filtros")
         col1_tab5, col2_tab5 = st.columns(2)
 
@@ -9366,66 +9455,6 @@ with tab5:
             else:
                 fecha_filtro_tab5 = fecha_filtro_tab5 or st.session_state.get("filtro_fecha_guias", datetime.now().date())
                 df_guias = df_guias[df_guias[fecha_col_para_filtrar].dt.date == fecha_filtro_tab5]
-
-        # Aviso de nuevas guías para pedidos de la sesión/vendedor actual
-        if "id_vendedor" not in df_guias.columns:
-            df_guias["id_vendedor"] = ""
-
-        df_guias = df_guias.copy()
-        df_guias["id_vendedor_norm"] = df_guias["id_vendedor"].apply(normalize_vendedor_id)
-        if id_vendedor_sesion:
-            df_guias_sesion = df_guias[df_guias["id_vendedor_norm"] == id_vendedor_sesion].copy()
-        else:
-            df_guias_sesion = pd.DataFrame(columns=df_guias.columns)
-
-        if "Completados_Limpiado" not in df_guias_sesion.columns:
-            df_guias_sesion["Completados_Limpiado"] = ""
-        df_guias_alertas = df_guias_sesion[
-            df_guias_sesion["Completados_Limpiado"].fillna("").astype(str).str.strip() == ""
-        ].copy()
-
-        current_guias_map: Dict[str, str] = {}
-        if not df_guias_alertas.empty:
-            for _, row in df_guias_alertas.iterrows():
-                row_key = "::".join([
-                    str(row.get("Fuente", "")).strip(),
-                    str(row.get("ID_Pedido", "")).strip(),
-                    str(row.get("Ultima_Guia", "")).strip(),
-                ])
-                cliente = str(row.get("Cliente", "")).strip() or "Cliente sin nombre"
-                current_guias_map[row_key] = cliente
-
-        guias_signature = "|".join(sorted(current_guias_map.keys()))
-        prev_keys_raw = st.session_state.get("tab5_guias_keys", [])
-        prev_keys = set(prev_keys_raw if isinstance(prev_keys_raw, list) else [])
-        current_keys = set(current_guias_map.keys())
-        current_count = int(len(current_keys))
-        nuevas_keys = sorted(current_keys - prev_keys)
-
-        if id_vendedor_sesion and prev_keys and nuevas_keys:
-            nuevas = len(nuevas_keys)
-            clientes_nuevos = [current_guias_map.get(k, "Cliente sin nombre") for k in nuevas_keys]
-            clientes_unicos = list(dict.fromkeys(clientes_nuevos))
-            detalle_clientes = ", ".join(clientes_unicos[:3])
-            if len(clientes_unicos) > 3:
-                detalle_clientes = f"{detalle_clientes} y {len(clientes_unicos) - 3} más"
-
-            st.success(
-                f"🔔 Se cargaron {nuevas} guía(s) nueva(s) para tus pedidos (ID vendedor: {id_vendedor_sesion})."
-            )
-            st.info(f"👤 Clientes con nuevas guías: {detalle_clientes}.")
-            st.toast(
-                f"🔔 Nuevas guías detectadas: {nuevas}",
-                icon="📦"
-            )
-        elif id_vendedor_sesion and current_count == 0:
-            st.caption(
-                f"Sin nuevas guías detectadas aún para el ID vendedor {id_vendedor_sesion}."
-            )
-
-        st.session_state["tab5_guias_signature"] = guias_signature
-        st.session_state["tab5_guias_count"] = current_count
-        st.session_state["tab5_guias_keys"] = sorted(current_keys)
 
         if vendedor_filtrado != "Todos":
             df_guias = df_guias[df_guias["Vendedor_Registro"] == vendedor_filtrado]
