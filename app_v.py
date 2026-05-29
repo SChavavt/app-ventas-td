@@ -1992,6 +1992,27 @@ def get_worksheet(refresh_token: float | None = None):
     """Compatibilidad para tabs legadas que aún leen histórico."""
     return get_worksheet_historico(refresh_token)
 
+
+def should_route_pedido_to_historico(
+    tipo_envio: str,
+    tipo_envio_excel: str,
+    subtipo_local: str,
+    cdmx_view_active: bool = False,
+) -> bool:
+    """Return True when a regular order must be appended to datos_pedidos."""
+    tipo_envio_limpio = str(tipo_envio or "").strip()
+    tipo_envio_excel_limpio = str(tipo_envio_excel or "").strip()
+    subtipo_local_limpio = str(subtipo_local or "").strip()
+
+    if tipo_envio_excel_limpio == "🏙️ Pedidos CDMX":
+        return True
+    if subtipo_local_limpio in {"🌆 Local CDMX", "🎓 Recoge en Aula"}:
+        return tipo_envio_limpio in {"📍 Pedido Local", "🎓 Cursos y Eventos"}
+    if cdmx_view_active and tipo_envio_limpio == "🎓 Cursos y Eventos":
+        return True
+    return False
+
+
 @st.cache_resource
 def get_worksheet_clientes_locales(refresh_token: float | None = None):
     client = get_google_sheets_client(refresh_token)
@@ -6017,12 +6038,11 @@ with tab1:
                 st.session_state.pop("pedido_submit_disabled_at", None)
                 rerun_with_pedido_loading()
 
-            es_envio_historico_especial = (
-                tipo_envio_excel == "🏙️ Pedidos CDMX"
-                or (
-                    tipo_envio in {"📍 Pedido Local", "🎓 Cursos y Eventos"}
-                    and subtipo_local in {"🌆 Local CDMX", "🎓 Recoge en Aula"}
-                )
+            es_envio_historico_especial = should_route_pedido_to_historico(
+                tipo_envio=tipo_envio,
+                tipo_envio_excel=tipo_envio_excel,
+                subtipo_local=subtipo_local,
+                cdmx_view_active=tab1_special_shipping,
             )
 
             # Acceso a la hoja
