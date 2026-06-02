@@ -8005,6 +8005,39 @@ with tab2:
                                             "values": [[updated_adjuntos]],
                                         })
 
+                                    if comprobante_urls:
+                                        if col_exists("Estado_Pago"):
+                                            estado_pagado = "✅ Pagado"
+                                            if str(actual_row.get("Estado_Pago", "")).strip() != estado_pagado:
+                                                cell_updates.append({
+                                                    "range": rowcol_to_a1(
+                                                        gsheet_row_index,
+                                                        col_idx("Estado_Pago"),
+                                                    ),
+                                                    "values": [[estado_pagado]],
+                                                })
+                                                changes_made = True
+                                            actual_row["Estado_Pago"] = estado_pagado
+                                            st.session_state["tab2_local_estado_pago"] = estado_pagado
+                                        else:
+                                            feedback_slot.warning(
+                                                "⚠️ Se subió el comprobante, pero la hoja no tiene columna 'Estado_Pago'."
+                                            )
+
+                                        if col_exists("Fecha_Pago_Comprobante"):
+                                            fecha_pago_comprobante = datetime.now(
+                                                timezone("America/Mexico_City")
+                                            ).strftime("%Y-%m-%d")
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(
+                                                    gsheet_row_index,
+                                                    col_idx("Fecha_Pago_Comprobante"),
+                                                ),
+                                                "values": [[fecha_pago_comprobante]],
+                                            })
+                                            actual_row["Fecha_Pago_Comprobante"] = fecha_pago_comprobante
+                                            changes_made = True
+
                                 if apply_local_route_update and tab2_route_payload:
                                     route_file_payload, route_filename = build_local_route_file_from_payload(
                                         Path("plantillas") / "FORMATO DE ENTREGA LOCAL limpia.xlsx",
