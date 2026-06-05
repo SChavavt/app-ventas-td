@@ -1871,95 +1871,6 @@ def safe_batch_update(worksheet, data, retries: int = 5, base_delay: float = 1.0
             else:
                 raise
 
-
-def _parse_single_cell_a1(cell_ref: str) -> tuple[int, int] | None:
-    """Convierte una referencia A1 simple (por ejemplo C7) a fila/columna 1-based."""
-    match = re.fullmatch(r"\$?([A-Za-z]+)\$?(\d+)", str(cell_ref or "").strip())
-    if not match:
-        return None
-
-    col_letters, row_number = match.groups()
-    col_number = 0
-    for char in col_letters.upper():
-        col_number = col_number * 26 + (ord(char) - ord("A") + 1)
-    return int(row_number), col_number
-
-
-def _normalize_sheet_confirmation_value(value) -> str:
-    """Normaliza valores leídos/escritos para comparar confirmaciones de Google Sheets."""
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def _sheet_confirmation_values_match(expected, actual) -> bool:
-    """Compara valores considerando formatos numéricos que Google Sheets puede normalizar."""
-    expected_text = _normalize_sheet_confirmation_value(expected)
-    actual_text = _normalize_sheet_confirmation_value(actual)
-    if actual_text == expected_text:
-        return True
-
-    try:
-        expected_number = float(expected_text.replace(",", ""))
-        actual_number = float(actual_text.replace(",", ""))
-    except (TypeError, ValueError):
-        return False
-    return abs(expected_number - actual_number) < 0.000001
-
-
-def safe_batch_update_with_confirmation(
-    worksheet,
-    data,
-    row_index: int,
-    retries: int = 5,
-    base_delay: float = 1.0,
-) -> None:
-    """Actualiza celdas y confirma releyendo la fila para evitar falsos positivos en Tab 2."""
-    expected_values: list[tuple[int, str]] = []
-    for update in data or []:
-        cell_range = str(update.get("range", "")).split(":", 1)[0]
-        parsed_cell = _parse_single_cell_a1(cell_range)
-        values = update.get("values") or []
-        if not parsed_cell or not values or not values[0]:
-            continue
-        update_row, update_col = parsed_cell
-        if int(update_row) != int(row_index):
-            continue
-        expected_values.append((int(update_col), _normalize_sheet_confirmation_value(values[0][0])))
-
-    last_error: Exception | None = None
-    for attempt in range(retries):
-        try:
-            safe_batch_update(worksheet, data, retries=1, base_delay=base_delay)
-            if not expected_values:
-                return
-
-            time.sleep(0.6 + (attempt * 0.35))
-            confirmed_row = worksheet.row_values(row_index)
-            missing_confirmations = []
-            for col_number, expected_value in expected_values:
-                actual_value = ""
-                if len(confirmed_row) >= col_number:
-                    actual_value = _normalize_sheet_confirmation_value(confirmed_row[col_number - 1])
-                if not _sheet_confirmation_values_match(expected_value, actual_value):
-                    missing_confirmations.append((col_number, expected_value, actual_value))
-
-            if not missing_confirmations:
-                return
-            last_error = Exception("La escritura no se confirmó al releer Google Sheets.")
-        except APIError as e:
-            last_error = e
-            status = getattr(getattr(e, "response", None), "status_code", None)
-            if status != 429 and attempt >= retries - 1:
-                break
-        except Exception as e:
-            last_error = e
-
-        if attempt < retries - 1:
-            time.sleep(base_delay * (attempt + 1))
-
-    raise Exception(f"No se pudo confirmar la modificación en Google Sheets: {last_error}")
-
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
@@ -2974,9 +2885,9 @@ def rerun_with_pedido_loading(message: str = "⏳ Actualizando el estado del ped
 
 
 def rerun_with_tab2_loading(message: str = "⏳ Actualizando la modificación del pedido...") -> None:
-    """Muestra aviso de carga al modificar y relanza la app manteniendo la pestaña activa."""
+    """Muestra aviso de carga al modificar antes de relanzar la app."""
     st.session_state[TAB2_LOADING_MESSAGE_KEY] = message
-    st.rerun()
+    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
 
 
 def clear_order_related_caches() -> None:
@@ -8046,22 +7957,18 @@ with tab2:
                                 # 3) Subida de archivos de Surtido -> Adjuntos_Surtido
                                 new_adjuntos_surtido_urls = []
                                 if uploaded_files_surtido:
-                                    try:
-                                        surtido_prefix = f"{selected_order_id}/surtido_{uuid.uuid4().hex[:8]}_"
-                                        new_adjuntos_surtido_urls = upload_files_or_fail(
-                                            uploaded_files_surtido,
-                                            s3_client,
-                                            S3_BUCKET_NAME,
-                                            surtido_prefix,
-                                            max_retries=S3_UPLOAD_MAX_RETRIES,
-                                        )
-                                        changes_made = True
-                                    except Exception as upload_error:
-                                        feedback_slot.empty()
-                                        feedback_slot.error(
-                                            f"❌ No se pudieron subir todos los archivos de surtido. No se guardó la modificación: {upload_error}"
-                                        )
-                                        st.stop()
+                                    for f in uploaded_files_surtido:
+                                        ext = os.path.splitext(f.name)[1]
+                                        s3_key = f"{selected_order_id}/surtido_{f.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
+                                        success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, f, s3_key)
+                                        if success:
+                                            new_adjuntos_surtido_urls.append(url)
+                                            changes_made = True
+                                        else:
+                                            feedback_slot.empty()
+                                            feedback_slot.warning(
+                                                f"⚠️ Falló la subida de {f.name}: {error_msg or 'Error desconocido'}"
+                                            )
 
                                 if new_adjuntos_surtido_urls and col_exists("Adjuntos_Surtido"):
                                     current_urls = [x.strip() for x in str(actual_row.get("Adjuntos_Surtido","")).split(",") if x.strip()]
@@ -8077,25 +7984,18 @@ with tab2:
                                 # 4) Comprobantes extra -> concatenar en 'Adjuntos'
                                 comprobante_urls = []
                                 if uploaded_comprobantes_extra:
-                                    try:
-                                        comprobante_prefix = (
-                                            f"{selected_order_id}/comprobante_{selected_order_id}_"
-                                            f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_"
-                                        )
-                                        comprobante_urls = upload_files_or_fail(
-                                            uploaded_comprobantes_extra,
-                                            s3_client,
-                                            S3_BUCKET_NAME,
-                                            comprobante_prefix,
-                                            max_retries=S3_UPLOAD_MAX_RETRIES,
-                                        )
-                                        changes_made = True
-                                    except Exception as upload_error:
-                                        feedback_slot.empty()
-                                        feedback_slot.error(
-                                            f"❌ No se pudieron subir todos los comprobantes. No se guardó la modificación: {upload_error}"
-                                        )
-                                        st.stop()
+                                    for archivo in uploaded_comprobantes_extra:
+                                        ext = os.path.splitext(archivo.name)[1]
+                                        s3_key = f"{selected_order_id}/comprobante_{selected_order_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                        success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
+                                        if success:
+                                            comprobante_urls.append(url)
+                                            changes_made = True
+                                        else:
+                                            feedback_slot.empty()
+                                            feedback_slot.warning(
+                                                f"⚠️ Falló la subida del comprobante {archivo.name}: {error_msg or 'Error desconocido'}"
+                                            )
 
                                     if comprobante_urls and col_exists("Adjuntos"):
                                         current_adjuntos = [x.strip() for x in str(actual_row.get("Adjuntos","")).split(",") if x.strip()]
@@ -8317,12 +8217,7 @@ with tab2:
                                             "values": [[fecha_mod]],
                                         })
                                         changes_made = True
-                                    safe_batch_update_with_confirmation(
-                                        worksheet,
-                                        cell_updates,
-                                        gsheet_row_index,
-                                    )
-                                    clear_order_related_caches()
+                                    safe_batch_update(worksheet, cell_updates)
 
                                 # 8) Mensajes y limpieza de inputs
                                 if changes_made:
