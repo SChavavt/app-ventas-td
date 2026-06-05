@@ -192,6 +192,7 @@ USUARIOS_VALIDOS = [
     "ROBERTO51",
     "SANT1460",
     "SCHAVA",
+    "NORMA12",
 ]
 
 VENDEDOR_NOMBRE_POR_ID = {
@@ -210,6 +211,7 @@ VENDEDOR_NOMBRE_POR_ID = {
     "ROBERTO51": "DISTRIBUCION Y UNIVERSIDADES",
     "SANT1460": "SANTIAGO",
     "SCHAVA": "SCHAVA",
+    "NORMA12":"NORMA SALAZAR",
 }
 
 TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS = {
@@ -4026,6 +4028,7 @@ VENDEDORES_LIST = sorted([
     "KAREN JAQUELINE",
     "PAULINA TREJO",
     "SANTIAGO",
+    "NORMA SALAZAR",
 ])
 
 # Initialize session state for vendor (default linked to logged-in vendor ID)
