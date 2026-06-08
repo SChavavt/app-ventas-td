@@ -4679,6 +4679,123 @@ with tab1:
     referencia_pago = ""
     estado_pago = "🔴 No Pagado"
 
+    def render_tab1_payment_fields(include_fecha=True, include_monto=True):
+        col1, col2, col3 = st.columns(3)
+        rendered_fecha_pago = fecha_pago
+        rendered_monto_pago = monto_pago
+        with col1:
+            if include_fecha:
+                rendered_fecha_pago = st.date_input(
+                    "📅 Fecha del Pago",
+                    value=datetime.today().date(),
+                    key="fecha_pago_input",
+                )
+            else:
+                forma_pago_options = [
+                    "Transferencia",
+                    "Efectivo",
+                    "Depósito en Efectivo",
+                    "Tarjeta de Débito",
+                    "Tarjeta de Crédito",
+                    "Cheque",
+                ]
+                if tab1_enable_link_pago_option:
+                    forma_pago_options.append("Link de Pago")
+                rendered_forma_pago = st.selectbox(
+                    "💳 Forma de Pago",
+                    forma_pago_options,
+                    key="forma_pago_input",
+                )
+        with col2:
+            if include_fecha:
+                forma_pago_options = [
+                    "Transferencia",
+                    "Efectivo",
+                    "Depósito en Efectivo",
+                    "Tarjeta de Débito",
+                    "Tarjeta de Crédito",
+                    "Cheque",
+                ]
+                if tab1_enable_link_pago_option:
+                    forma_pago_options.append("Link de Pago")
+                rendered_forma_pago = st.selectbox(
+                    "💳 Forma de Pago",
+                    forma_pago_options,
+                    key="forma_pago_input",
+                )
+            else:
+                if rendered_forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                    rendered_terminal = st.selectbox(
+                        "🏧 Terminal",
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
+                        key="terminal_input",
+                    )
+                    rendered_banco_destino = ""
+                else:
+                    rendered_banco_destino = st.selectbox(
+                        "🏦 Banco Destino",
+                        ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"],
+                        key="banco_destino_input",
+                    )
+                    rendered_terminal = ""
+        with col3:
+            if include_monto:
+                rendered_monto_pago = st.number_input(
+                    "💲 Monto del Pago",
+                    min_value=0.0,
+                    format="%.2f",
+                    key="monto_pago_input",
+                )
+            else:
+                referencia_value = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+
+        if include_monto:
+            col4, col5 = st.columns(2)
+            with col4:
+                if rendered_forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
+                    rendered_terminal = st.selectbox(
+                        "🏧 Terminal",
+                        [
+                            "BANORTE",
+                            "AFIRME",
+                            "VELPAY",
+                            "CLIP",
+                            "PAYPAL",
+                            "BBVA",
+                            "CONEKTA",
+                            "MERCADO PAGO",
+                        ],
+                        key="terminal_input",
+                    )
+                    rendered_banco_destino = ""
+                else:
+                    rendered_banco_destino = st.selectbox(
+                        "🏦 Banco Destino",
+                        ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"],
+                        key="banco_destino_input",
+                    )
+                    rendered_terminal = ""
+            with col5:
+                referencia_value = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+
+        return (
+            rendered_fecha_pago,
+            rendered_forma_pago,
+            rendered_terminal,
+            rendered_banco_destino,
+            rendered_monto_pago,
+            referencia_value,
+        )
+
     # Variables Hoja de Ruta Local
     local_route_recibe = ""
     local_route_calle_no = ""
@@ -4801,46 +4918,67 @@ with tab1:
             folio_label = "📄 Folio Nuevo" if tipo_envio == "🔁 Devolución" else "📄 Folio de Factura"
             folio_factura_input_value = st.text_input(folio_label, key="folio_factura_input")
 
-        if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
-            st.markdown("#### 💳 Datos de crédito (Venta terceros)")
-            col_credito_1, col_credito_2 = st.columns(2)
-            with col_credito_1:
-                credito_monto_venta = st.number_input(
-                    "💲 Monto de la venta",
-                    min_value=0.0,
-                    format="%.2f",
-                    key="credito_monto_venta",
-                    help="Se guarda en la columna Monto_Comprobante.",
-                )
-                credito_plazo_meses = st.number_input(
-                    "📆 Plazo de crédito (meses)",
-                    min_value=0,
-                    step=1,
-                    key="credito_plazo_meses",
-                )
-                credito_frecuencia_pago = st.selectbox(
-                    "🔁 Frecuencia de pago",
-                    ["Semanal", "Quincenal", "Mensual"],
-                    key="credito_frecuencia_pago",
-                )
-            with col_credito_2:
-                credito_anticipo = st.number_input(
-                    "💵 Anticipo (opcional)",
-                    min_value=0.0,
-                    format="%.2f",
-                    key="credito_anticipo",
-                )
-                credito_dia_cobro = st.date_input(
-                    "🗓 Día de cobro (opcional)",
-                    key="credito_dia_cobro",
-                    value=None,
-                    format="DD/MM/YYYY",
-                )
-                credito_datos_contacto = st.text_area(
-                    "📞 Datos de contacto (opcional)",
-                    key="credito_datos_contacto",
-                    placeholder="Nombre, teléfono, correo, observaciones",
-                )
+        if tipo_venta == "Venta terceros":
+            if condicion_venta_terceros == "Crédito":
+                st.markdown("#### 💳 Datos de crédito (Venta terceros)")
+                col_credito_1, col_credito_2 = st.columns(2)
+                with col_credito_1:
+                    credito_monto_venta = st.number_input(
+                        "💲 Monto de la venta",
+                        min_value=0.0,
+                        format="%.2f",
+                        key="credito_monto_venta",
+                        help="Se guarda en la columna Monto_Comprobante.",
+                    )
+                    credito_plazo_meses = st.number_input(
+                        "📆 Plazo de crédito (meses)",
+                        min_value=0,
+                        step=1,
+                        key="credito_plazo_meses",
+                    )
+                    credito_frecuencia_pago = st.selectbox(
+                        "🔁 Frecuencia de pago",
+                        ["Semanal", "Quincenal", "Mensual"],
+                        key="credito_frecuencia_pago",
+                    )
+                with col_credito_2:
+                    credito_anticipo = st.number_input(
+                        "💵 Anticipo (opcional)",
+                        min_value=0.0,
+                        format="%.2f",
+                        key="credito_anticipo",
+                    )
+                    credito_dia_cobro = st.date_input(
+                        "🗓 Día de cobro (opcional)",
+                        key="credito_dia_cobro",
+                        value=None,
+                        format="DD/MM/YYYY",
+                    )
+                    credito_datos_contacto = st.text_area(
+                        "📞 Datos de contacto (opcional)",
+                        key="credito_datos_contacto",
+                        placeholder="Nombre, teléfono, correo, observaciones",
+                    )
+
+                st.markdown("##### 🧾 Datos del pago")
+                (
+                    fecha_pago,
+                    forma_pago,
+                    terminal,
+                    banco_destino,
+                    monto_pago,
+                    referencia_pago,
+                ) = render_tab1_payment_fields(include_fecha=False, include_monto=False)
+            else:
+                st.markdown("#### 💳 Datos de contado (Venta terceros)")
+                (
+                    fecha_pago,
+                    forma_pago,
+                    terminal,
+                    banco_destino,
+                    monto_pago,
+                    referencia_pago,
+                ) = render_tab1_payment_fields(include_fecha=True, include_monto=True)
 
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
@@ -5032,51 +5170,19 @@ with tab1:
             else:
                 st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado'.")
 
-            with st.expander(
-                "🧾 Detalles del Pago (opcional)",
-                expanded=expand_payment_details_default,
-            ):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
-                with col2:
-                    forma_pago_options = [
-                        "Transferencia",
-                        "Efectivo",
-                        "Depósito en Efectivo",
-                        "Tarjeta de Débito",
-                        "Tarjeta de Crédito",
-                        "Cheque",
-                    ]
-                    if tab1_enable_link_pago_option:
-                        forma_pago_options.append("Link de Pago")
-                    forma_pago = st.selectbox("💳 Forma de Pago", forma_pago_options, key="forma_pago_input")
-                with col3:
-                    monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_input")
-
-                col4, col5 = st.columns(2)
-                with col4:
-                    if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                        terminal = st.selectbox(
-                            "🏧 Terminal",
-                            [
-                                "BANORTE",
-                                "AFIRME",
-                                "VELPAY",
-                                "CLIP",
-                                "PAYPAL",
-                                "BBVA",
-                                "CONEKTA",
-                                "MERCADO PAGO",
-                            ],
-                            key="terminal_input",
-                        )
-                        banco_destino = ""
-                    else:
-                        banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_input")
-                        terminal = ""
-                with col5:
-                    referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+            if tipo_venta != "Venta terceros":
+                with st.expander(
+                    "🧾 Detalles del Pago (opcional)",
+                    expanded=expand_payment_details_default,
+                ):
+                    (
+                        fecha_pago,
+                        forma_pago,
+                        terminal,
+                        banco_destino,
+                        monto_pago,
+                        referencia_pago,
+                    ) = render_tab1_payment_fields(include_fecha=True, include_monto=True)
 
         else:
             confirm_route_button = False
@@ -5398,51 +5504,19 @@ with tab1:
             else:
                 st.caption("ℹ️ Los Comprobantes son obligatorios cuando el estado sea '✅ Pagado'.")
 
-            with st.expander(
-                "🧾 Detalles del Pago (opcional)",
-                expanded=expand_payment_details_default,
-            ):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    fecha_pago = st.date_input("📅 Fecha del Pago", value=datetime.today().date(), key="fecha_pago_input")
-                with col2:
-                    forma_pago_options = [
-                        "Transferencia",
-                        "Efectivo",
-                        "Depósito en Efectivo",
-                        "Tarjeta de Débito",
-                        "Tarjeta de Crédito",
-                        "Cheque",
-                    ]
-                    if tab1_enable_link_pago_option:
-                        forma_pago_options.append("Link de Pago")
-                    forma_pago = st.selectbox("💳 Forma de Pago", forma_pago_options, key="forma_pago_input")
-                with col3:
-                    monto_pago = st.number_input("💲 Monto del Pago", min_value=0.0, format="%.2f", key="monto_pago_input")
-
-                col4, col5 = st.columns(2)
-                with col4:
-                    if forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                        terminal = st.selectbox(
-                            "🏧 Terminal",
-                            [
-                                "BANORTE",
-                                "AFIRME",
-                                "VELPAY",
-                                "CLIP",
-                                "PAYPAL",
-                                "BBVA",
-                                "CONEKTA",
-                                "MERCADO PAGO",
-                            ],
-                            key="terminal_input",
-                        )
-                        banco_destino = ""
-                    else:
-                        banco_destino = st.selectbox("🏦 Banco Destino", ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"], key="banco_destino_input")
-                        terminal = ""
-                with col5:
-                    referencia_pago = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
+            if tipo_venta != "Venta terceros":
+                with st.expander(
+                    "🧾 Detalles del Pago (opcional)",
+                    expanded=expand_payment_details_default,
+                ):
+                    (
+                        fecha_pago,
+                        forma_pago,
+                        terminal,
+                        banco_destino,
+                        monto_pago,
+                        referencia_pago,
+                    ) = render_tab1_payment_fields(include_fecha=True, include_monto=True)
 
         # AL FINAL DEL FORMULARIO: botón submit
         submit_button = st.form_submit_button(
@@ -6006,6 +6080,50 @@ with tab1:
                     st.session_state.pop("pedido_submit_disabled_at", None)
                     rerun_with_pedido_loading("⏳ Recargando formulario...")
 
+            if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Contado" and monto_pago <= 0:
+                set_pedido_submission_status(
+                    "warning",
+                    "⚠️ Para Venta terceros de contado, captura el monto del pago.",
+                )
+                st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
+                rerun_with_pedido_loading("⏳ Recargando formulario...")
+
+            if tipo_venta == "Venta terceros" and not forma_pago:
+                set_pedido_submission_status(
+                    "warning",
+                    "⚠️ Para Venta terceros, captura la forma de pago.",
+                )
+                st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
+                rerun_with_pedido_loading("⏳ Recargando formulario...")
+
+            if (
+                tipo_venta == "Venta terceros"
+                and forma_pago not in ["Tarjeta de Débito", "Tarjeta de Crédito"]
+                and not banco_destino
+            ):
+                set_pedido_submission_status(
+                    "warning",
+                    "⚠️ Para Venta terceros, captura el banco destino del pago.",
+                )
+                st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
+                rerun_with_pedido_loading("⏳ Recargando formulario...")
+
+            if (
+                tipo_venta == "Venta terceros"
+                and forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]
+                and not terminal
+            ):
+                set_pedido_submission_status(
+                    "warning",
+                    "⚠️ Para Venta terceros con pago con tarjeta, captura la terminal.",
+                )
+                st.session_state["pedido_submit_disabled"] = False
+                st.session_state.pop("pedido_submit_disabled_at", None)
+                rerun_with_pedido_loading("⏳ Recargando formulario...")
+
             if tipo_envio == "🚚 Pedido Foráneo":
                 missing_dhl_fields = get_missing_dhl_mexico_required_fields(dhl_address_payload)
                 solicitar_guia_manual = bool(dhl_address_payload.get("solicitar_guia_manual", False))
@@ -6430,7 +6548,9 @@ with tab1:
                     else:
                         values.append("")
                 elif header == "Forma_Pago_Comprobante":
-                    if (
+                    if tipo_venta == "Venta terceros":
+                        values.append(forma_pago)
+                    elif (
                         estado_pago == "💳 CREDITO"
                         and tipo_envio in ["🚚 Pedido Foráneo", "🚚 Foráneo"]
                     ):
@@ -6458,6 +6578,8 @@ with tab1:
                 elif header == "Monto_Comprobante":
                     if tipo_venta == "Venta terceros" and condicion_venta_terceros == "Crédito":
                         values.append(f"{credito_monto_venta:.2f}" if credito_monto_venta > 0 else "")
+                    elif tipo_venta == "Venta terceros" and condicion_venta_terceros == "Contado":
+                        values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
                     elif tipo_envio in ["🚚 Pedido Foráneo", "🏙️ Pedido CDMX", UBER_TIPO_ENVIO]:
                         values.append(f"{monto_pago:.2f}" if monto_pago > 0 else "")
                     elif tipo_envio == "📍 Pedido Local" or (tipo_envio == "🔁 Devolución" and is_tipo_envio_original_local(tipo_envio_original)):
