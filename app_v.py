@@ -7480,16 +7480,33 @@ with tab2:
                     return "— Selecciona un pedido —"
                 return _format_option(option_key)
 
+            saved_selected_option_key = st.session_state.get("tab2_selected_option_key")
+            if saved_selected_option_key in order_option_keys:
+                st.session_state.setdefault("select_order_to_modify", saved_selected_option_key)
+            if st.session_state.get("select_order_to_modify") not in order_option_keys:
+                st.session_state["select_order_to_modify"] = (
+                    saved_selected_option_key
+                    if saved_selected_option_key in order_option_keys
+                    else order_placeholder_option
+                )
+
+            def _remember_tab2_selected_order() -> None:
+                selected_key = st.session_state.get("select_order_to_modify")
+                if selected_key and selected_key != order_placeholder_option:
+                    st.session_state["tab2_selected_option_key"] = selected_key
+
             selected_option_key = st.selectbox(
                 "📝 Seleccionar Pedido para Modificar",
                 order_option_keys,
                 format_func=_format_order_option,
-                key="select_order_to_modify"
+                key="select_order_to_modify",
+                on_change=_remember_tab2_selected_order,
             )
 
             if selected_option_key and selected_option_key != order_placeholder_option:
-                option_changed = st.session_state.get("tab2_selected_option_key") != selected_option_key
+                option_changed = st.session_state.get("tab2_active_option_key") != selected_option_key
                 if option_changed:
+                    st.session_state["tab2_active_option_key"] = selected_option_key
                     st.session_state["tab2_selected_option_key"] = selected_option_key
                     st.session_state["tab2_confirm_order"] = False
                     st.session_state.pop("new_modificacion_surtido_input", None)
