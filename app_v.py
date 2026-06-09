@@ -220,6 +220,12 @@ TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS = {
 
 BRAND_LOGO_EDITOR_USERS = {"SCHAVA"}
 
+BIRTHDAY_VENDOR_ID = "CARITO82"
+BIRTHDAY_VENDOR_NAME = "Griselda Carolina"
+BIRTHDAY_MONTH_DAY = (6, 9)
+BIRTHDAY_ENTRY_EVENT_KEY = "birthday_carito82_entry_celebrated"
+BIRTHDAY_ORDER_EVENT_KEY = "birthday_carito82_order_celebrated"
+
 
 def normalize_case_text(value, placeholder: str = "N/A") -> str:
     """Return a clean string for optional case fields."""
@@ -865,6 +871,68 @@ def get_session_vendedor_name() -> str:
     return VENDEDOR_NOMBRE_POR_ID.get(
         normalize_vendedor_id(st.session_state.get("id_vendedor", "")),
         "",
+    )
+
+
+def is_birthday_experience_active(vendor_id: object | None = None) -> bool:
+    """Return True when the birthday UI should be shown for Griselda Carolina."""
+    normalized_vendor_id = normalize_vendedor_id(
+        vendor_id if vendor_id is not None else st.session_state.get("id_vendedor", "")
+    )
+    if normalized_vendor_id != BIRTHDAY_VENDOR_ID:
+        return False
+
+    mexico_today = datetime.now(timezone("America/Mexico_City")).date()
+    return (mexico_today.month, mexico_today.day) == BIRTHDAY_MONTH_DAY
+
+
+def render_birthday_entry_surprise() -> None:
+    """Render a festive birthday welcome only for the birthday vendor."""
+    if not is_birthday_experience_active():
+        return
+
+    if not st.session_state.get(BIRTHDAY_ENTRY_EVENT_KEY):
+        st.balloons()
+        st.toast("🎂 ¡Feliz cumpleaños, Carito! 👎")
+        st.session_state[BIRTHDAY_ENTRY_EVENT_KEY] = True
+
+    st.markdown(
+        f"""
+        <div class="birthday-hero" role="status" aria-label="Mensaje de cumpleaños">
+            <div class="birthday-hero__confetti">🎉 ✨ 🎈 🎂 ✨ 🎉</div>
+            <div class="birthday-hero__title">¡Feliz cumpleaños, 30 Carito!</div>
+            <div class="birthday-hero__dislike" aria-label="Pulgar abajo de cumpleaños">👎</div>
+            <div class="birthday-hero__message">
+                Te extraño; te recuerdo que me invites a bajar a comer :).
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_birthday_order_success(event_id: str | None, client_name: str = "") -> None:
+    """Celebrate every successful birthday order without duplicating animations per rerun."""
+    if not is_birthday_experience_active():
+        return
+
+    if event_id and st.session_state.get(BIRTHDAY_ORDER_EVENT_KEY) != event_id:
+        st.balloons()
+        st.toast("🎁 ¡Eso Caro, vamos, así se hace: un pedido más!")
+        st.session_state[BIRTHDAY_ORDER_EVENT_KEY] = event_id
+
+    client_segment = f" para {html.escape(client_name.strip())}" if client_name and client_name.strip() else ""
+    st.markdown(
+        f"""
+        <div class="birthday-order-card" role="status" aria-label="Pedido registrado con felicitación">
+            <span class="birthday-order-card__icon">🎂</span>
+            <div>
+                <strong>Pedido{client_segment} registrado con magia de cumpleaños para Carito.</strong><br>
+                Te voy a hackear, ya vi que te portas mal. Te extraño; te recuerdo que me invites a bajar a comer :).
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
@@ -3160,10 +3228,78 @@ st.markdown(
         border-color: #22c55e;
         box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.7);
     }
+    .birthday-hero {
+        position: relative;
+        overflow: hidden;
+        margin: 0.15rem 0 1.2rem 0;
+        padding: 1.15rem 1.35rem;
+        border-radius: 24px;
+        border: 1px solid rgba(236, 72, 153, 0.42);
+        background:
+            radial-gradient(circle at 12% 20%, rgba(251, 207, 232, 0.95), transparent 30%),
+            radial-gradient(circle at 88% 10%, rgba(254, 240, 138, 0.9), transparent 27%),
+            linear-gradient(135deg, rgba(244, 114, 182, 0.28), rgba(168, 85, 247, 0.16), rgba(34, 197, 94, 0.12));
+        box-shadow: 0 18px 45px rgba(219, 39, 119, 0.18);
+    }
+    .birthday-hero__confetti {
+        letter-spacing: 0.35rem;
+        font-size: 1rem;
+        margin-bottom: 0.25rem;
+        animation: birthdayFloat 2.9s ease-in-out infinite;
+    }
+    .birthday-hero__title {
+        margin-top: 0.1rem;
+        color: #831843;
+        font-size: clamp(1.55rem, 3vw, 2.45rem);
+        line-height: 1.05;
+        font-weight: 950;
+    }
+    .birthday-hero__dislike {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 0.35rem;
+        width: 2.45rem;
+        height: 2.45rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.58);
+        box-shadow: 0 10px 22px rgba(131, 24, 67, 0.14);
+        font-size: 1.35rem;
+        animation: birthdayFloat 2.4s ease-in-out infinite;
+    }
+    .birthday-hero__message {
+        max-width: 58rem;
+        margin-top: 0.45rem;
+        color: #3f172e;
+        font-size: clamp(0.98rem, 1.4vw, 1.13rem);
+        font-weight: 650;
+    }
+    .birthday-order-card {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        margin: 0.75rem 0;
+        padding: 0.9rem 1rem;
+        border-radius: 18px;
+        border: 1px solid rgba(236, 72, 153, 0.34);
+        background: linear-gradient(135deg, rgba(253, 242, 248, 0.96), rgba(255, 251, 235, 0.9));
+        color: #831843;
+        box-shadow: 0 12px 28px rgba(219, 39, 119, 0.12);
+    }
+    .birthday-order-card__icon {
+        font-size: 2rem;
+        line-height: 1;
+    }
+    @keyframes birthdayFloat {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-5px); }
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+render_birthday_entry_surprise()
 
 remote_postal_codes = get_remote_postal_codes()
 remote_codes_loaded = len(remote_postal_codes) > 0
@@ -5842,6 +5978,10 @@ with tab1:
 
             if status == "success":
                 st.success(status_data.get("message", "✅ Pedido registrado correctamente."))
+                render_birthday_order_success(
+                    event_id,
+                    str(status_data.get("client_name", "")).strip(),
+                )
                 if should_toast:
                     cliente_toast = str(status_data.get("client_name", "")).strip()
                     mensaje_toast = (
