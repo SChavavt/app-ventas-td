@@ -11179,7 +11179,7 @@ with tab8:
 
                     direccion_retorno = str(res.get("Direccion_Guia_Retorno", "")).strip()
                     if direccion_retorno:
-                        st.markdown("#### 📍 Dirección para guía de retorno")
+                        st.markdown("#### 📍 Direccion solicitud Guia Manual")
                         st.info(direccion_retorno)
 
                     nota_venta_valor = str(res.get("Nota_Venta", "")).strip()
