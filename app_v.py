@@ -488,7 +488,7 @@ def get_local_delivery_slot(turno_local: str) -> str:
     turno_normalizado = str(turno_local or "").strip()
     if turno_normalizado == "🌵 Saltillo":
         return "Saltillo"
-    if turno_normalizado in {"☀️ Local Mañana", "🏙️ Local Mty"}:
+    if turno_normalizado == "☀️ Local Mañana":
         return "10 am a 2 pm"
     if turno_normalizado == "🌙 Local Tarde":
         return "3 pm a 7 pm"
@@ -507,10 +507,7 @@ def resolve_local_delivery_slot(turno_local: str, hora_entrega_manual: str = "")
 
 def get_subtipo_local_excel_value(subtipo_local: str) -> str:
     """Normalize local shift label for Excel persistence."""
-    turno_normalizado = str(subtipo_local or "").strip()
-    if turno_normalizado == "🏙️ Local Mty":
-        return "☀️ Local Mañana"
-    return turno_normalizado
+    return str(subtipo_local or "").strip()
 
 
 LOCAL_TURNO_COMBINADO_IDS: set[str] = set()
@@ -650,6 +647,22 @@ def get_blocked_local_shifts_for_date(delivery_date: date) -> set[str]:
         return set()
     closure_map = get_local_route_closure_map(sheet_id)
     return closure_map.get(delivery_date.isoformat(), set())
+
+def get_blocked_local_shifts_for_options(
+    delivery_date: date,
+    local_shift_options: list[str],
+) -> set[str]:
+    """Return closed shifts that apply to the currently visible local options."""
+    blocked_shifts = get_blocked_local_shifts_for_date(delivery_date)
+    if not blocked_shifts:
+        return set()
+
+    visible_options = {str(option or "").strip() for option in local_shift_options}
+    applicable_blocked_shifts = {
+        shift for shift in blocked_shifts if shift in visible_options
+    }
+
+    return applicable_blocked_shifts
 
 def build_local_route_sheet(template_path: Path, payload: Dict[str, object]) -> BytesIO:
     """Fill the local delivery Excel template and return it in memory."""
@@ -4365,7 +4378,10 @@ with tab1:
                     force_cdmx_view=tab1_special_shipping,
                 )
             fecha_entrega_local_ui = st.session_state.get("fecha_entrega_input", datetime.now().date())
-            blocked_shifts_for_date = get_blocked_local_shifts_for_date(fecha_entrega_local_ui)
+            blocked_shifts_for_date = get_blocked_local_shifts_for_options(
+                fecha_entrega_local_ui,
+                local_shift_options,
+            )
             if blocked_shifts_for_date:
                 local_shift_options = [opt for opt in local_shift_options if opt not in blocked_shifts_for_date]
                 fecha_cierre_txt = fecha_entrega_local_ui.strftime("%d/%m/%Y") if isinstance(fecha_entrega_local_ui, date) else str(fecha_entrega_local_ui)
@@ -5626,7 +5642,7 @@ with tab1:
 
         if (
             not tab1_special_shipping
-            and subtipo_local not in ["☀️ Local Mañana", "🏙️ Local Mty", "🌙 Local Tarde"]
+            and subtipo_local not in ["☀️ Local Mañana", "🌙 Local Tarde"]
             and not str(local_route_hora_entrega or "").strip()
         ):
             st.warning(
@@ -7656,6 +7672,7 @@ with tab2:
                 tab2_estado_pago_options = ["🔴 No Pagado", "✅ Pagado", "💳 CREDITO"]
                 if option_changed and tab2_local_order:
                     st.session_state["tab2_local_route_enabled"] = False
+                    st.session_state["tab2_keep_original_turno_for_closed_shift"] = False
                     if current_estado_pago_value in tab2_estado_pago_options:
                         estado_pago_default_tab2 = current_estado_pago_value
                     elif current_has_comprobante_effective:
@@ -7696,6 +7713,8 @@ with tab2:
                     turno_local_default_tab2 = str(selected_row_data.get("Turno", "") or "").strip()
                     if turno_local_default_tab2 not in local_shift_options_tab2:
                         turno_local_default_tab2 = local_shift_options_tab2[0]
+                    st.session_state[f"{tab2_route_prefix}_hora_entrega"] = get_local_delivery_slot(turno_local_default_tab2)
+                    st.session_state[f"{tab2_route_prefix}_last_turno_for_hora"] = turno_local_default_tab2
                     st.session_state[tab2_turno_selector_key] = turno_local_default_tab2
                     fecha_entrega_base_tab2 = pd.to_datetime(
                         selected_row_data.get("Fecha_Entrega"),
@@ -7941,10 +7960,15 @@ with tab2:
                             value=st.session_state.get(tab2_fecha_entrega_key, datetime.now().date()),
                             key=tab2_fecha_entrega_key,
                         )
-                        blocked_shifts_tab2 = get_blocked_local_shifts_for_date(tab2_fecha_entrega_requerida)
+                        blocked_shifts_tab2 = get_blocked_local_shifts_for_options(
+                            tab2_fecha_entrega_requerida,
+                            local_shift_options_tab2,
+                        )
                         local_shift_options_tab2_filtered = [
                             opt for opt in local_shift_options_tab2 if opt not in blocked_shifts_tab2
                         ]
+                        turno_original_tab2 = str(selected_row_data.get("Turno", "") or "").strip()
+                        keep_original_turno_tab2 = False
                         if blocked_shifts_tab2:
                             fecha_cierre_tab2_txt = (
                                 tab2_fecha_entrega_requerida.strftime("%d/%m/%Y")
@@ -7955,24 +7979,64 @@ with tab2:
                             st.info(
                                 f"ℹ️ Para la fecha {fecha_cierre_tab2_txt} los siguientes turnos están cerrados: {turnos_cerrados_tab2_txt}."
                             )
-                            if not local_shift_options_tab2_filtered:
+                            keep_original_turno_tab2 = st.checkbox(
+                                "Mantener el turno actual del pedido original",
+                                key="tab2_keep_original_turno_for_closed_shift",
+                                help=(
+                                    "Márcalo para conservar el turno que ya trae el pedido "
+                                    "y no cambiarlo por un turno disponible."
+                                ),
+                            )
+                            if keep_original_turno_tab2:
+                                turno_original_display_tab2 = turno_original_tab2 or "Sin turno registrado"
+                                st.caption(
+                                    f"✅ Se conservará el turno original: {turno_original_display_tab2}."
+                                )
+                            if not local_shift_options_tab2_filtered and not keep_original_turno_tab2:
                                 st.warning(
                                     "No hay turnos locales disponibles para la fecha seleccionada (aparecen como CERRADA en reporte de almacén)."
                                 )
                                 local_shift_options_tab2_filtered = ["📦 Pasa a Bodega"]
+                        else:
+                            st.session_state["tab2_keep_original_turno_for_closed_shift"] = False
 
-                        turno_actual_tab2_selector = st.session_state.get(tab2_turno_selector_key)
-                        if turno_actual_tab2_selector not in local_shift_options_tab2_filtered:
-                            st.session_state[tab2_turno_selector_key] = local_shift_options_tab2_filtered[0]
+                        if keep_original_turno_tab2:
+                            tab2_turno_local = turno_original_tab2 or str(
+                                st.session_state.get(tab2_turno_selector_key, "")
+                                or local_shift_options_tab2[0]
+                            ).strip()
+                        else:
+                            turno_actual_tab2_selector = st.session_state.get(tab2_turno_selector_key)
+                            if turno_actual_tab2_selector not in local_shift_options_tab2_filtered:
+                                st.session_state[tab2_turno_selector_key] = local_shift_options_tab2_filtered[0]
 
-                        tab2_turno_local = st.selectbox(
-                            "⏰ Turno / Local",
-                            local_shift_options_tab2_filtered,
-                            key=tab2_turno_selector_key,
-                            help="Usa las mismas opciones de turno del Tab 1 para pedidos locales.",
-                        )
-                        if tab2_turno_local not in ["☀️ Local Mañana", "🏙️ Local Mty", "🌙 Local Tarde"]:
-                            st.warning("⚠️ La hoja de ruta asigna horario automático para ☀️ Local Mañana (10 am a 2 pm) y 🌙 Local Tarde (3 pm a 7 pm). Para otros turnos se usará el texto del turno seleccionado.")
+                            tab2_turno_local = st.selectbox(
+                                "⏰ Turno / Local",
+                                local_shift_options_tab2_filtered,
+                                key=tab2_turno_selector_key,
+                                help="Usa las mismas opciones de turno del Tab 1 para pedidos locales.",
+                            )
+                        tab2_hora_entrega_key = f"{tab2_route_prefix}_hora_entrega"
+                        tab2_last_turno_hora_key = f"{tab2_route_prefix}_last_turno_for_hora"
+                        tab2_hora_default = get_local_delivery_slot(tab2_turno_local)
+                        if not str(st.session_state.get(tab2_hora_entrega_key, "") or "").strip():
+                            st.session_state[tab2_hora_entrega_key] = tab2_hora_default
+                        if str(st.session_state.get(tab2_last_turno_hora_key, "") or "").strip() != str(tab2_turno_local or "").strip():
+                            st.session_state[tab2_hora_entrega_key] = tab2_hora_default
+                        st.session_state[tab2_last_turno_hora_key] = str(tab2_turno_local or "").strip()
+
+                        tab2_local_route_hora_entrega = st.text_input(
+                            "🕒 HORA DE ENTREGA",
+                            key=tab2_hora_entrega_key,
+                            placeholder="Ej. 10 am a 2 pm, 3 pm a 7 pm u Horario Libre",
+                            help=(
+                                "Se llena con el horario original/automático del turno, "
+                                "pero puedes cambiarlo manualmente para la hoja de ruta."
+                            ),
+                        ).strip() or tab2_hora_default
+
+                        if tab2_turno_local not in ["☀️ Local Mañana", "🌙 Local Tarde"]:
+                            st.warning("⚠️ La hoja de ruta asigna horario automático para ☀️ Local Mañana (10 am a 2 pm) y 🌙 Local Tarde (3 pm a 7 pm). Para otros turnos se usará el texto del turno seleccionado o el horario que captures.")
 
                         st.subheader("💰 Estado de Pago")
                         if st.session_state.get("tab2_local_estado_pago") not in tab2_estado_pago_options:
@@ -8012,6 +8076,7 @@ with tab2:
                             total_factura=tab2_local_route_total_factura,
                             adeudo_anterior=tab2_local_route_adeudo_anterior,
                             folio=str(selected_row_data.get("Folio_Factura", "") or ""),
+                            hora_entrega_manual=tab2_local_route_hora_entrega,
                         )
                         st.caption(
                             f"📅 Día de entrega: {tab2_route_payload.get('dia_entrega', 'N/A')} | "
@@ -8216,20 +8281,24 @@ with tab2:
                                         })
                                         changes_made = True
                                 if tab2_local_order and apply_local_route_update and col_exists("Turno"):
-                                    nuevo_turno_tab2 = str(
-                                        st.session_state.get(tab2_turno_selector_key, "")
-                                        or local_shift_options_tab2[0]
-                                    ).strip()
-                                    turno_actual_tab2 = str(actual_row.get("Turno", "") or "").strip()
-                                    if nuevo_turno_tab2 and nuevo_turno_tab2 != turno_actual_tab2:
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(
-                                                gsheet_row_index,
-                                                col_idx("Turno"),
-                                            ),
-                                            "values": [[nuevo_turno_tab2]],
-                                        })
-                                        changes_made = True
+                                    keep_original_turno_save_tab2 = bool(
+                                        st.session_state.get("tab2_keep_original_turno_for_closed_shift")
+                                    )
+                                    if not keep_original_turno_save_tab2:
+                                        nuevo_turno_tab2 = str(
+                                            st.session_state.get(tab2_turno_selector_key, "")
+                                            or local_shift_options_tab2[0]
+                                        ).strip()
+                                        turno_actual_tab2 = str(actual_row.get("Turno", "") or "").strip()
+                                        if nuevo_turno_tab2 and nuevo_turno_tab2 != turno_actual_tab2:
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(
+                                                    gsheet_row_index,
+                                                    col_idx("Turno"),
+                                                ),
+                                                "values": [[nuevo_turno_tab2]],
+                                            })
+                                            changes_made = True
 
                                 # 3) Subida de archivos de Surtido -> Adjuntos_Surtido
                                 new_adjuntos_surtido_urls = []
