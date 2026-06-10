@@ -5218,7 +5218,7 @@ with tab3, suppress(StopException):
 
     # Columnas mínimas
     needed_cols = [
-        "ID_Pedido","Hora_Registro","Vendedor_Registro","Cliente","Folio_Factura",
+        "ID_Pedido","Hora_Registro","Vendedor_Registro","id_vendedor","Cliente","Folio_Factura",
         "Tipo_Envio","Aplica_Pago","Resultado_Esperado","Numero_Cliente_RFC","Area_Responsable","Nombre_Responsable",
         "Material_Devuelto","Monto_Devuelto","Motivo_Detallado","Motivo_NotaVenta","Tipo_Envio_Original","Estatus_OrigenF",
         "Adjuntos","Hoja_Ruta_Mensajero","Estado_Caso","Estado_Recepcion","Turno","Fecha_Entrega",
@@ -5381,6 +5381,7 @@ with tab3, suppress(StopException):
             mod_txt_displayed = True
 
         vendedor = row.get("Vendedor_Registro", "") or row.get("Vendedor", "")
+        id_vendedor = __s(row.get("id_vendedor", ""))
         hora = row.get("Hora_Registro", "")
 
         if is_dev:
@@ -5393,6 +5394,7 @@ with tab3, suppress(StopException):
                 f"📄 **Folio Error:** `{folio_error or 'N/A'}`  |  "
                 f"📊 **Estatus Factura Origen:** `{estatus_origen_display}`  |  "
                 f"🧑‍💼 **Vendedor:** `{vendedor or 'N/A'}`  |  "
+                f"🆔 **ID vendedor:** `{id_vendedor or 'N/A'}`  |  "
                 f"🕒 **Hora:** `{hora or 'N/A'}`"
             )
             guias_registradas = __s(row.get(GUIAS_DEVOLUCION_COL, ""))
