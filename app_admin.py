@@ -2465,7 +2465,7 @@ tab_names = [
     "💳 Pendientes de Confirmar",
     "📥 Confirmados",
     "📦 Casos Especiales",
-    "🗂️ Data Especiales",
+    "🗂️ Datos Historicos Especiales",
 ]
 
 _tab_param = st.query_params.get(TAB_QUERY_PARAM)
@@ -6116,7 +6116,7 @@ with tab4:
     if tab4_is_active:
         st.session_state[TAB_SESSION_KEY] = 3
         st.session_state["current_tab"] = "3"
-    st.header("📥 Casos Especiales (Devoluciones/Garantías)")
+    st.header("📥 Datos Historicos Especiales (Devoluciones/Garantías)")
 
     from io import BytesIO
     from datetime import datetime
@@ -6137,7 +6137,7 @@ with tab4:
         headers = vals[0]
         df = pd.DataFrame(vals[1:], columns=headers)
         df = df.dropna(how="all")
-        for c in ["ID_Pedido", "Cliente", "Folio_Factura", "Tipo_Envio", "Hora_Registro"]:
+        for c in ["ID_Pedido", "Cliente", "Folio_Factura", "Folio_Factura_Error", "Tipo_Envio", "Hora_Registro"]:
             if c not in df.columns:
                 df[c] = ""
         return df, headers
@@ -6345,6 +6345,7 @@ with tab4:
         "Hora_Registro",
         "Cliente",
         "Folio_Factura",
+        "Folio_Factura_Error",
         "Tipo_Envio",
         "Comentario_Gerente",
         "Tipo_Envio_Original",
