@@ -3848,7 +3848,7 @@ def render_uploaded_files_preview(title: str, files) -> None:
     for file_obj in files:
         render_uploaded_file_preview(file_obj)
 
-def render_caso_especial(row):
+def render_caso_especial(row, show_material: bool = True):
     tipo = __s(row.get("Tipo_Envio", ""))
     is_dev = (tipo == "🔁 Devolución")
     title = "🧾 Caso Especial – 🔁 Devolución" if is_dev else "🧾 Caso Especial – 🛠 Garantía"
@@ -3908,7 +3908,7 @@ def render_caso_especial(row):
     if __has(row.get("Motivo_Detallado","")):
         st.markdown("**📝 Motivo / Descripción:**")
         st.info(__s(row.get("Motivo_Detallado","")))
-    if __has(row.get("Material_Devuelto","")):
+    if show_material and __has(row.get("Material_Devuelto","")):
         st.markdown("**📦 Piezas / Material:**")
         material_text = __s(row.get("Material_Devuelto",""))
         material_has_structured_format = "|" in material_text
@@ -7540,6 +7540,12 @@ with tab2:
                         "tab2_local_route_last_query",
                     ):
                         st.session_state.pop(tab2_local_key, None)
+                    for tab2_material_key in (
+                        "tab2_material_devuelto_editor",
+                        "tab2_material_devuelto_editor_seed",
+                        "tab2_material_devuelto_editor_rows",
+                    ):
+                        st.session_state.pop(tab2_material_key, None)
 
                 matched = filtered_orders[
                     filtered_orders['option_value'] == selected_option_key
@@ -7560,8 +7566,9 @@ with tab2:
 
                 # Si viene de casos_especiales y es Devolución/Garantía -> render especial
                 tipo_det = __s(selected_row_data.get('Tipo_Envio', ''))
-                if selected_source == "casos_especiales" and tipo_det in ("🔁 Devolución", "🛠 Garantía"):
-                    render_caso_especial(selected_row_data)
+                tab2_special_case_material = selected_source == "casos_especiales" and tipo_det in ("🔁 Devolución", "🛠 Garantía")
+                if tab2_special_case_material:
+                    render_caso_especial(selected_row_data, show_material=False)
                 else:
                     # ----------------- Detalles básicos (para data_pedidos u otros) -----------------
                     st.subheader(
@@ -7665,6 +7672,20 @@ with tab2:
                 current_has_comprobante_effective = current_has_comprobante or current_paid_from_sheet
                 current_adjuntos_surtido_str = selected_row_data.get('Adjuntos_Surtido', '')
                 current_adjuntos_surtido_list = [f.strip() for f in str(current_adjuntos_surtido_str).split(',') if f.strip()]
+                current_material_devuelto_value = selected_row_data.get("Material_Devuelto", "")
+                tab2_material_rows_clean: List[Dict[str, str]] = []
+                tab2_material_storage_value: Optional[str] = None
+                tab2_material_total = 0.0
+                if tab2_special_case_material:
+                    tab2_material_seed = str(current_material_devuelto_value or "")
+                    if (
+                        option_changed
+                        or st.session_state.get("tab2_material_devuelto_editor_seed") != tab2_material_seed
+                    ):
+                        st.session_state["tab2_material_devuelto_editor_seed"] = tab2_material_seed
+                        st.session_state["tab2_material_devuelto_editor_rows"] = get_material_rows_for_editor(
+                            tab2_material_seed
+                        )
                 tab2_route_prefix = "tab2_local_route"
                 tab2_local_order = selected_row_data.get("Tipo_Envio", "") == "📍 Pedido Local"
                 tab2_turno_selector_key = "tab2_local_shift_selector"
@@ -8103,6 +8124,53 @@ with tab2:
                         key="new_modificacion_surtido_input"
                     )
 
+                    if tab2_special_case_material:
+                        st.markdown("### 📦 Materiales del caso especial")
+                        st.caption(
+                            "Edita los materiales ya capturados, agrega nuevas filas o elimina las que ya no apliquen. "
+                            "Si no haces cambios, se conservará lo que está guardado en casos_especiales."
+                        )
+                        tab2_material_source_df = material_editor_dataframe(
+                            st.session_state.get("tab2_material_devuelto_editor_rows", [])
+                        )
+                        if "Monto IVA" in tab2_material_source_df.columns:
+                            tab2_monto_editor_series = (
+                                tab2_material_source_df["Monto IVA"]
+                                .astype(str)
+                                .str.replace("$", "", regex=False)
+                                .str.replace(",", "", regex=False)
+                                .str.strip()
+                                .replace({"": None, "None": None, "none": None, "nan": None, "NaN": None})
+                            )
+                            tab2_material_source_df["Monto IVA"] = pd.to_numeric(
+                                tab2_monto_editor_series,
+                                errors="coerce",
+                            )
+
+                        tab2_material_editor_df = st.data_editor(
+                            tab2_material_source_df,
+                            key="tab2_material_devuelto_editor",
+                            num_rows="dynamic",
+                            hide_index=True,
+                            use_container_width=True,
+                            column_config={
+                                "Código": st.column_config.TextColumn("Código", help="Ejemplo: TOR-208"),
+                                "Descripción": st.column_config.TextColumn("Descripción"),
+                                "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0, step=1, format="%d"),
+                                "Monto IVA": st.column_config.NumberColumn("Monto IVA", min_value=0.0, step=0.01, format="$%.2f"),
+                            },
+                        )
+                        tab2_material_rows_clean = sanitize_material_editor_rows(tab2_material_editor_df)
+                        st.session_state["tab2_material_devuelto_editor_rows"] = tab2_material_rows_clean
+                        tab2_material_storage_value = format_material_rows_for_storage(tab2_material_rows_clean)
+                        tab2_material_total = sum_material_rows_monto_iva(tab2_material_rows_clean)
+                        st.text_input(
+                            "Total de Materiales (con IVA)",
+                            value=f"${tab2_material_total:,.2f}",
+                            disabled=True,
+                            help="Se calcula automáticamente con la suma de la columna 'Monto IVA'.",
+                        )
+
                     uploaded_files_surtido = st.file_uploader(
                         "📎 Subir Archivos para Modificación/Surtido",
                         type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
@@ -8277,6 +8345,41 @@ with tab2:
 
                                 def col_idx(col):
                                     return headers.index(col) + 1
+
+                                if tab2_special_case_material and tab2_material_storage_value is not None:
+                                    actual_material_rows = sanitize_material_editor_rows(
+                                        material_editor_dataframe(
+                                            get_material_rows_for_editor(
+                                                actual_row.get("Material_Devuelto", "")
+                                            )
+                                        )
+                                    )
+                                    if tab2_material_rows_clean != actual_material_rows:
+                                        if col_exists("Material_Devuelto"):
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(
+                                                    gsheet_row_index,
+                                                    col_idx("Material_Devuelto"),
+                                                ),
+                                                "values": [[tab2_material_storage_value]],
+                                            })
+                                            changes_made = True
+                                        else:
+                                            feedback_slot.warning(
+                                                "⚠️ La hoja no tiene columna 'Material_Devuelto'; no se pudieron guardar los materiales."
+                                            )
+
+                                        if col_exists("Monto_Devuelto"):
+                                            monto_materiales_mod = normalize_case_amount(tab2_material_total)
+                                            if str(actual_row.get("Monto_Devuelto", "")).strip() != monto_materiales_mod:
+                                                cell_updates.append({
+                                                    "range": rowcol_to_a1(
+                                                        gsheet_row_index,
+                                                        col_idx("Monto_Devuelto"),
+                                                    ),
+                                                    "values": [[monto_materiales_mod]],
+                                                })
+                                                changes_made = True
 
                                 # 2) Guardar Modificacion_Surtido (si cambió)
                                 if col_exists("Modificacion_Surtido"):
