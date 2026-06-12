@@ -1982,6 +1982,8 @@ def safe_batch_update_with_confirmation(
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
 SHEET_PEDIDOS_OPERATIVOS = "data_pedidos"
+
+TAB2_MODIFICATION_TYPE_COLUMN = "Tipo_Modificacion"
 SHEET_PEDIDOS_HISTORICOS = "datos_pedidos"
 SHEET_CLIENTES_LOCALES = "Clientes_Locales"
 SHEET_ZONAS_REMOTAS = "Zonas_Remotas"
@@ -6818,7 +6820,7 @@ def cargar_pedidos_combinados():
             'ID_Pedido','Cliente','Folio_Factura','Vendedor_Registro','Estado','Hora_Registro','Turno','Fecha_Entrega',
             'Comentario','Estado_Pago','Motivo_NotaVenta',
             # archivos/adjuntos
-            'Adjuntos','Adjuntos_Guia','Adjuntos_Surtido','Modificacion_Surtido',
+            'Adjuntos','Adjuntos_Guia','Adjuntos_Surtido','Modificacion_Surtido',TAB2_MODIFICATION_TYPE_COLUMN,
             # refacturación
             'Refacturacion_Tipo','Refacturacion_Subtipo','Folio_Factura_Refacturada',
             # seguimiento de modificaciones
@@ -6867,7 +6869,7 @@ def cargar_pedidos_combinados():
             'Turno','Fecha_Entrega','Hora_Registro','Hora_Proceso','Vendedor_Registro','Comentario','Estado_Pago',
             # adjuntos/guía/modificación
             'Adjuntos','Adjuntos_Guia','Hoja_Ruta_Mensajero',
-            'Adjuntos_Surtido','Modificacion_Surtido',
+            'Adjuntos_Surtido','Modificacion_Surtido',TAB2_MODIFICATION_TYPE_COLUMN,
             # cliente/estatus caso
             'Numero_Cliente_RFC','Estado_Caso',
             # refacturación
@@ -7660,8 +7662,12 @@ with tab2:
 
                 # ----------------- Valores actuales (para formulario) -----------------
                 current_modificacion_surtido_value = selected_row_data.get('Modificacion_Surtido', '')
+                current_tipo_modificacion_value = str(
+                    selected_row_data.get(TAB2_MODIFICATION_TYPE_COLUMN, "") or ""
+                ).strip()
                 if option_changed:
                     st.session_state["new_modificacion_surtido_input"] = str(current_modificacion_surtido_value or "")
+                    st.session_state.pop("tipo_modificacion_mod", None)
                 current_estado_pago_value = selected_row_data.get('Estado_Pago', '🔴 No Pagado')
                 current_adjuntos_str = selected_row_data.get('Adjuntos', '')
                 current_adjuntos_list = [f.strip() for f in str(current_adjuntos_str).split(',') if f.strip()]
@@ -7773,10 +7779,22 @@ with tab2:
                 st.markdown("### 🛠 Tipo de modificación")
 
                 # ----------------- Tipo de modificación -----------------
+                if tab2_special_case_material:
+                    tab2_modification_type_options = ["Otro", "Nueva Ruta", "Refacturación", "Por Material"]
+                else:
+                    tab2_modification_type_options = ["Por Material", "Nueva Ruta", "Refacturación", "Otro"]
+
+                if st.session_state.get("tipo_modificacion_mod") not in tab2_modification_type_options:
+                    default_modification_type = (
+                        current_tipo_modificacion_value
+                        if current_tipo_modificacion_value in tab2_modification_type_options
+                        else tab2_modification_type_options[0]
+                    )
+                    st.session_state["tipo_modificacion_mod"] = default_modification_type
+
                 tipo_modificacion_seleccionada = st.selectbox(
                     "📌 ¿Qué tipo de modificación estás registrando?",
-                    ["Otro", "Nueva Ruta", "Refacturación"],
-                    index=0,
+                    tab2_modification_type_options,
                     key="tipo_modificacion_mod"
                 )
 
@@ -8212,6 +8230,9 @@ with tab2:
                             )
                             can_process_modification = False
 
+                        tab2_modificacion_surtido_to_save = str(new_modificacion_surtido_input or "")
+                        tab2_tipo_modificacion_to_save = str(tipo_modificacion_seleccionada or "").strip()
+
                         if can_process_modification and apply_local_route_update and tab2_route_payload:
                             missing_route_fields = get_local_route_missing_fields(tab2_route_payload)
                             if missing_route_fields:
@@ -8246,6 +8267,10 @@ with tab2:
                                         feedback_slot.empty()
                                         feedback_slot.error(f"❌ No se encontró la columna 'ID_Pedido' en la hoja {hoja_objetivo}.")
                                         st.stop()
+                                    if TAB2_MODIFICATION_TYPE_COLUMN not in headers:
+                                        headers = headers + [TAB2_MODIFICATION_TYPE_COLUMN]
+                                        worksheet.update("A1", [headers], value_input_option="RAW")
+                                        get_sheet_headers.clear()
 
                                     id_col_index = headers.index("ID_Pedido")
                                     selected_order_id_normalized = str(selected_order_id).strip()
@@ -8381,15 +8406,25 @@ with tab2:
                                                 })
                                                 changes_made = True
 
-                                # 2) Guardar Modificacion_Surtido (si cambió)
+                                # 2) Guardar notas y tipo de modificación en columnas separadas
                                 if col_exists("Modificacion_Surtido"):
-                                    if str(new_modificacion_surtido_input) != str(current_modificacion_surtido_value):
+                                    if str(tab2_modificacion_surtido_to_save) != str(current_modificacion_surtido_value):
                                         cell_updates.append({
                                             "range": rowcol_to_a1(
                                                 gsheet_row_index,
                                                 col_idx("Modificacion_Surtido"),
                                             ),
-                                            "values": [[str(new_modificacion_surtido_input)]],
+                                            "values": [[str(tab2_modificacion_surtido_to_save)]],
+                                        })
+                                        changes_made = True
+                                if col_exists(TAB2_MODIFICATION_TYPE_COLUMN):
+                                    if str(tab2_tipo_modificacion_to_save) != str(current_tipo_modificacion_value):
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(
+                                                gsheet_row_index,
+                                                col_idx(TAB2_MODIFICATION_TYPE_COLUMN),
+                                            ),
+                                            "values": [[tab2_tipo_modificacion_to_save]],
                                         })
                                         changes_made = True
                                 if tab2_local_order and apply_local_route_update and col_exists("Turno"):
