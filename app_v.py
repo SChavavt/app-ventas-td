@@ -10972,17 +10972,12 @@ with tab8:
         buscar_btn = st.button("🔎 Buscar", key="tab_buscar_btn_guia")
 
     else:
-        with st.form("tab_buscar_form_cliente", clear_on_submit=False):
-            keyword = st.text_input(
-                "🧑 Ingresa el nombre del cliente o folio de factura a buscar:",
-                help=(
-                    "Puedes escribir el nombre del cliente o el folio de factura; "
-                    "la búsqueda ignora mayúsculas, acentos y espacios en el folio. "
-                    "Presiona Enter o usa el botón para buscar."
-                ),
-                key="tab_buscar_keyword_cliente",
-            )
-            buscar_btn = st.form_submit_button("🔍 Buscar Pedido del Cliente")
+        keyword = st.text_input(
+            "🧑 Ingresa el nombre del cliente o folio de factura a buscar:",
+            help="Puedes escribir el nombre del cliente o el folio de factura; la búsqueda ignora mayúsculas, acentos y espacios en el folio.",
+            key="tab_buscar_keyword_cliente",
+        )
+        buscar_btn = st.button("🔍 Buscar Pedido del Cliente", key="tab_buscar_btn_cliente")
 
     filtro_fechas_activo = bool(filtrar_por_rango and fecha_inicio_dt and fecha_fin_dt)
 
