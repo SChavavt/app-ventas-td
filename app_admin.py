@@ -987,6 +987,8 @@ def reset_pending_confirmation_selection_state() -> None:
     st.session_state.pop("select_pedido_local_no_pagado", None)
     st.session_state.pop("pedido_select_source", None)
     st.session_state.pop("last_selected_pedido_key", None)
+    st.session_state.pop("pending_confirm_preselect_index", None)
+    st.session_state.pop("pending_confirm_table_selector", None)
 
 
 def release_app_memory() -> None:
@@ -2568,6 +2570,8 @@ with tab1:
             st.session_state.pop("select_pedido_comprobante", None)
             st.session_state.pop("select_pedido_local_no_pagado", None)
             st.session_state.pop("pedido_select_source", None)
+            st.session_state.pop("pending_confirm_preselect_index", None)
+            st.session_state.pop("pending_confirm_table_selector", None)
             st.toast(
                 "✅ Pedidos recargados: la nueva Fecha_Entrega ya debe verse",
                 icon="✅",
@@ -2664,11 +2668,39 @@ with tab1:
                 if 'Fecha_Entrega' in df_vista.columns:
                     df_vista['Fecha_Entrega'] = pd.to_datetime(df_vista['Fecha_Entrega'], errors='coerce').dt.strftime('%d/%m/%Y')
 
-                st.dataframe(
-                    df_vista.sort_values(by='Fecha_Entrega' if 'Fecha_Entrega' in df_vista.columns else existing_columns[0]),
-                    use_container_width=True,
-                    hide_index=True
+                pending_sort_col = (
+                    'Fecha_Entrega'
+                    if 'Fecha_Entrega' in df_vista.columns
+                    else existing_columns[0]
                 )
+                tabla_pendientes = df_vista.sort_values(by=pending_sort_col).copy()
+                tabla_pendientes["__pedido_selector_pos"] = [
+                    pedidos_pagados_no_confirmados.index.get_loc(idx)
+                    for idx in tabla_pendientes.index
+                ]
+
+                pending_table_event = st.dataframe(
+                    tabla_pendientes,
+                    use_container_width=True,
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="pending_confirm_table_selector",
+                    column_config={"__pedido_selector_pos": None},
+                )
+
+                pending_selection = getattr(pending_table_event, "selection", {})
+                if isinstance(pending_selection, dict):
+                    pending_selected_rows = pending_selection.get("rows", [])
+                else:
+                    pending_selected_rows = getattr(pending_selection, "rows", [])
+                if pending_selected_rows:
+                    pending_selected_display_pos = pending_selected_rows[0]
+                    if 0 <= pending_selected_display_pos < len(tabla_pendientes):
+                        pending_selected_row = tabla_pendientes.iloc[pending_selected_display_pos]
+                        st.session_state["pending_confirm_preselect_index"] = int(
+                            pending_selected_row["__pedido_selector_pos"]
+                        )
 
             st.markdown("---")
             st.subheader("🔍 Revisar Comprobante de Pago")
@@ -2708,6 +2740,28 @@ with tab1:
             )
 
             pedido_options = pedidos_pagados_no_confirmados["display_label"].tolist()
+            pending_preselect_index = st.session_state.pop(
+                "pending_confirm_preselect_index", None
+            )
+            if (
+                pending_preselect_index is not None
+                and 0 <= int(pending_preselect_index) < len(pedido_options)
+            ):
+                pending_preselect_index = int(pending_preselect_index)
+                current_select_index = st.session_state.get("select_pedido_comprobante")
+                if (
+                    current_select_index != pending_preselect_index
+                    or st.session_state.get("pedido_select_source") != "main"
+                ):
+                    clear_comprobante_form_state()
+                    st.session_state.pop("last_selected_pedido_key", None)
+                st.session_state["pedido_select_source"] = "main"
+                st.session_state["select_pedido_comprobante"] = pending_preselect_index
+                st.toast(
+                    f"✅ Pedido seleccionado: {pedido_options[pending_preselect_index]}",
+                    icon="✅",
+                )
+
             selected_index = st.selectbox(
                 "📝 Seleccionar Pedido para Revisar Comprobante",
                 options=list(range(len(pedido_options))),
