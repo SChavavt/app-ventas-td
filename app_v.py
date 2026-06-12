@@ -10929,10 +10929,13 @@ with tab8:
     fecha_fin_date = None
 
     if modo_busqueda == "🔢 Por número de guía":
-        keyword = st.text_input(
-            "📦 Ingresa una palabra clave, número de guía, fragmento o código a buscar:",
-            key="tab_buscar_keyword_guia",
-        )
+        with st.form("tab_buscar_form_guia", clear_on_submit=False):
+            keyword = st.text_input(
+                "📦 Ingresa una palabra clave, número de guía, fragmento o código a buscar:",
+                help="Presiona Enter o usa el botón para buscar por número de guía.",
+                key="tab_buscar_keyword_guia",
+            )
+            buscar_btn = st.form_submit_button("🔎 Buscar")
 
         orden_seleccionado = st.selectbox(
             "Orden de los resultados",
@@ -10969,15 +10972,18 @@ with tab8:
                 fecha_inicio_dt = datetime.combine(fecha_inicio_date, datetime.min.time())
                 fecha_fin_dt = datetime.combine(fecha_fin_date, datetime.max.time())
 
-        buscar_btn = st.button("🔎 Buscar", key="tab_buscar_btn_guia")
-
     else:
-        keyword = st.text_input(
-            "🧑 Ingresa el nombre del cliente o folio de factura a buscar:",
-            help="Puedes escribir el nombre del cliente o el folio de factura; la búsqueda ignora mayúsculas, acentos y espacios en el folio.",
-            key="tab_buscar_keyword_cliente",
-        )
-        buscar_btn = st.button("🔍 Buscar Pedido del Cliente", key="tab_buscar_btn_cliente")
+        with st.form("tab_buscar_form_cliente", clear_on_submit=False):
+            keyword = st.text_input(
+                "🧑 Ingresa el nombre del cliente o folio de factura a buscar:",
+                help=(
+                    "Puedes escribir el nombre del cliente o el folio de factura; "
+                    "la búsqueda ignora mayúsculas, acentos y espacios en el folio. "
+                    "Presiona Enter o usa el botón para buscar."
+                ),
+                key="tab_buscar_keyword_cliente",
+            )
+            buscar_btn = st.form_submit_button("🔍 Buscar Pedido del Cliente")
 
     filtro_fechas_activo = bool(filtrar_por_rango and fecha_inicio_dt and fecha_fin_dt)
 
