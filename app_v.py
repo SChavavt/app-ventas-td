@@ -193,6 +193,7 @@ USUARIOS_VALIDOS = [
     "SANT1460",
     "SCHAVA",
     "NORMA12",
+    "ANGIE27",
 ]
 
 VENDEDOR_NOMBRE_POR_ID = {
@@ -212,6 +213,7 @@ VENDEDOR_NOMBRE_POR_ID = {
     "SANT1460": "SANTIAGO",
     "SCHAVA": "SCHAVA",
     "NORMA12":"NORMA SALAZAR",
+    "ANGIE27": "ANGELICA",
 }
 
 TAB1_LOCAL_CDMX_DISABLE_ROUTE_IDS = {
@@ -517,6 +519,7 @@ def get_subtipo_local_excel_value(subtipo_local: str) -> str:
 
 LOCAL_TURNO_COMBINADO_IDS: set[str] = set()
 TAB1_DUAL_VIEW_IDS = {"ALEJANDRO38", "CECILIA94", "CARITO82", "GLORIA53", "KAREN58", "NORMA12"}
+TAB1_CDMX_ONLY_VIEW_IDS = {"ANGIE27"}
 TAB1_VIEW_TOGGLE_IDS = TAB1_DUAL_VIEW_IDS
 
 
@@ -4005,6 +4008,7 @@ id_vendedor_tabs = normalize_vendedor_id(st.session_state.get("id_vendedor", "")
 tab1_view_mode_tabs = str(st.session_state.get("tab1_shipping_view_mode", "mty")).strip().lower()
 show_tab_ventas_reportes = (
     id_vendedor_tabs in LOCAL_TURNO_COMBINADO_IDS
+    or id_vendedor_tabs in TAB1_CDMX_ONLY_VIEW_IDS
     or (id_vendedor_tabs in TAB1_DUAL_VIEW_IDS and tab1_view_mode_tabs == "cdmx")
 )
 tabs_labels = ["🛒 Registrar Nuevo Pedido"]
@@ -4138,6 +4142,7 @@ VENDEDORES_LIST = sorted([
     "PAULINA TREJO",
     "SANTIAGO",
     "NORMA SALAZAR",
+    "ANGELICA",
 ])
 
 # Initialize session state for vendor (default linked to logged-in vendor ID)
@@ -4197,6 +4202,7 @@ with tab1:
         )
     id_vendedor_tab1 = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
     tab1_is_dual_view_user = id_vendedor_tab1 in TAB1_DUAL_VIEW_IDS
+    tab1_is_cdmx_only_view_user = id_vendedor_tab1 in TAB1_CDMX_ONLY_VIEW_IDS
     tab1_can_toggle_view_mode = id_vendedor_tab1 in TAB1_VIEW_TOGGLE_IDS
     tab1_is_combined_local_user = id_vendedor_tab1 in LOCAL_TURNO_COMBINADO_IDS
     tab1_enable_link_pago_option = tab1_is_combined_local_user
@@ -4231,11 +4237,16 @@ with tab1:
                     st.session_state[tab1_view_mode_key] = "cdmx"
                     st.rerun()
                 current_view_mode = "cdmx"
+    elif tab1_is_cdmx_only_view_user:
+        st.session_state[tab1_view_mode_key] = "cdmx"
+        current_view_mode = "cdmx"
+        st.caption("Vista de captura para vendedores:")
+        st.markdown("**Vista activa:** 🔴 CDMX")
     else:
         st.session_state.pop(tab1_view_mode_key, None)
         current_view_mode = "mty"
 
-    if tab1_can_toggle_view_mode:
+    if tab1_can_toggle_view_mode or tab1_is_cdmx_only_view_user:
         if current_view_mode == "cdmx":
             st.header("🏙️ Nuevo Pedido CDMX")
         else:
@@ -4246,13 +4257,14 @@ with tab1:
     tab1_special_shipping = current_view_mode == "cdmx"
     tab1_emulate_cdmx_vendor_view = (
         id_vendedor_tab1 in LOCAL_TURNO_COMBINADO_IDS
+        or tab1_is_cdmx_only_view_user
         or (tab1_is_dual_view_user and tab1_special_shipping)
     )
     tab1_allow_pedidos_cdmx_option = not (
         tab1_emulate_cdmx_vendor_view or tab1_is_combined_local_user
     )
     tab1_use_short_mty_labels = tab1_emulate_cdmx_vendor_view
-    if tab1_special_shipping and tab1_is_dual_view_user:
+    if tab1_special_shipping and (tab1_is_dual_view_user or tab1_is_cdmx_only_view_user):
         tab1_enable_link_pago_option = True
     if tab1_special_shipping:
         tipo_envio_options = [
