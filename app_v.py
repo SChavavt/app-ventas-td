@@ -4380,9 +4380,14 @@ with tab1:
             st.markdown("---")
             st.subheader("⏰ Detalle de Pedido Local")
             if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
+                fecha_entrega_minima = datetime.now().date()
+                fecha_entrega_actual = st.session_state.get("fecha_entrega_input", fecha_entrega_minima)
+                if isinstance(fecha_entrega_actual, date) and fecha_entrega_actual < fecha_entrega_minima:
+                    fecha_entrega_actual = fecha_entrega_minima
                 fecha_entrega = st.date_input(
                     "🗓 Fecha de Entrega Requerida",
-                    value=st.session_state.get("fecha_entrega_input", datetime.now().date()),
+                    value=fecha_entrega_actual,
+                    min_value=fecha_entrega_minima,
                     key="fecha_entrega_input",
                 )
             if tipo_envio == UBER_TIPO_ENVIO:
@@ -5018,9 +5023,14 @@ with tab1:
         # Campos de pedido normal (no Casos Especiales)
         if tipo_envio not in ["🔁 Devolución", "🛠 Garantía"]:
             if not usa_logica_local:
+                fecha_entrega_minima = datetime.now().date()
+                fecha_entrega_actual = st.session_state.get("fecha_entrega_input", fecha_entrega_minima)
+                if isinstance(fecha_entrega_actual, date) and fecha_entrega_actual < fecha_entrega_minima:
+                    fecha_entrega_actual = fecha_entrega_minima
                 fecha_entrega = st.date_input(
                     "🗓 Fecha de Entrega Requerida",
-                    value=st.session_state.get("fecha_entrega_input", datetime.now().date()),
+                    value=fecha_entrega_actual,
+                    min_value=fecha_entrega_minima,
                     key="fecha_entrega_input",
                     format="DD/MM/YYYY",
                     help="Selecciona la fecha requerida de entrega para este pedido.",
@@ -8013,9 +8023,14 @@ with tab2:
                             key=f"{tab2_route_prefix}_referencias",
                         )
 
+                        tab2_fecha_entrega_minima = datetime.now().date()
+                        tab2_fecha_entrega_actual = st.session_state.get(tab2_fecha_entrega_key, tab2_fecha_entrega_minima)
+                        if isinstance(tab2_fecha_entrega_actual, date) and tab2_fecha_entrega_actual < tab2_fecha_entrega_minima:
+                            tab2_fecha_entrega_actual = tab2_fecha_entrega_minima
                         tab2_fecha_entrega_requerida = st.date_input(
                             "🗓 Fecha de Entrega Requerida",
-                            value=st.session_state.get(tab2_fecha_entrega_key, datetime.now().date()),
+                            value=tab2_fecha_entrega_actual,
+                            min_value=tab2_fecha_entrega_minima,
                             key=tab2_fecha_entrega_key,
                         )
                         blocked_shifts_tab2 = get_blocked_local_shifts_for_options(
