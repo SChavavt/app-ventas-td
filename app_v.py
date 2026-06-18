@@ -4018,7 +4018,7 @@ tabs_labels.extend([
     "✏️ Modificar Pedido Existente",
     "📦 Guías Cargadas",
     "🔍 Buscar Pedido",
-    "🧾 Pedidos Pendientes de Comprobante",
+    "🧾 No Pagados: Comprobante o Crédito",
     "📁 Casos Especiales",
     "⏳ Pedidos No Entregados",
     "⬇️ Descargar Datos",
@@ -8780,7 +8780,7 @@ with tab3:
     tab3_is_active = default_tab == TAB_INDEX_TAB3
     if tab3_is_active:
         st.session_state["current_tab_index"] = TAB_INDEX_TAB3
-    st.header("🧾 Pedidos Pendientes de Comprobante")
+    st.header("🧾 Pedidos No Pagados: Comprobante o Crédito")
 
     df_pedidos_comprobante = pd.DataFrame()
     worksheets_by_source: dict[str, object] = {}
@@ -8896,18 +8896,10 @@ with tab3:
             ]
             columnas_mostrar = [c for c in columnas_mostrar if c in pedidos_sin_comprobante.columns]
 
-            st.dataframe(pedidos_sin_comprobante[columnas_mostrar].sort_values(by='Fecha_Entrega'), use_container_width=True, hide_index=True)
-
-            # ✅ Bloque de subida o marca sin comprobante SOLO si hay pedidos pendientes
-            st.markdown("---")
-            st.subheader("Subir Comprobante para un Pedido")
-
             # 🆕 Ordenar por Fecha_Entrega descendente para mostrar los más recientes primero
             if 'Fecha_Entrega' in pedidos_sin_comprobante.columns:
                 pedidos_sin_comprobante['Fecha_Entrega'] = pd.to_datetime(pedidos_sin_comprobante['Fecha_Entrega'], errors='coerce')
                 pedidos_sin_comprobante = pedidos_sin_comprobante.sort_values(by='Fecha_Entrega', ascending=False).reset_index(drop=True)
-
-
 
             pedidos_sin_comprobante['display_label'] = pedidos_sin_comprobante.apply(lambda row:
                 f"📄 {row.get('Folio_Factura', 'N/A') or row.get('ID_Pedido', 'N/A')} - {row.get('Cliente', 'N/A')} - {row.get('Estado', 'N/A')} [{row.get('Fuente', 'N/A')}]", axis=1)
@@ -8929,8 +8921,43 @@ with tab3:
 
             option_label_map = dict(zip(pedidos_sin_comprobante['option_value'], pedidos_sin_comprobante['display_label']))
 
+            tabla_pendientes_comprobante = pedidos_sin_comprobante[columnas_mostrar + ['option_value']].copy()
+            pending_comprobante_table_event = st.dataframe(
+                tabla_pendientes_comprobante.sort_values(by='Fecha_Entrega') if 'Fecha_Entrega' in tabla_pendientes_comprobante.columns else tabla_pendientes_comprobante,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="pending_comprobante_table_selector",
+                column_config={"option_value": None},
+            )
+            pending_comprobante_selection = getattr(pending_comprobante_table_event, "selection", {})
+            if isinstance(pending_comprobante_selection, dict):
+                pending_comprobante_selected_rows = pending_comprobante_selection.get("rows", [])
+            else:
+                pending_comprobante_selected_rows = getattr(pending_comprobante_selection, "rows", [])
+            if pending_comprobante_selected_rows:
+                pending_comprobante_display_pos = pending_comprobante_selected_rows[0]
+                displayed_pendientes_comprobante = (
+                    tabla_pendientes_comprobante.sort_values(by='Fecha_Entrega')
+                    if 'Fecha_Entrega' in tabla_pendientes_comprobante.columns
+                    else tabla_pendientes_comprobante
+                )
+                if 0 <= pending_comprobante_display_pos < len(displayed_pendientes_comprobante):
+                    pending_comprobante_option = displayed_pendientes_comprobante.iloc[pending_comprobante_display_pos]['option_value']
+                    if st.session_state.get("select_pending_order_comprobante") != pending_comprobante_option:
+                        st.session_state["select_pending_order_comprobante"] = pending_comprobante_option
+                        st.toast(
+                            f"✅ Pedido seleccionado: {option_label_map.get(pending_comprobante_option, pending_comprobante_option)}",
+                            icon="✅",
+                        )
+
+            # ✅ Bloque de subida, marca sin comprobante o cambio a crédito SOLO si hay pedidos pendientes
+            st.markdown("---")
+            st.subheader("Actualizar Estado de Pago del Pedido")
+
             selected_pending_option_key = st.selectbox(
-                "📝 Seleccionar Pedido para Subir Comprobante",
+                "📝 Seleccionar Pedido para Actualizar Estado de Pago",
                 list(option_label_map.keys()),
                 format_func=lambda option_key: option_label_map.get(option_key, option_key),
                 key="select_pending_order_comprobante"
@@ -8947,6 +8974,42 @@ with tab3:
                 worksheet_obj = worksheets_by_source.get(selected_source_name)
                 headers_source = headers_by_source.get(selected_source_name, [])
                 sheet_row_number = parse_sheet_row_number(selected_pending_row_data.get('Sheet_Row_Number'))
+
+                def _resolve_pending_target_row(headers_for_source, all_values_for_source):
+                    if 'ID_Pedido' not in headers_for_source:
+                        return None
+                    id_col_idx_local = headers_for_source.index('ID_Pedido')
+                    folio_col_idx_local = headers_for_source.index('Folio_Factura') if 'Folio_Factura' in headers_for_source else None
+                    cliente_col_idx_local = headers_for_source.index('Cliente') if 'Cliente' in headers_for_source else None
+
+                    def _row_value_local(row_values, idx):
+                        if idx is None or len(row_values) <= idx:
+                            return ""
+                        return str(row_values[idx]).strip().upper()
+
+                    if sheet_row_number and sheet_row_number <= len(all_values_for_source):
+                        candidate = all_values_for_source[sheet_row_number - 1]
+                        candidate_id = str(candidate[id_col_idx_local]).strip() if len(candidate) > id_col_idx_local else ''
+                        folio_ok = bool(selected_pending_folio) and _row_value_local(candidate, folio_col_idx_local) == selected_pending_folio
+                        cliente_ok = bool(selected_pending_cliente) and _row_value_local(candidate, cliente_col_idx_local) == selected_pending_cliente
+                        if candidate_id == selected_pending_order_id and (folio_ok or cliente_ok):
+                            return int(sheet_row_number)
+
+                    matches = []
+                    for row_number, row_values in enumerate(all_values_for_source[1:], start=2):
+                        row_id = str(row_values[id_col_idx_local]).strip() if len(row_values) > id_col_idx_local else ''
+                        if row_id != selected_pending_order_id:
+                            continue
+                        score = 0
+                        if selected_pending_folio and _row_value_local(row_values, folio_col_idx_local) == selected_pending_folio:
+                            score += 2
+                        if selected_pending_cliente and _row_value_local(row_values, cliente_col_idx_local) == selected_pending_cliente:
+                            score += 1
+                        matches.append((score, row_number))
+                    if not matches:
+                        return None
+                    matches.sort(reverse=True)
+                    return matches[0][1]
 
                 st.info(
                     f"Subiendo comprobante para: Folio {selected_pending_row_data.get('Folio_Factura')} "
@@ -9165,6 +9228,61 @@ with tab3:
                         pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
+
+                with st.form(key=f"credito_form_{selected_pending_order_id}"):
+                    comentario_credito = st.text_area(
+                        "💬 Comentario para crédito",
+                        value="",
+                        placeholder="Escribe el comentario que se guardará entre | |",
+                        key=f"credito_comment_{selected_pending_order_id}",
+                    )
+                    submit_credito = st.form_submit_button("💳 Cambiar a CREDITO")
+
+                    if submit_credito:
+                        try:
+                            if worksheet_obj is None:
+                                st.error("❌ No se encontró la hoja de origen del pedido seleccionado.")
+                                st.stop()
+                            if not headers_source:
+                                headers_source = worksheet_obj.row_values(1)
+                            required_cols = ['ID_Pedido', 'Estado_Pago', 'Comentario']
+                            missing_cols = [col for col in required_cols if col not in headers_source]
+                            if missing_cols:
+                                st.error(f"❌ Faltan columnas requeridas en la hoja: {', '.join(missing_cols)}")
+                                st.stop()
+
+                            all_values_source = worksheet_obj.get_all_values()
+                            sheet_row = _resolve_pending_target_row(headers_source, all_values_source)
+                            if sheet_row is None:
+                                st.error("❌ No se pudo resolver la fila real del pedido seleccionado en Google Sheets.")
+                                st.stop()
+
+                            id_col_idx = headers_source.index('ID_Pedido')
+                            resolved_row_values = all_values_source[sheet_row - 1] if sheet_row <= len(all_values_source) else worksheet_obj.row_values(sheet_row)
+                            resolved_row_id = str(resolved_row_values[id_col_idx]).strip() if len(resolved_row_values) > id_col_idx else ''
+                            if resolved_row_id != selected_pending_order_id:
+                                st.error("❌ Validación de seguridad: la fila encontrada no coincide con el pedido seleccionado.")
+                                st.stop()
+
+                            comentario_limpio = str(comentario_credito or '').strip()
+                            comentario_final = f"|{comentario_limpio}|" if comentario_limpio else "||"
+                            updates = [
+                                {
+                                    "range": rowcol_to_a1(sheet_row, headers_source.index('Estado_Pago') + 1),
+                                    "values": [["💳 CREDITO"]],
+                                },
+                                {
+                                    "range": rowcol_to_a1(sheet_row, headers_source.index('Comentario') + 1),
+                                    "values": [[comentario_final]],
+                                },
+                            ]
+                            safe_batch_update(worksheet_obj, updates)
+
+                            st.success("✅ Pedido cambiado a CREDITO con comentario actualizado.")
+                            st.session_state["tab3_pending_comprobante_refresh_token"] = time.time()
+                            get_tab3_pending_comprobante_dataset.clear()
+                        except Exception as e:
+                            st.error(f"❌ Error al cambiar el pedido a CREDITO: {e}")
 
 # ----------------- HELPERS FALTANTES -----------------
 
