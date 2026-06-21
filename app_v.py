@@ -31,6 +31,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from pytz import timezone
 from gspread.utils import rowcol_to_a1
 from gspread.exceptions import APIError, GSpreadException
+from payment_details import render_payment_details_fields
 
 
 # NEW: Import boto3 for AWS S3
@@ -4720,120 +4721,24 @@ with tab1:
     estado_pago = "🔴 No Pagado"
 
     def render_tab1_payment_fields(include_fecha=True, include_monto=True):
-        col1, col2, col3 = st.columns(3)
-        rendered_fecha_pago = fecha_pago
-        rendered_monto_pago = monto_pago
-        with col1:
-            if include_fecha:
-                rendered_fecha_pago = st.date_input(
-                    "📅 Fecha del Pago",
-                    value=datetime.today().date(),
-                    key="fecha_pago_input",
-                )
-            else:
-                forma_pago_options = [
-                    "Transferencia",
-                    "Efectivo",
-                    "Depósito en Efectivo",
-                    "Tarjeta de Débito",
-                    "Tarjeta de Crédito",
-                    "Cheque",
-                ]
-                if tab1_enable_link_pago_option:
-                    forma_pago_options.append("Link de Pago")
-                rendered_forma_pago = st.selectbox(
-                    "💳 Forma de Pago",
-                    forma_pago_options,
-                    key="forma_pago_input",
-                )
-        with col2:
-            if include_fecha:
-                forma_pago_options = [
-                    "Transferencia",
-                    "Efectivo",
-                    "Depósito en Efectivo",
-                    "Tarjeta de Débito",
-                    "Tarjeta de Crédito",
-                    "Cheque",
-                ]
-                if tab1_enable_link_pago_option:
-                    forma_pago_options.append("Link de Pago")
-                rendered_forma_pago = st.selectbox(
-                    "💳 Forma de Pago",
-                    forma_pago_options,
-                    key="forma_pago_input",
-                )
-            else:
-                if rendered_forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    rendered_terminal = st.selectbox(
-                        "🏧 Terminal",
-                        [
-                            "BANORTE",
-                            "AFIRME",
-                            "VELPAY",
-                            "CLIP",
-                            "PAYPAL",
-                            "BBVA",
-                            "CONEKTA",
-                            "MERCADO PAGO",
-                        ],
-                        key="terminal_input",
-                    )
-                    rendered_banco_destino = ""
-                else:
-                    rendered_banco_destino = st.selectbox(
-                        "🏦 Banco Destino",
-                        ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"],
-                        key="banco_destino_input",
-                    )
-                    rendered_terminal = ""
-        with col3:
-            if include_monto:
-                rendered_monto_pago = st.number_input(
-                    "💲 Monto del Pago",
-                    min_value=0.0,
-                    format="%.2f",
-                    key="monto_pago_input",
-                )
-            else:
-                referencia_value = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
-
-        if include_monto:
-            col4, col5 = st.columns(2)
-            with col4:
-                if rendered_forma_pago in ["Tarjeta de Débito", "Tarjeta de Crédito"]:
-                    rendered_terminal = st.selectbox(
-                        "🏧 Terminal",
-                        [
-                            "BANORTE",
-                            "AFIRME",
-                            "VELPAY",
-                            "CLIP",
-                            "PAYPAL",
-                            "BBVA",
-                            "CONEKTA",
-                            "MERCADO PAGO",
-                        ],
-                        key="terminal_input",
-                    )
-                    rendered_banco_destino = ""
-                else:
-                    rendered_banco_destino = st.selectbox(
-                        "🏦 Banco Destino",
-                        ["BANORTE", "BANAMEX", "AFIRME", "BANCOMER OP", "BANCOMER CURSOS"],
-                        key="banco_destino_input",
-                    )
-                    rendered_terminal = ""
-            with col5:
-                referencia_value = st.text_input("🔢 Referencia (opcional)", key="referencia_pago_input")
-
+        payment_details = render_payment_details_fields(
+            include_fecha=include_fecha,
+            include_monto=include_monto,
+            include_link_pago=tab1_enable_link_pago_option,
+            fecha_value=fecha_pago,
+            forma_pago_value=forma_pago,
+            terminal_value=terminal,
+            banco_destino_value=banco_destino,
+            monto_pago_value=monto_pago,
+            referencia_pago_value=referencia_pago,
+        )
         return (
-            rendered_fecha_pago,
-            rendered_forma_pago,
-            rendered_terminal,
-            rendered_banco_destino,
-            rendered_monto_pago,
-            referencia_value,
+            payment_details.fecha_pago,
+            payment_details.forma_pago,
+            payment_details.terminal,
+            payment_details.banco_destino,
+            payment_details.monto_pago,
+            payment_details.referencia_pago,
         )
 
     # Variables Hoja de Ruta Local
