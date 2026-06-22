@@ -1981,6 +1981,58 @@ def safe_batch_update_with_confirmation(
 
     raise Exception(f"No se pudo confirmar la modificación en Google Sheets: {last_error}")
 
+
+def update_cells_with_readback_confirmation(
+    worksheet,
+    updates_by_col: list[tuple[int, str]],
+    row_index: int,
+    retries: int = 5,
+    base_delay: float = 1.0,
+) -> None:
+    """Actualiza celdas una por una y confirma releyendo Google Sheets."""
+    last_error: Exception | None = None
+    normalized_updates = [
+        (int(col_number), _normalize_sheet_confirmation_value(value))
+        for col_number, value in updates_by_col
+    ]
+
+    for attempt in range(retries):
+        try:
+            for col_number, expected_value in normalized_updates:
+                worksheet.update_cell(row_index, col_number, expected_value)
+
+            time.sleep(0.6 + (attempt * 0.35))
+            confirmed_row = worksheet.row_values(row_index)
+            pending = []
+            for col_number, expected_value in normalized_updates:
+                actual_value = ""
+                if len(confirmed_row) >= col_number:
+                    actual_value = _normalize_sheet_confirmation_value(confirmed_row[col_number - 1])
+                if not _sheet_confirmation_values_match(expected_value, actual_value):
+                    pending.append((col_number, expected_value, actual_value))
+
+            if not pending:
+                return
+            last_error = Exception(
+                "La escritura directa no se confirmó al releer Google Sheets: "
+                + ", ".join(
+                    f"col {col}: esperado {expected!r}, actual {actual!r}"
+                    for col, expected, actual in pending
+                )
+            )
+        except APIError as e:
+            last_error = e
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status != 429 and attempt >= retries - 1:
+                break
+        except Exception as e:
+            last_error = e
+
+        if attempt < retries - 1:
+            time.sleep(base_delay * (attempt + 1))
+
+    raise Exception(f"No se pudo confirmar la modificación directa en Google Sheets: {last_error}")
+
 # --- GOOGLE SHEETS CONFIGURATION ---
 # Eliminamos la línea SERVICE_ACCOUNT_FILE ya que leeremos de secrets
 GOOGLE_SHEET_ID = '1aWkSelodaz0nWfQx7FZAysGnIYGQFJxAN7RO3YgCiZY'
@@ -8781,6 +8833,10 @@ with tab3:
     if tab3_is_active:
         st.session_state["current_tab_index"] = TAB_INDEX_TAB3
     st.header("🧾 Pedidos No Pagados: Comprobante o Crédito")
+    tab3_update_success_message = st.session_state.pop("tab3_update_success_message", "")
+    if tab3_update_success_message:
+        st.toast(tab3_update_success_message, icon="✅")
+        st.success(tab3_update_success_message)
 
     df_pedidos_comprobante = pd.DataFrame()
     worksheets_by_source: dict[str, object] = {}
@@ -9129,12 +9185,17 @@ with tab3:
                                             "values": [[datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d')]],
                                         },
                                     ]
-                                    safe_batch_update(worksheet_obj, updates)
+                                    safe_batch_update_with_confirmation(
+                                        worksheet_obj,
+                                        updates,
+                                        sheet_row,
+                                    )
 
-                                    st.success("✅ Comprobantes subidos y estado actualizado con éxito.")
+                                    st.session_state["tab3_update_success_message"] = "✅ Comprobantes subidos, estado actualizado y confirmado en Google Sheets."
                                     st.session_state["tab3_pending_comprobante_refresh_token"] = time.time()
                                     get_tab3_pending_comprobante_dataset.clear()
-                                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
+                                    st.query_params.update({"tab": str(TAB_INDEX_TAB3)})
+                                    st.rerun()
                                 else:
                                     st.warning("⚠️ No se subió ningún archivo correctamente.")
                             except Exception as e:
@@ -9220,12 +9281,17 @@ with tab3:
                                 "values": [[datetime.now(timezone("America/Mexico_City")).strftime('%Y-%m-%d')]],
                             })
 
-                        safe_batch_update(worksheet_obj, updates)
+                        safe_batch_update_with_confirmation(
+                            worksheet_obj,
+                            updates,
+                            sheet_row,
+                        )
 
-                        st.success("✅ Pedido marcado como pagado sin comprobante.")
+                        st.session_state["tab3_update_success_message"] = "✅ Pedido marcado como pagado sin comprobante y confirmado en Google Sheets."
                         st.session_state["tab3_pending_comprobante_refresh_token"] = time.time()
                         get_tab3_pending_comprobante_dataset.clear()
-                        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
+                        st.query_params.update({"tab": str(TAB_INDEX_TAB3)})
+                        st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al marcar como pagado sin comprobante: {e}")
 
@@ -9266,21 +9332,22 @@ with tab3:
 
                             comentario_limpio = str(comentario_credito or '').strip()
                             comentario_final = f"|{comentario_limpio}|" if comentario_limpio else "||"
-                            updates = [
-                                {
-                                    "range": rowcol_to_a1(sheet_row, headers_source.index('Estado_Pago') + 1),
-                                    "values": [["💳 CREDITO"]],
-                                },
-                                {
-                                    "range": rowcol_to_a1(sheet_row, headers_source.index('Comentario') + 1),
-                                    "values": [[comentario_final]],
-                                },
-                            ]
-                            safe_batch_update(worksheet_obj, updates)
+                            estado_pago_col = headers_source.index('Estado_Pago') + 1
+                            comentario_col = headers_source.index('Comentario') + 1
+                            update_cells_with_readback_confirmation(
+                                worksheet_obj,
+                                [
+                                    (estado_pago_col, "💳 CREDITO"),
+                                    (comentario_col, comentario_final),
+                                ],
+                                sheet_row,
+                            )
 
-                            st.success("✅ Pedido cambiado a CREDITO con comentario actualizado.")
+                            st.session_state["tab3_update_success_message"] = "✅ Pedido cambiado a CREDITO y confirmado en Google Sheets."
                             st.session_state["tab3_pending_comprobante_refresh_token"] = time.time()
                             get_tab3_pending_comprobante_dataset.clear()
+                            st.query_params.update({"tab": str(TAB_INDEX_TAB3)})
+                            st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al cambiar el pedido a CREDITO: {e}")
 
