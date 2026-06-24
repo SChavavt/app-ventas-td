@@ -6860,20 +6860,49 @@ with tab1:
 
 
 
-@st.cache_data(ttl=300)
-def cargar_pedidos_combinados():
-    """
-    Carga pedidos modificables solo desde la hoja operativa.
+def es_pedido_cdmx_modificable(row: pd.Series) -> bool:
+    """Identifica exactamente los pedidos que salen desde vista CDMX para la Tab 2."""
+    tipo_envio_norm = normalizar(str(row.get("Tipo_Envio", "") or "")).strip().lower()
+    turno_norm = normalizar(str(row.get("Turno", "") or "")).strip().lower()
 
+    pedido_local_norm = normalizar("📍 Pedido Local").strip().lower()
+    cursos_norm = normalizar("🎓 Cursos y Eventos").strip().lower()
+    uber_norm = normalizar(UBER_TIPO_ENVIO).strip().lower()
+    local_cdmx_norm = normalizar("🌆 Local CDMX").strip().lower()
+    recoge_aula_norm = normalizar("🎓 Recoge en Aula").strip().lower()
+    turnos_uber_norm = {
+        normalizar(turno_uber).strip().lower()
+        for turno_uber in UBER_TURNO_OPTIONS
+    }
+
+    if tipo_envio_norm == pedido_local_norm:
+        return turno_norm in {local_cdmx_norm, recoge_aula_norm}
+    if tipo_envio_norm == uber_norm:
+        return turno_norm in turnos_uber_norm
+    if tipo_envio_norm == cursos_norm:
+        return turno_norm == local_cdmx_norm
+    return False
+
+
+@st.cache_data(ttl=300)
+def cargar_pedidos_combinados(solo_cdmx: bool = False):
+    """
+    Carga pedidos modificables desde la hoja correspondiente a la vista activa.
+
+    En vista normal usa data_pedidos. En vista CDMX usa datos_pedidos y
+    limita los resultados a pedidos con tipo de envío o turno CDMX/Aula.
     La Tab ✏️ Modificar Pedido Existente ya no consulta ni mezcla
     casos_especiales; esos registros se visualizan y modifican exclusivamente
     desde la Tab 📁 Casos Especiales.
     """
     client = build_gspread_client()
     sh = client.open_by_key(GOOGLE_SHEET_ID)
+    hoja_pedidos_modificables = (
+        SHEET_PEDIDOS_HISTORICOS if solo_cdmx else SHEET_PEDIDOS_OPERATIVOS
+    )
 
     try:
-        ws_datos = sh.worksheet(SHEET_PEDIDOS_OPERATIVOS)
+        ws_datos = sh.worksheet(hoja_pedidos_modificables)
         df_datos, headers_datos = load_sheet_records_with_row_numbers(ws_datos)
     except Exception:
         headers_datos = []
@@ -6906,11 +6935,14 @@ def cargar_pedidos_combinados():
 
     df_datos['Seguimiento'] = df_datos['Seguimiento'].fillna("")
 
+    if solo_cdmx:
+        df_datos = df_datos[df_datos.apply(es_pedido_cdmx_modificable, axis=1)].copy()
+
     for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Refacturada','id_vendedor_Mod']:
         if c in df_datos.columns:
             df_datos[c] = df_datos[c].astype(str)
 
-    df_datos["Fuente"] = SHEET_PEDIDOS_OPERATIVOS
+    df_datos["Fuente"] = hoja_pedidos_modificables
     return df_datos.copy()
 
 # --- TAB VENTAS Y REPORTES (vista CDMX de usuarios duales) ---
@@ -7311,7 +7343,11 @@ with tab2:
 
     # 🔄 Cargar pedidos combinados siempre (Tab 1 y Tab 2 activos de forma permanente)
     try:
-        df_pedidos = cargar_pedidos_combinados()
+        tab2_cdmx_view_active = (
+            id_vendedor_tabs in TAB1_CDMX_ONLY_VIEW_IDS
+            or (id_vendedor_tabs in TAB1_DUAL_VIEW_IDS and tab1_view_mode_tabs == "cdmx")
+        )
+        df_pedidos = cargar_pedidos_combinados(tab2_cdmx_view_active)
     except Exception as e:
         message_placeholder_tab2.error(f"❌ Error al cargar pedidos para modificación: {e}")
         st.stop()
@@ -7548,11 +7584,12 @@ with tab2:
                         f"Detalles del Pedido: Folio {selected_row_data.get('Folio_Factura', 'N/A')}"
                     )
 
-                    fuente_display = (
-                        "📄 data_pedidos"
-                        if selected_source == SHEET_PEDIDOS_OPERATIVOS
-                        else "🔁 casos_especiales"
-                    )
+                    if selected_source == SHEET_PEDIDOS_OPERATIVOS:
+                        fuente_display = "📄 data_pedidos"
+                    elif selected_source == SHEET_PEDIDOS_HISTORICOS:
+                        fuente_display = "📄 datos_pedidos"
+                    else:
+                        fuente_display = "🔁 casos_especiales"
                     vendedor_preferido = selected_row_data.get("Vendedor", "")
                     if not vendedor_preferido or str(vendedor_preferido).strip().lower() in {"nan", "none"}:
                         vendedor_preferido = selected_row_data.get(
@@ -8235,7 +8272,7 @@ with tab2:
                                     # 1) Enrutar a la hoja correcta según la fuente
                                     client = build_gspread_client()
                                     sh = client.open_by_key(GOOGLE_SHEET_ID)
-                                    hoja_objetivo = SHEET_PEDIDOS_OPERATIVOS if selected_source == SHEET_PEDIDOS_OPERATIVOS else "casos_especiales"
+                                    hoja_objetivo = selected_source if selected_source in {SHEET_PEDIDOS_OPERATIVOS, SHEET_PEDIDOS_HISTORICOS} else "casos_especiales"
                                     worksheet = sh.worksheet(hoja_objetivo)
 
                                     headers = worksheet.row_values(1)
