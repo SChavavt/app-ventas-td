@@ -3006,7 +3006,7 @@ def append_row_with_confirmation(
             last_error = e
             time.sleep(base_delay * (attempt + 1))
     raise Exception(f"No se pudo confirmar la escritura en Google Sheets: {last_error}")
-    
+
 # --- Función para actualizar una celda de Google Sheets de forma segura ---
 def update_gsheet_cell(worksheet, headers, row_index, col_name, value):
     try:
@@ -6863,17 +6863,15 @@ with tab1:
 @st.cache_data(ttl=300)
 def cargar_pedidos_combinados():
     """
-    Carga y unifica pedidos de 'data_pedidos' y 'casos_especiales'.
-    Devuelve un DataFrame con columna 'Fuente' indicando el origen.
-    Garantiza columnas usadas por la UI (modificación de surtido, refacturación, folio error, documentos, etc.)
-    y mapea Hoja_Ruta_Mensajero -> Adjuntos_Guia para homogeneizar.
+    Carga pedidos modificables solo desde la hoja operativa.
+
+    La Tab ✏️ Modificar Pedido Existente ya no consulta ni mezcla
+    casos_especiales; esos registros se visualizan y modifican exclusivamente
+    desde la Tab 📁 Casos Especiales.
     """
     client = build_gspread_client()
     sh = client.open_by_key(GOOGLE_SHEET_ID)
 
-    # ---------------------------
-    # data_pedidos
-    # ---------------------------
     try:
         ws_datos = sh.worksheet(SHEET_PEDIDOS_OPERATIVOS)
         df_datos, headers_datos = load_sheet_records_with_row_numbers(ws_datos)
@@ -6881,140 +6879,39 @@ def cargar_pedidos_combinados():
         headers_datos = []
         df_datos = pd.DataFrame()
 
-    if not df_datos.empty:
-        # quita filas totalmente vacías en claves mínimas
-        claves = ['ID_Pedido', 'Cliente', 'Folio_Factura']
-        df_datos = df_datos.dropna(subset=claves, how='all')
-        if 'ID_Pedido' in df_datos.columns:
-            df_datos = df_datos[df_datos['ID_Pedido'].astype(str).str.strip().ne("")]
-
-        # columnas que la UI puede usar desde data_pedidos
-        needed_datos: list[str] = []
-        needed_datos += [
-            'ID_Pedido','Cliente','Folio_Factura','Vendedor_Registro','Estado','Hora_Registro','Turno','Fecha_Entrega',
-            'Comentario','Estado_Pago','Motivo_NotaVenta',
-            # archivos/adjuntos
-            'Adjuntos','Adjuntos_Guia','Adjuntos_Surtido','Modificacion_Surtido',TAB2_MODIFICATION_TYPE_COLUMN,
-            # refacturación
-            'Refacturacion_Tipo','Refacturacion_Subtipo','Folio_Factura_Refacturada',
-            # seguimiento de modificaciones
-            'id_vendedor_Mod',
-            # para homogeneidad con casos (puede venir vacío en datos)
-            'Folio_Factura_Error','Estado_Caso','Numero_Cliente_RFC','Tipo_Envio','Tipo_Envio_Original',
-            'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
-            'Nota_Credito_URL','Documento_Adicional_URL','Comentarios_Admin_Devolucion',
-            'Hoja_Ruta_Mensajero','Fecha_Recepcion_Devolucion','Hora_Proceso','Area_Responsable','Nombre_Responsable',
-            'Direccion_Guia_Retorno','Direccion_Envio',
-            # seguimiento
-            'Seguimiento'
-        ]
-        for c in needed_datos:
-            if c not in df_datos.columns:
-                df_datos[c] = ""
-
-        df_datos['Seguimiento'] = df_datos['Seguimiento'].fillna("")
-
-        # asegura tipos string uniformes importantes
-        for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Refacturada','id_vendedor_Mod']:
-            if c in df_datos.columns:
-                df_datos[c] = df_datos[c].astype(str)
-
-        df_datos["Fuente"] = SHEET_PEDIDOS_OPERATIVOS
-
-    # ---------------------------
-    # casos_especiales
-    # ---------------------------
-    try:
-        ws_casos = sh.worksheet("casos_especiales")
-        df_casos, headers_casos = load_sheet_records_with_row_numbers(ws_casos)
-    except Exception:
-        headers_casos = []
-        df_casos = pd.DataFrame()
-
-    if not df_casos.empty:
-        if 'ID_Pedido' in df_casos.columns:
-            df_casos = df_casos[df_casos['ID_Pedido'].astype(str).str.strip().ne("")]
-        else:
-            df_casos["ID_Pedido"] = ""
-
-        # columnas mínimas + TODAS las que usa la UI (incluye Garantías)
-        base_cols = [
-            'ID_Pedido','Cliente','Folio_Factura','Folio_Factura_Error','Estado','Tipo_Envio','Tipo_Envio_Original',
-            'Turno','Fecha_Entrega','Hora_Registro','Hora_Proceso','Vendedor_Registro','Comentario','Estado_Pago',
-            # adjuntos/guía/modificación
-            'Adjuntos','Adjuntos_Guia','Hoja_Ruta_Mensajero',
-            'Adjuntos_Surtido','Modificacion_Surtido',TAB2_MODIFICATION_TYPE_COLUMN,
-            # cliente/estatus caso
-            'Numero_Cliente_RFC','Estado_Caso',
-            # refacturación
-            'Refacturacion_Tipo','Refacturacion_Subtipo','Folio_Factura_Refacturada',
-            # detalle del caso (dev/garantía)
-            'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
-            'Area_Responsable','Nombre_Responsable',
-            'Direccion_Guia_Retorno','Direccion_Envio',
-            # ⚙️ NUEVO: Garantías
-            'Numero_Serie','Fecha_Compra',   # si tu hoja usa "FechaCompra", abajo lo normalizamos
-            # recepción/cierre
-            'Fecha_Recepcion_Devolucion','Estado_Recepcion',
-            # documentos de cierre
-            'Nota_Credito_URL','Documento_Adicional_URL','Comentarios_Admin_Devolucion',
-            # seguimiento
-            'Seguimiento'
-        ]
-        for c in base_cols:
-            if c not in df_casos.columns:
-                df_casos[c] = ""
-
-        df_casos['Seguimiento'] = df_casos['Seguimiento'].fillna("")
-
-        # Normalizar fecha de compra si el encabezado real es "FechaCompra"
-        if 'Fecha_Compra' not in headers_casos and 'FechaCompra' in headers_casos:
-            df_casos['Fecha_Compra'] = df_casos['FechaCompra']
-
-        # Inferir Tipo_Envio desde Tipo_Caso si viene vacío
-        if 'Tipo_Envio' in df_casos.columns:
-            df_casos['Tipo_Envio'] = df_casos['Tipo_Envio'].astype(str)
-        if 'Tipo_Envio' in df_casos.columns and df_casos['Tipo_Envio'].eq("").any():
-            if 'Tipo_Caso' in df_casos.columns:
-                def _infer_tipo_envio(row):
-                    t_env = str(row.get("Tipo_Envio","")).strip()
-                    if t_env:
-                        return t_env
-                    t_caso = str(row.get("Tipo_Caso","")).lower()
-                    if t_caso.startswith("devol"):
-                        return "🔁 Devolución"
-                    if t_caso.startswith("garan"):
-                        return "🛠 Garantía"
-                    return "Caso especial"
-                df_casos['Tipo_Envio'] = df_casos.apply(_infer_tipo_envio, axis=1)
-
-        # Mapear Hoja_Ruta_Mensajero -> Adjuntos_Guia si esta última está vacía
-        if 'Adjuntos_Guia' in df_casos.columns and 'Hoja_Ruta_Mensajero' in df_casos.columns:
-            mask_vacios = df_casos['Adjuntos_Guia'].astype(str).str.strip().eq("")
-            df_casos.loc[mask_vacios, 'Adjuntos_Guia'] = df_casos.loc[mask_vacios, 'Hoja_Ruta_Mensajero']
-
-        # asegura tipos string uniformes importantes
-        for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Error','Folio_Factura_Refacturada']:
-            if c in df_casos.columns:
-                df_casos[c] = df_casos[c].astype(str)
-
-        df_casos["Fuente"] = "casos_especiales"
-
-    # ---------------------------
-    # Unir respetando columnas
-    # ---------------------------
-    if df_datos.empty and df_casos.empty:
-        return pd.DataFrame()
     if df_datos.empty:
-        return df_casos.copy()
-    if df_casos.empty:
-        return df_datos.copy()
+        return pd.DataFrame()
 
-    all_cols = list(set(df_datos.columns).union(set(df_casos.columns)))
-    df_datos = df_datos.reindex(columns=all_cols, fill_value="")
-    df_casos = df_casos.reindex(columns=all_cols, fill_value="")
-    df_all = pd.concat([df_datos, df_casos], ignore_index=True)
-    return df_all
+    claves = ['ID_Pedido', 'Cliente', 'Folio_Factura']
+    df_datos = df_datos.dropna(subset=claves, how='all')
+    if 'ID_Pedido' in df_datos.columns:
+        df_datos = df_datos[df_datos['ID_Pedido'].astype(str).str.strip().ne("")]
+
+    needed_datos: list[str] = [
+        'ID_Pedido','Cliente','Folio_Factura','Vendedor_Registro','Estado','Hora_Registro','Turno','Fecha_Entrega',
+        'Comentario','Estado_Pago','Motivo_NotaVenta',
+        'Adjuntos','Adjuntos_Guia','Adjuntos_Surtido','Modificacion_Surtido',TAB2_MODIFICATION_TYPE_COLUMN,
+        'Refacturacion_Tipo','Refacturacion_Subtipo','Folio_Factura_Refacturada',
+        'id_vendedor_Mod',
+        'Folio_Factura_Error','Estado_Caso','Numero_Cliente_RFC','Tipo_Envio','Tipo_Envio_Original',
+        'Resultado_Esperado','Motivo_Detallado','Material_Devuelto','Monto_Devuelto',
+        'Nota_Credito_URL','Documento_Adicional_URL','Comentarios_Admin_Devolucion',
+        'Hoja_Ruta_Mensajero','Fecha_Recepcion_Devolucion','Hora_Proceso','Area_Responsable','Nombre_Responsable',
+        'Direccion_Guia_Retorno','Direccion_Envio',
+        'Seguimiento'
+    ]
+    for c in needed_datos:
+        if c not in df_datos.columns:
+            df_datos[c] = ""
+
+    df_datos['Seguimiento'] = df_datos['Seguimiento'].fillna("")
+
+    for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Refacturada','id_vendedor_Mod']:
+        if c in df_datos.columns:
+            df_datos[c] = df_datos[c].astype(str)
+
+    df_datos["Fuente"] = SHEET_PEDIDOS_OPERATIVOS
+    return df_datos.copy()
 
 # --- TAB VENTAS Y REPORTES (vista CDMX de usuarios duales) ---
 if tab_ventas_reportes is not None:
@@ -9533,230 +9430,230 @@ with tab4:
         id_vendedor_sesion = normalize_vendedor_id(st.session_state.get("id_vendedor", ""))
         seguimiento_autorizacion = "Autorización de devolución"
 
-        st.markdown("#### Devoluciones sin refacturar — ✍️ Captura el Folio Nuevo")
-        st.caption("Solo se muestran devoluciones del vendedor logeado con Folio Nuevo pendiente. Captura el Folio Nuevo y guarda; se almacena con prefijo * para auditoría post-registro.")
+        with st.expander("Devoluciones sin refacturar — ✍️ Captura el Folio Nuevo", expanded=False):
+            st.caption("Solo se muestran devoluciones del vendedor logeado con Folio Nuevo pendiente. Captura el Folio Nuevo y guarda; se almacena con prefijo * para auditoría post-registro.")
 
-        if ws_casos_ref is None:
-            st.error("❌ No fue posible conectar con la hoja de casos especiales para devoluciones.")
+            if ws_casos_ref is None:
+                st.error("❌ No fue posible conectar con la hoja de casos especiales para devoluciones.")
 
-        if not df_casos_ref.empty:
-            for col in ["id_vendedor", "Tipo_Envio", "Tipo_Caso", "Seguimiento", "Folio_Factura", "Hora_Registro"]:
-                if col not in df_casos_ref.columns:
-                    df_casos_ref[col] = ""
+            if not df_casos_ref.empty:
+                for col in ["id_vendedor", "Tipo_Envio", "Tipo_Caso", "Seguimiento", "Folio_Factura", "Hora_Registro"]:
+                    if col not in df_casos_ref.columns:
+                        df_casos_ref[col] = ""
 
-        if df_casos_ref.empty or ws_casos_ref is None:
-            st.info("No hay devoluciones sin refacturar por mostrar.")
-        else:
-            df_sin_refacturar = df_casos_ref[df_casos_ref.apply(is_devolucion_case_row, axis=1)].copy()
-            df_sin_refacturar = df_sin_refacturar[
-                df_sin_refacturar["Seguimiento"].astype(str).str.strip().eq(seguimiento_autorizacion)
-                & df_sin_refacturar["Folio_Factura"].apply(is_empty_folio)
-            ]
-            if id_vendedor_sesion:
+            if df_casos_ref.empty or ws_casos_ref is None:
+                st.info("No hay devoluciones sin refacturar por mostrar.")
+            else:
+                df_sin_refacturar = df_casos_ref[df_casos_ref.apply(is_devolucion_case_row, axis=1)].copy()
                 df_sin_refacturar = df_sin_refacturar[
-                    df_sin_refacturar["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_sesion
+                    df_sin_refacturar["Seguimiento"].astype(str).str.strip().eq(seguimiento_autorizacion)
+                    & df_sin_refacturar["Folio_Factura"].apply(is_empty_folio)
                 ]
-            else:
-                df_sin_refacturar = df_sin_refacturar.iloc[0:0]
+                if id_vendedor_sesion:
+                    df_sin_refacturar = df_sin_refacturar[
+                        df_sin_refacturar["id_vendedor"].apply(normalize_vendedor_id) == id_vendedor_sesion
+                    ]
+                else:
+                    df_sin_refacturar = df_sin_refacturar.iloc[0:0]
 
-            if not df_sin_refacturar.empty:
-                df_sin_refacturar["_hora_sort"] = pd.to_datetime(
-                    df_sin_refacturar["Hora_Registro"], errors="coerce"
-                )
-                df_sin_refacturar = df_sin_refacturar.sort_values(
-                    by=["_hora_sort"],
-                    ascending=[True],
-                    na_position="last",
-                )
+                if not df_sin_refacturar.empty:
+                    df_sin_refacturar["_hora_sort"] = pd.to_datetime(
+                        df_sin_refacturar["Hora_Registro"], errors="coerce"
+                    )
+                    df_sin_refacturar = df_sin_refacturar.sort_values(
+                        by=["_hora_sort"],
+                        ascending=[True],
+                        na_position="last",
+                    )
 
-            if df_sin_refacturar.empty:
-                st.info("No tienes devoluciones pendientes de Folio Nuevo.")
-            else:
-                for _, row in df_sin_refacturar.iterrows():
-                    sheet_row_number = parse_sheet_row_number(row.get("Sheet_Row_Number"))
-                    row_key = f"devol_sin_ref_{sheet_row_number or uuid.uuid4().hex}"
-                    with st.container(border=True):
-                        st.markdown(
-                            f"👤 **Cliente:** {row.get('Cliente', 'N/A') or 'N/A'}  |  "
-                            f"🧾 **Folio Error:** {row.get('Folio_Factura_Error', 'N/A') or 'N/A'}"
-                        )
-                        st.markdown(
-                            f"📌 **Seguimiento:** {row.get('Seguimiento', 'N/A') or 'N/A'}  |  "
-                            f"🕒 **Hora Registro:** {row.get('Hora_Registro', 'N/A') or 'N/A'}"
-                        )
-                        with st.form(key=f"{row_key}_form_folio_nuevo", clear_on_submit=False):
-                            folio_input = st.text_input(
-                                "📄 Folio Nuevo",
-                                key=f"{row_key}_folio_input",
-                                placeholder="Ej. F197176",
+                if df_sin_refacturar.empty:
+                    st.info("No tienes devoluciones pendientes de Folio Nuevo.")
+                else:
+                    for _, row in df_sin_refacturar.iterrows():
+                        sheet_row_number = parse_sheet_row_number(row.get("Sheet_Row_Number"))
+                        row_key = f"devol_sin_ref_{sheet_row_number or uuid.uuid4().hex}"
+                        with st.container(border=True):
+                            st.markdown(
+                                f"👤 **Cliente:** {row.get('Cliente', 'N/A') or 'N/A'}  |  "
+                                f"🧾 **Folio Error:** {row.get('Folio_Factura_Error', 'N/A') or 'N/A'}"
                             )
-
-                            notas_key = f"{row_key}_notas_devolucion"
-                            nota_existente = str(row.get("Modificacion_Surtido", "") or "").strip()
-                            if notas_key not in st.session_state:
-                                st.session_state[notas_key] = nota_existente
-
-                            notas_devolucion = st.text_area(
-                                "✍️ Notas de Devolucion Pendiente",
-                                key=notas_key,
-                                height=100,
-                                help="Se carga el comentario previo para que puedas conservarlo, editarlo, eliminarlo o agregar más información.",
+                            st.markdown(
+                                f"📌 **Seguimiento:** {row.get('Seguimiento', 'N/A') or 'N/A'}  |  "
+                                f"🕒 **Hora Registro:** {row.get('Hora_Registro', 'N/A') or 'N/A'}"
                             )
-                            direccion_guia_retorno_pendiente = st.text_area(
-                                "📬 Dirección Guia_Retorno (Opcional)",
-                                key=f"{row_key}_direccion_guia_retorno",
-                                height=80,
-                                help="Si lo dejas vacío, se limpiará el valor previo en Excel/Sheets. Si capturas un valor, reemplazará el existente.",
-                            )
-                            uploaded_files_devolucion = st.file_uploader(
-                                "📎 Subir Archivos de Devolucion",
-                                type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
-                                accept_multiple_files=True,
-                                key=f"{row_key}_archivos_devolucion",
-                            )
-                            uploaded_comprobantes_extra = st.file_uploader(
-                                "🧾 Subir Comprobante(s) Adicional(es)",
-                                type=["pdf", "jpg", "jpeg", "png"],
-                                accept_multiple_files=True,
-                                key=f"{row_key}_comprobantes_extra",
-                            )
-                            enviar_aviso_bodega_modificacion = st.checkbox(
-                                "📦 Enviar aviso a bodega como modificación",
-                                key=f"{row_key}_enviar_aviso_bodega_modificacion",
-                                help="Si se marca, el caso cambia a ✏️ Modificación y se limpia Completados_Limpiado.",
-                            )
-                            submit_folio_nuevo = st.form_submit_button("Guardar Folio Nuevo")
+                            with st.form(key=f"{row_key}_form_folio_nuevo", clear_on_submit=False):
+                                folio_input = st.text_input(
+                                    "📄 Folio Nuevo",
+                                    key=f"{row_key}_folio_input",
+                                    placeholder="Ej. F197176",
+                                )
 
-                        if submit_folio_nuevo:
-                            folio_sanitizado = str(folio_input or "").strip()
-                            if not folio_sanitizado:
-                                st.error("❌ El Folio Nuevo no puede estar vacío.")
-                            elif not str(notas_devolucion or "").strip():
-                                st.error("❌ El campo 'Notas de Devolucion Pendiente' es obligatorio.")
-                            elif sheet_row_number is None:
-                                st.error("❌ No se pudo identificar la fila real en Google Sheets para actualizar.")
-                            else:
-                                try:
-                                    valor_guardar = f"*{folio_sanitizado}"
-                                    row_idx = int(sheet_row_number)
-                                    current_row_values = ws_casos_ref.row_values(row_idx)
-                                    if len(current_row_values) < len(headers_casos_ref):
-                                        current_row_values += [""] * (len(headers_casos_ref) - len(current_row_values))
-                                    current_row = dict(zip(headers_casos_ref, current_row_values))
+                                notas_key = f"{row_key}_notas_devolucion"
+                                nota_existente = str(row.get("Modificacion_Surtido", "") or "").strip()
+                                if notas_key not in st.session_state:
+                                    st.session_state[notas_key] = nota_existente
 
-                                    cell_updates = []
+                                notas_devolucion = st.text_area(
+                                    "✍️ Notas de Devolucion Pendiente",
+                                    key=notas_key,
+                                    height=100,
+                                    help="Se carga el comentario previo para que puedas conservarlo, editarlo, eliminarlo o agregar más información.",
+                                )
+                                direccion_guia_retorno_pendiente = st.text_area(
+                                    "📬 Dirección Guia_Retorno (Opcional)",
+                                    key=f"{row_key}_direccion_guia_retorno",
+                                    height=80,
+                                    help="Si lo dejas vacío, se limpiará el valor previo en Excel/Sheets. Si capturas un valor, reemplazará el existente.",
+                                )
+                                uploaded_files_devolucion = st.file_uploader(
+                                    "📎 Subir Archivos de Devolucion",
+                                    type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
+                                    accept_multiple_files=True,
+                                    key=f"{row_key}_archivos_devolucion",
+                                )
+                                uploaded_comprobantes_extra = st.file_uploader(
+                                    "🧾 Subir Comprobante(s) Adicional(es)",
+                                    type=["pdf", "jpg", "jpeg", "png"],
+                                    accept_multiple_files=True,
+                                    key=f"{row_key}_comprobantes_extra",
+                                )
+                                enviar_aviso_bodega_modificacion = st.checkbox(
+                                    "📦 Enviar aviso a bodega como modificación",
+                                    key=f"{row_key}_enviar_aviso_bodega_modificacion",
+                                    help="Si se marca, el caso cambia a ✏️ Modificación y se limpia Completados_Limpiado.",
+                                )
+                                submit_folio_nuevo = st.form_submit_button("Guardar Folio Nuevo")
 
-                                    def col_exists(col_name: str) -> bool:
-                                        return col_name in headers_casos_ref
+                            if submit_folio_nuevo:
+                                folio_sanitizado = str(folio_input or "").strip()
+                                if not folio_sanitizado:
+                                    st.error("❌ El Folio Nuevo no puede estar vacío.")
+                                elif not str(notas_devolucion or "").strip():
+                                    st.error("❌ El campo 'Notas de Devolucion Pendiente' es obligatorio.")
+                                elif sheet_row_number is None:
+                                    st.error("❌ No se pudo identificar la fila real en Google Sheets para actualizar.")
+                                else:
+                                    try:
+                                        valor_guardar = f"*{folio_sanitizado}"
+                                        row_idx = int(sheet_row_number)
+                                        current_row_values = ws_casos_ref.row_values(row_idx)
+                                        if len(current_row_values) < len(headers_casos_ref):
+                                            current_row_values += [""] * (len(headers_casos_ref) - len(current_row_values))
+                                        current_row = dict(zip(headers_casos_ref, current_row_values))
 
-                                    def col_idx(col_name: str) -> int:
-                                        return headers_casos_ref.index(col_name) + 1
+                                        cell_updates = []
 
-                                    if col_exists("Folio_Factura"):
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(row_idx, col_idx("Folio_Factura")),
-                                            "values": [[valor_guardar]],
-                                        })
+                                        def col_exists(col_name: str) -> bool:
+                                            return col_name in headers_casos_ref
 
-                                    if col_exists("Modificacion_Surtido"):
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(row_idx, col_idx("Modificacion_Surtido")),
-                                            "values": [[str(notas_devolucion).strip()]],
-                                        })
+                                        def col_idx(col_name: str) -> int:
+                                            return headers_casos_ref.index(col_name) + 1
 
-                                    if enviar_aviso_bodega_modificacion:
-                                        if col_exists("Seguimiento"):
+                                        if col_exists("Folio_Factura"):
                                             cell_updates.append({
-                                                "range": rowcol_to_a1(row_idx, col_idx("Seguimiento")),
-                                                "values": [["✏️ Modificación"]],
-                                            })
-                                        if col_exists("Completados_Limpiado"):
-                                            cell_updates.append({
-                                                "range": rowcol_to_a1(row_idx, col_idx("Completados_Limpiado")),
-                                                "values": [[""]],
+                                                "range": rowcol_to_a1(row_idx, col_idx("Folio_Factura")),
+                                                "values": [[valor_guardar]],
                                             })
 
-                                    direccion_guia_retorno_normalizada = str(direccion_guia_retorno_pendiente or "").strip()
-                                    if col_exists("Direccion_Guia_Retorno"):
-                                        # Siempre sobrescribir: vacío => limpia celda, con valor => reemplaza contenido previo.
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(row_idx, col_idx("Direccion_Guia_Retorno")),
-                                            "values": [[direccion_guia_retorno_normalizada]],
-                                        })
+                                        if col_exists("Modificacion_Surtido"):
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(row_idx, col_idx("Modificacion_Surtido")),
+                                                "values": [[str(notas_devolucion).strip()]],
+                                            })
 
-                                    new_adjuntos_surtido_urls = []
-                                    archivos_devolucion_subidos = []
-                                    if uploaded_files_devolucion:
-                                        for f in uploaded_files_devolucion:
-                                            ext = os.path.splitext(f.name)[1]
-                                            s3_key = f"{row.get('ID_Pedido','sin_id')}/devolucion_{f.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
-                                            success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, f, s3_key)
-                                            if success:
-                                                new_adjuntos_surtido_urls.append(url)
-                                                archivos_devolucion_subidos.append(f.name)
-                                            else:
-                                                st.warning(f"⚠️ Falló la subida de {f.name}: {error_msg or 'Error desconocido'}")
+                                        if enviar_aviso_bodega_modificacion:
+                                            if col_exists("Seguimiento"):
+                                                cell_updates.append({
+                                                    "range": rowcol_to_a1(row_idx, col_idx("Seguimiento")),
+                                                    "values": [["✏️ Modificación"]],
+                                                })
+                                            if col_exists("Completados_Limpiado"):
+                                                cell_updates.append({
+                                                    "range": rowcol_to_a1(row_idx, col_idx("Completados_Limpiado")),
+                                                    "values": [[""]],
+                                                })
 
-                                    if new_adjuntos_surtido_urls and col_exists("Adjuntos_Surtido"):
-                                        current_urls = [x.strip() for x in str(current_row.get("Adjuntos_Surtido", "")).split(",") if x.strip()]
-                                        updated_adjuntos_surtido = ", ".join(current_urls + new_adjuntos_surtido_urls)
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(row_idx, col_idx("Adjuntos_Surtido")),
-                                            "values": [[updated_adjuntos_surtido]],
-                                        })
+                                        direccion_guia_retorno_normalizada = str(direccion_guia_retorno_pendiente or "").strip()
+                                        if col_exists("Direccion_Guia_Retorno"):
+                                            # Siempre sobrescribir: vacío => limpia celda, con valor => reemplaza contenido previo.
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(row_idx, col_idx("Direccion_Guia_Retorno")),
+                                                "values": [[direccion_guia_retorno_normalizada]],
+                                            })
 
-                                    comprobante_urls = []
-                                    comprobantes_subidos = []
-                                    if uploaded_comprobantes_extra:
-                                        for archivo in uploaded_comprobantes_extra:
-                                            ext = os.path.splitext(archivo.name)[1]
-                                            s3_key = f"{row.get('ID_Pedido','sin_id')}/comprobante_devolucion_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
-                                            success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
-                                            if success:
-                                                comprobante_urls.append(url)
-                                                comprobantes_subidos.append(archivo.name)
-                                            else:
-                                                st.warning(f"⚠️ Falló la subida del comprobante {archivo.name}: {error_msg or 'Error desconocido'}")
+                                        new_adjuntos_surtido_urls = []
+                                        archivos_devolucion_subidos = []
+                                        if uploaded_files_devolucion:
+                                            for f in uploaded_files_devolucion:
+                                                ext = os.path.splitext(f.name)[1]
+                                                s3_key = f"{row.get('ID_Pedido','sin_id')}/devolucion_{f.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
+                                                success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, f, s3_key)
+                                                if success:
+                                                    new_adjuntos_surtido_urls.append(url)
+                                                    archivos_devolucion_subidos.append(f.name)
+                                                else:
+                                                    st.warning(f"⚠️ Falló la subida de {f.name}: {error_msg or 'Error desconocido'}")
 
-                                    if comprobante_urls and col_exists("Adjuntos"):
-                                        current_adjuntos = [x.strip() for x in str(current_row.get("Adjuntos", "")).split(",") if x.strip()]
-                                        updated_adjuntos = ", ".join(current_adjuntos + comprobante_urls)
-                                        cell_updates.append({
-                                            "range": rowcol_to_a1(row_idx, col_idx("Adjuntos")),
-                                            "values": [[updated_adjuntos]],
-                                        })
+                                        if new_adjuntos_surtido_urls and col_exists("Adjuntos_Surtido"):
+                                            current_urls = [x.strip() for x in str(current_row.get("Adjuntos_Surtido", "")).split(",") if x.strip()]
+                                            updated_adjuntos_surtido = ", ".join(current_urls + new_adjuntos_surtido_urls)
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(row_idx, col_idx("Adjuntos_Surtido")),
+                                                "values": [[updated_adjuntos_surtido]],
+                                            })
 
-                                    if cell_updates:
-                                        safe_batch_update(ws_casos_ref, cell_updates)
+                                        comprobante_urls = []
+                                        comprobantes_subidos = []
+                                        if uploaded_comprobantes_extra:
+                                            for archivo in uploaded_comprobantes_extra:
+                                                ext = os.path.splitext(archivo.name)[1]
+                                                s3_key = f"{row.get('ID_Pedido','sin_id')}/comprobante_devolucion_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                                success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
+                                                if success:
+                                                    comprobante_urls.append(url)
+                                                    comprobantes_subidos.append(archivo.name)
+                                                else:
+                                                    st.warning(f"⚠️ Falló la subida del comprobante {archivo.name}: {error_msg or 'Error desconocido'}")
 
-                                    st.success(f"✅ Folio Nuevo guardado correctamente: {folio_sanitizado}")
-                                    st.info("📝 Notas de devolución pendientes actualizadas correctamente.")
+                                        if comprobante_urls and col_exists("Adjuntos"):
+                                            current_adjuntos = [x.strip() for x in str(current_row.get("Adjuntos", "")).split(",") if x.strip()]
+                                            updated_adjuntos = ", ".join(current_adjuntos + comprobante_urls)
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(row_idx, col_idx("Adjuntos")),
+                                                "values": [[updated_adjuntos]],
+                                            })
 
-                                    if archivos_devolucion_subidos:
-                                        st.success(
-                                            "📎 Archivos de devolución subidos correctamente: "
-                                            + ", ".join(archivos_devolucion_subidos)
-                                        )
+                                        if cell_updates:
+                                            safe_batch_update(ws_casos_ref, cell_updates)
 
-                                    if comprobantes_subidos:
-                                        st.success(
-                                            "🧾 Comprobante(s) adicional(es) subido(s) correctamente: "
-                                            + ", ".join(comprobantes_subidos)
-                                        )
+                                        st.success(f"✅ Folio Nuevo guardado correctamente: {folio_sanitizado}")
+                                        st.info("📝 Notas de devolución pendientes actualizadas correctamente.")
 
-                                    if not archivos_devolucion_subidos and not comprobantes_subidos:
-                                        st.info("ℹ️ No se adjuntaron archivos en este guardado.")
+                                        if archivos_devolucion_subidos:
+                                            st.success(
+                                                "📎 Archivos de devolución subidos correctamente: "
+                                                + ", ".join(archivos_devolucion_subidos)
+                                            )
 
-                                    st.session_state.pop(f"{row_key}_folio_input", None)
-                                    st.session_state.pop(f"{row_key}_notas_devolucion", None)
-                                    st.session_state.pop(f"{row_key}_direccion_guia_retorno", None)
-                                    cargar_casos_especiales.clear()
-                                    get_tab4_casos_especiales_dataset.clear()
-                                    st.session_state["tab4_casos_refresh_token"] = time.time()
-                                    obtener_devoluciones_autorizadas_sin_folio.clear()
-                                    pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
-                                except Exception as e:
-                                    st.error(f"❌ No se pudo guardar el Folio Nuevo: {e}")
+                                        if comprobantes_subidos:
+                                            st.success(
+                                                "🧾 Comprobante(s) adicional(es) subido(s) correctamente: "
+                                                + ", ".join(comprobantes_subidos)
+                                            )
+
+                                        if not archivos_devolucion_subidos and not comprobantes_subidos:
+                                            st.info("ℹ️ No se adjuntaron archivos en este guardado.")
+
+                                        st.session_state.pop(f"{row_key}_folio_input", None)
+                                        st.session_state.pop(f"{row_key}_notas_devolucion", None)
+                                        st.session_state.pop(f"{row_key}_direccion_guia_retorno", None)
+                                        cargar_casos_especiales.clear()
+                                        get_tab4_casos_especiales_dataset.clear()
+                                        st.session_state["tab4_casos_refresh_token"] = time.time()
+                                        obtener_devoluciones_autorizadas_sin_folio.clear()
+                                        pass  # Evita recarga inmediata; los cambios se aplican al enviar el formulario
+                                    except Exception as e:
+                                        st.error(f"❌ No se pudo guardar el Folio Nuevo: {e}")
 
         df_casos = df_casos[
             df_casos["Tipo_Envio"].isin(["🔁 Devolución", "🛠 Garantía"]) &
@@ -9803,7 +9700,38 @@ with tab4:
                         recent_days_label="Mostrar solo últimos 7 días",
                     )
 
+                busqueda_casos = st.text_input(
+                    "🔎 Buscar caso especial por folio o cliente",
+                    key="tab4_buscar_caso_especial",
+                    placeholder="Ej. F197176, Pedro López, Lopez Pedro...",
+                    help=(
+                        "Búsqueda inteligente: ignora mayúsculas, acentos y espacios; "
+                        "acepta coincidencias parciales del nombre como en la Tab 🔍 Buscar Pedido."
+                    ),
+                )
+
                 filtered_casos = df_casos.copy()
+
+                if str(busqueda_casos or "").strip():
+                    keyword_cliente_casos = normalizar(str(busqueda_casos).strip())
+                    keyword_folio_casos = normalizar_folio(str(busqueda_casos).strip())
+
+                    def _coincide_caso_especial(row: pd.Series) -> bool:
+                        nombre = str(row.get("Cliente", "") or "").strip()
+                        folio = str(row.get("Folio_Factura", "") or "").strip()
+                        folio_error = str(row.get("Folio_Factura_Error", "") or "").strip()
+                        folio_norm = normalizar_folio(folio)
+                        folio_error_norm = normalizar_folio(folio_error)
+                        coincide_cliente = coincide_nombre_cliente_busqueda(nombre, keyword_cliente_casos)
+                        coincide_folio = bool(keyword_folio_casos) and (
+                            keyword_folio_casos in folio_norm
+                            or keyword_folio_casos in folio_error_norm
+                            or folio_norm in keyword_folio_casos
+                            or folio_error_norm in keyword_folio_casos
+                        )
+                        return bool(coincide_cliente or coincide_folio)
+
+                    filtered_casos = filtered_casos[filtered_casos.apply(_coincide_caso_especial, axis=1)]
 
                 if (
                     selected_vendedor_casos != "Todos"
@@ -9857,6 +9785,216 @@ with tab4:
                             filtered_casos["display_label"] == selected_case
                         ].iloc[0]
                         render_caso_especial(case_row)
+
+                        st.markdown("---")
+                        st.subheader("✏️ Modificar caso especial")
+                        st.caption("Estos cambios se guardan directamente en la hoja casos_especiales.")
+
+                        sheet_row_number = parse_sheet_row_number(case_row.get("Sheet_Row_Number"))
+                        edit_key_base = f"tab4_edit_caso_{sheet_row_number or normalizar_folio(case_row.get('Folio_Factura', 'sin_folio'))}"
+                        with st.form(key=f"{edit_key_base}_form", clear_on_submit=False):
+                            tipo_actual = str(case_row.get(TAB2_MODIFICATION_TYPE_COLUMN, "") or "").strip()
+                            opciones_tipo_mod = ["Por Material", "Nueva Ruta", "Refacturación", "Otro"]
+                            if tipo_actual and tipo_actual not in opciones_tipo_mod:
+                                opciones_tipo_mod.append(tipo_actual)
+                            tipo_modificacion_caso = st.selectbox(
+                                "📌 ¿Qué tipo de modificación estás registrando?",
+                                opciones_tipo_mod,
+                                index=opciones_tipo_mod.index(tipo_actual) if tipo_actual in opciones_tipo_mod else 0,
+                                key=f"{edit_key_base}_tipo_modificacion",
+                            )
+
+                            refact_tipo_caso = str(case_row.get("Refacturacion_Tipo", "") or "").strip()
+                            refact_subtipo_caso = str(case_row.get("Refacturacion_Subtipo", "") or "").strip()
+                            refact_folio_caso = str(case_row.get("Folio_Factura_Refacturada", "") or "").strip()
+                            if tipo_modificacion_caso == "Refacturación":
+                                st.markdown("### 🧾 Detalles de Refacturación")
+                                refact_tipo_options = ["Material", "Datos Fiscales"]
+                                refact_tipo_caso = st.selectbox(
+                                    "🔍 Razón Principal",
+                                    refact_tipo_options,
+                                    index=refact_tipo_options.index(refact_tipo_caso) if refact_tipo_caso in refact_tipo_options else 0,
+                                    key=f"{edit_key_base}_refact_tipo",
+                                )
+                                subtipo_options = (
+                                    ["Cambio de RFC", "Cambio de Régimen Fiscal", "Error en Forma de Pago", "Error de uso de Cfdi", "Otro"]
+                                    if refact_tipo_caso == "Datos Fiscales"
+                                    else ["Agrego Material", "Quito Material", "Clave de Producto Errónea", "Otro"]
+                                )
+                                if refact_subtipo_caso and refact_subtipo_caso not in subtipo_options:
+                                    subtipo_options.append(refact_subtipo_caso)
+                                refact_subtipo_caso = st.selectbox(
+                                    "📌 Subtipo",
+                                    subtipo_options,
+                                    index=subtipo_options.index(refact_subtipo_caso) if refact_subtipo_caso in subtipo_options else 0,
+                                    key=f"{edit_key_base}_refact_subtipo",
+                                )
+                                refact_folio_caso = st.text_input(
+                                    "📄 Folio de la Nueva Factura",
+                                    value=refact_folio_caso,
+                                    key=f"{edit_key_base}_refact_folio",
+                                )
+                            else:
+                                refact_tipo_caso = ""
+                                refact_subtipo_caso = ""
+                                refact_folio_caso = ""
+
+                            notas_caso = st.text_area(
+                                "✍️ Notas de Modificación/Surtido",
+                                value=str(case_row.get("Modificacion_Surtido", "") or ""),
+                                height=100,
+                                key=f"{edit_key_base}_notas",
+                            )
+
+                            material_rows_clean_caso: list[dict[str, str]] = []
+                            material_storage_caso = None
+                            if str(case_row.get("Tipo_Envio", "") or "").strip() in ("🔁 Devolución", "🛠 Garantía"):
+                                st.markdown("### 📦 Materiales del caso especial")
+                                material_df_caso = material_editor_dataframe(
+                                    get_material_rows_for_editor(case_row.get("Material_Devuelto", ""))
+                                )
+                                material_editor_caso = st.data_editor(
+                                    material_df_caso,
+                                    key=f"{edit_key_base}_material_editor",
+                                    num_rows="dynamic",
+                                    hide_index=True,
+                                    use_container_width=True,
+                                    column_config={
+                                        "Código": st.column_config.TextColumn("Código"),
+                                        "Descripción": st.column_config.TextColumn("Descripción"),
+                                        "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0, step=1, format="%d"),
+                                        "Monto IVA": st.column_config.NumberColumn("Monto IVA", min_value=0.0, step=0.01, format="$%.2f"),
+                                    },
+                                )
+                                material_rows_clean_caso = sanitize_material_editor_rows(material_editor_caso)
+                                material_storage_caso = format_material_rows_for_storage(material_rows_clean_caso)
+                                st.text_input(
+                                    "Total de Materiales (con IVA)",
+                                    value=f"${sum_material_rows_monto_iva(material_rows_clean_caso):,.2f}",
+                                    disabled=True,
+                                    key=f"{edit_key_base}_material_total",
+                                )
+
+
+                            uploaded_files_caso = st.file_uploader(
+                                "📎 Subir Archivos para Modificación/Surtido",
+                                type=["pdf", "jpg", "jpeg", "png", "xlsx", "docx"],
+                                accept_multiple_files=True,
+                                key=f"{edit_key_base}_archivos",
+                            )
+                            uploaded_comprobantes_caso = st.file_uploader(
+                                "💲 Comprobante(s) de Pago",
+                                type=["pdf", "jpg", "jpeg", "png"],
+                                accept_multiple_files=True,
+                                key=f"{edit_key_base}_comprobantes",
+                            )
+                            confirmar_caso = st.checkbox(
+                                f"✅ Confirmo que el caso mostrado es correcto (Folio: {case_row.get('Folio_Factura', 'N/A')} | Cliente: {case_row.get('Cliente', 'N/A')})",
+                                key=f"{edit_key_base}_confirmar",
+                            )
+                            guardar_caso = st.form_submit_button("✅ Procesar Modificación de Caso Especial")
+
+                        if guardar_caso:
+                            if not confirmar_caso:
+                                st.error("⚠️ Confirma que el caso y cliente son correctos antes de guardar.")
+                            elif not str(notas_caso or "").strip():
+                                st.error("⚠️ El campo 'Notas de Modificación/Surtido' es obligatorio.")
+                            elif sheet_row_number is None or ws_casos_ref is None:
+                                st.error("❌ No se pudo identificar la fila real en Google Sheets para actualizar.")
+                            else:
+                                try:
+                                    row_idx = int(sheet_row_number)
+                                    current_row_values = ws_casos_ref.row_values(row_idx)
+                                    if len(current_row_values) < len(headers_casos_ref):
+                                        current_row_values += [""] * (len(headers_casos_ref) - len(current_row_values))
+                                    current_row = dict(zip(headers_casos_ref, current_row_values))
+                                    cell_updates = []
+
+                                    def col_exists_tab4(col_name: str) -> bool:
+                                        return col_name in headers_casos_ref
+
+                                    def col_idx_tab4(col_name: str) -> int:
+                                        return headers_casos_ref.index(col_name) + 1
+
+                                    campos_caso = {
+                                        "Modificacion_Surtido": str(notas_caso).strip(),
+                                        TAB2_MODIFICATION_TYPE_COLUMN: tipo_modificacion_caso,
+                                        "Refacturacion_Tipo": refact_tipo_caso,
+                                        "Refacturacion_Subtipo": refact_subtipo_caso,
+                                        "Folio_Factura_Refacturada": refact_folio_caso,
+                                        "Estado": "✏️ Modificación",
+                                    }
+                                    if material_storage_caso is not None:
+                                        campos_caso["Material_Devuelto"] = material_storage_caso
+                                        campos_caso["Monto_Devuelto"] = f"{sum_material_rows_monto_iva(material_rows_clean_caso):.2f}"
+
+                                    for campo, valor in campos_caso.items():
+                                        if col_exists_tab4(campo):
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(row_idx, col_idx_tab4(campo)),
+                                                "values": [[valor]],
+                                            })
+
+                                    new_adjuntos_surtido_urls = []
+                                    if uploaded_files_caso:
+                                        for archivo in uploaded_files_caso:
+                                            ext = os.path.splitext(archivo.name)[1]
+                                            s3_key = f"{case_row.get('ID_Pedido','sin_id')}/mod_caso_{archivo.name.replace(' ', '_').replace(ext, '')}_{uuid.uuid4().hex[:4]}{ext}"
+                                            success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
+                                            if success:
+                                                new_adjuntos_surtido_urls.append(url)
+                                            else:
+                                                st.warning(f"⚠️ Falló la subida de {archivo.name}: {error_msg or 'Error desconocido'}")
+                                    if new_adjuntos_surtido_urls and col_exists_tab4("Adjuntos_Surtido"):
+                                        current_urls = [x.strip() for x in str(current_row.get("Adjuntos_Surtido", "")).split(",") if x.strip()]
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(row_idx, col_idx_tab4("Adjuntos_Surtido")),
+                                            "values": [[", ".join(current_urls + new_adjuntos_surtido_urls)]],
+                                        })
+
+                                    comprobante_urls = []
+                                    if uploaded_comprobantes_caso:
+                                        for archivo in uploaded_comprobantes_caso:
+                                            ext = os.path.splitext(archivo.name)[1]
+                                            s3_key = f"{case_row.get('ID_Pedido','sin_id')}/comprobante_mod_caso_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:4]}{ext}"
+                                            success, url, error_msg = upload_file_to_s3(s3_client, S3_BUCKET_NAME, archivo, s3_key)
+                                            if success:
+                                                comprobante_urls.append(url)
+                                            else:
+                                                st.warning(f"⚠️ Falló la subida del comprobante {archivo.name}: {error_msg or 'Error desconocido'}")
+                                    if comprobante_urls and col_exists_tab4("Adjuntos"):
+                                        current_adjuntos = [x.strip() for x in str(current_row.get("Adjuntos", "")).split(",") if x.strip()]
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(row_idx, col_idx_tab4("Adjuntos")),
+                                            "values": [[", ".join(current_adjuntos + comprobante_urls)]],
+                                        })
+                                        if col_exists_tab4("Estado_Pago"):
+                                            cell_updates.append({
+                                                "range": rowcol_to_a1(row_idx, col_idx_tab4("Estado_Pago")),
+                                                "values": [["✅ Pagado"]],
+                                            })
+
+                                    if col_exists_tab4("Completados_Limpiado"):
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(row_idx, col_idx_tab4("Completados_Limpiado")),
+                                            "values": [[""]],
+                                        })
+                                    if col_exists_tab4("Fecha_Modificacion"):
+                                        cell_updates.append({
+                                            "range": rowcol_to_a1(row_idx, col_idx_tab4("Fecha_Modificacion")),
+                                            "values": [[datetime.now(timezone("America/Mexico_City")).strftime("%Y-%m-%d %H:%M:%S")]],
+                                        })
+
+                                    if cell_updates:
+                                        safe_batch_update(ws_casos_ref, cell_updates)
+                                    cargar_casos_especiales.clear()
+                                    get_tab4_casos_especiales_dataset.clear()
+                                    st.session_state["tab4_casos_refresh_token"] = time.time()
+                                    obtener_devoluciones_autorizadas_sin_folio.clear()
+                                    st.success("✅ Caso especial actualizado correctamente.")
+                                    st.toast("✅ Caso especial actualizado", icon="📁")
+                                except Exception as e:
+                                    st.error(f"❌ No se pudo actualizar el caso especial: {e}")
 
 
 # --- TAB 5: GUIAS CARGADAS ---
@@ -10594,30 +10732,30 @@ with tab7:
     if tab7_is_active:
         try:
             df_all_pedidos, headers = cargar_todos_los_pedidos()
-    
+
             if "Adjuntos_Guia" not in df_all_pedidos.columns:
                 df_all_pedidos["Adjuntos_Guia"] = ""
-    
+
             # 🧹 AÑADIDO: Filtrar filas donde 'Folio_Factura' y 'ID_Pedido' son ambos vacíos
             df_all_pedidos = df_all_pedidos.dropna(subset=['Folio_Factura', 'ID_Pedido'], how='all')
-    
+
             # 🧹 Eliminar registros vacíos o inválidos con ID_Pedido en blanco, 'nan', 'N/A'
             df_all_pedidos = df_all_pedidos[
                 df_all_pedidos['ID_Pedido'].astype(str).str.strip().ne('') &
                 df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('n/a') &
                 df_all_pedidos['ID_Pedido'].astype(str).str.lower().ne('nan')
             ]
-    
+
             if 'Fecha_Entrega' in df_all_pedidos.columns:
                 df_all_pedidos['Fecha_Entrega'] = pd.to_datetime(df_all_pedidos['Fecha_Entrega'], errors='coerce')
-    
+
             if 'Vendedor_Registro' in df_all_pedidos.columns:
                 df_all_pedidos['Vendedor_Registro'] = df_all_pedidos['Vendedor_Registro'].apply(
                     lambda x: x if x in VENDEDORES_LIST else 'Otro/Desconocido' if pd.notna(x) and str(x).strip() != '' else 'N/A'
                 ).astype(str)
             else:
                 st.warning("La columna 'Vendedor_Registro' no se encontró en el Google Sheet para el filtrado. Asegúrate de que exista y esté correctamente nombrada.")
-    
+
             if 'Folio_Factura' in df_all_pedidos.columns:
                 df_all_pedidos['Folio_Factura'] = df_all_pedidos['Folio_Factura'].astype(str).replace('nan', '')
             else:
@@ -10733,7 +10871,7 @@ with tab7:
         ]
         columnas_preview = [col for col in filtered_df_download.columns if col not in columnas_excluidas_preview]
         display_df = filtered_df_download[columnas_preview].copy()
-                
+
         if 'Fecha_Entrega' in display_df.columns:
             display_df['Fecha_Entrega'] = display_df['Fecha_Entrega'].dt.strftime('%Y-%m-%d')
 
