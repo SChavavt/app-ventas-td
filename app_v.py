@@ -4066,8 +4066,10 @@ show_tab_ventas_reportes = (
 tabs_labels = ["🛒 Registrar Nuevo Pedido"]
 if show_tab_ventas_reportes:
     tabs_labels.append("📊 Ventas y Reportes")
+show_tab_schava_datos_pedidos = id_vendedor_tabs == SCHAVA_USER_ID
 tabs_labels.extend([
     "✏️ Modificar Pedido Existente",
+    *( ["🧾 SCHAVA datos_pedidos"] if show_tab_schava_datos_pedidos else [] ),
     "📦 Guías Cargadas",
     "🔍 Buscar Pedido",
     "🧾 No Pagados: Comprobante o Crédito",
@@ -4161,21 +4163,24 @@ tab1 = tabs[0]
 tab_ventas_reportes = tabs[1] if show_tab_ventas_reportes else None
 tab_offset = 1 if show_tab_ventas_reportes else 0
 tab2 = tabs[1 + tab_offset]
-tab5 = tabs[2 + tab_offset]
-tab8 = tabs[3 + tab_offset]
-tab3 = tabs[4 + tab_offset]
-tab4 = tabs[5 + tab_offset]
-tab6 = tabs[6 + tab_offset]
-tab7 = tabs[7 + tab_offset]
+schava_tab_offset = 1 if show_tab_schava_datos_pedidos else 0
+tab_schava_datos_pedidos = tabs[2 + tab_offset] if show_tab_schava_datos_pedidos else None
+tab5 = tabs[2 + tab_offset + schava_tab_offset]
+tab8 = tabs[3 + tab_offset + schava_tab_offset]
+tab3 = tabs[4 + tab_offset + schava_tab_offset]
+tab4 = tabs[5 + tab_offset + schava_tab_offset]
+tab6 = tabs[6 + tab_offset + schava_tab_offset]
+tab7 = tabs[7 + tab_offset + schava_tab_offset]
 TAB_INDEX_TAB1 = 0
 TAB_INDEX_REPORTES = 1 if show_tab_ventas_reportes else None
 TAB_INDEX_TAB2 = 1 + tab_offset
-TAB_INDEX_TAB5 = 2 + tab_offset
-TAB_INDEX_TAB8 = 3 + tab_offset
-TAB_INDEX_TAB3 = 4 + tab_offset
-TAB_INDEX_TAB4 = 5 + tab_offset
-TAB_INDEX_TAB6 = 6 + tab_offset
-TAB_INDEX_TAB7 = 7 + tab_offset
+TAB_INDEX_SCHAVA_DATOS = 2 + tab_offset if show_tab_schava_datos_pedidos else None
+TAB_INDEX_TAB5 = 2 + tab_offset + schava_tab_offset
+TAB_INDEX_TAB8 = 3 + tab_offset + schava_tab_offset
+TAB_INDEX_TAB3 = 4 + tab_offset + schava_tab_offset
+TAB_INDEX_TAB4 = 5 + tab_offset + schava_tab_offset
+TAB_INDEX_TAB6 = 6 + tab_offset + schava_tab_offset
+TAB_INDEX_TAB7 = 7 + tab_offset + schava_tab_offset
 
 # --- List of Vendors (reusable and explicitly alphabetically sorted) ---
 VENDEDORES_LIST = sorted([
@@ -6885,7 +6890,7 @@ def es_pedido_cdmx_modificable(row: pd.Series) -> bool:
 
 
 @st.cache_data(ttl=300)
-def cargar_pedidos_combinados(solo_cdmx: bool = False):
+def cargar_pedidos_combinados(solo_cdmx: bool = False, solo_historico: bool = False):
     """
     Carga pedidos modificables desde la hoja correspondiente a la vista activa.
 
@@ -6898,7 +6903,9 @@ def cargar_pedidos_combinados(solo_cdmx: bool = False):
     client = build_gspread_client()
     sh = client.open_by_key(GOOGLE_SHEET_ID)
     hoja_pedidos_modificables = (
-        SHEET_PEDIDOS_HISTORICOS if solo_cdmx else SHEET_PEDIDOS_OPERATIVOS
+        SHEET_PEDIDOS_HISTORICOS
+        if (solo_cdmx or solo_historico)
+        else SHEET_PEDIDOS_OPERATIVOS
     )
 
     try:
@@ -6935,7 +6942,7 @@ def cargar_pedidos_combinados(solo_cdmx: bool = False):
 
     df_datos['Seguimiento'] = df_datos['Seguimiento'].fillna("")
 
-    if solo_cdmx:
+    if solo_cdmx and not solo_historico:
         df_datos = df_datos[df_datos.apply(es_pedido_cdmx_modificable, axis=1)].copy()
 
     for c in ['Tipo_Envio','Vendedor_Registro','Estado','Folio_Factura','Folio_Factura_Refacturada','id_vendedor_Mod']:
@@ -8759,6 +8766,304 @@ with tab2:
                             except Exception as e:
                                 feedback_slot.empty()
                                 feedback_slot.error(f"❌ Error inesperado al guardar: {e}")
+
+# --- TAB SCHAVA: MODIFY datos_pedidos ---
+if tab_schava_datos_pedidos is not None:
+    with tab_schava_datos_pedidos:
+        tab_schava_is_active = default_tab == TAB_INDEX_SCHAVA_DATOS
+        if tab_schava_is_active:
+            st.session_state["current_tab_index"] = TAB_INDEX_SCHAVA_DATOS
+
+        st.header("🧾 SCHAVA - Modificar datos_pedidos")
+        st.caption("Busca por nombre de cliente, folio, ID o guía y modifica únicamente registros de la hoja datos_pedidos.")
+
+        if st.button("🔄 Actualizar datos_pedidos", key="schava_datos_refresh"):
+            cargar_pedidos_combinados.clear()
+
+        if not tab_schava_is_active:
+            render_lazy_tab_placeholder(
+                TAB_INDEX_SCHAVA_DATOS,
+                "schava_datos_lazy",
+                LAZY_TAB_MESSAGE,
+            )
+
+        try:
+            df_schava_datos = cargar_pedidos_combinados(solo_historico=True)
+        except Exception as e:
+            st.error(f"❌ Error al cargar datos_pedidos: {e}")
+            st.stop()
+
+        if df_schava_datos.empty:
+            st.warning("No hay pedidos en datos_pedidos para modificar.")
+        else:
+            search_term_schava = st.text_input(
+                "🔎 Buscar por nombre o guía:",
+                key="schava_datos_buscar_nombre_guia",
+                placeholder="Escribe cliente, folio, ID o guía...",
+            )
+
+            filtered_schava = df_schava_datos.copy()
+            if search_term_schava.strip():
+                normalized_query_schava = normalizar(search_term_schava).lower()
+                search_columns_schava = [
+                    "Cliente",
+                    "Folio_Factura",
+                    "ID_Pedido",
+                    "Adjuntos_Guia",
+                    "Guia",
+                    "Guía",
+                    "Numero_Guia",
+                    "Número_Guía",
+                    "Seguimiento",
+                ]
+                available_search_columns_schava = [
+                    col for col in search_columns_schava if col in filtered_schava.columns
+                ]
+                search_blob_schava = (
+                    filtered_schava[available_search_columns_schava]
+                    .fillna("")
+                    .astype(str)
+                    .agg(" ".join, axis=1)
+                    .apply(lambda value: normalizar(value).lower())
+                )
+                filtered_schava = filtered_schava[
+                    search_blob_schava.str.contains(re.escape(normalized_query_schava), na=False)
+                ]
+            else:
+                filtered_schava = filtered_schava.iloc[0:0]
+
+            if filtered_schava.empty:
+                if not search_term_schava.strip():
+                    st.info("Escribe un nombre de cliente, folio, ID o guía para buscar en datos_pedidos.")
+                else:
+                    st.warning("No hay pedidos que coincidan con la búsqueda.")
+            else:
+                for col in ["Folio_Factura", "ID_Pedido", "Cliente", "Estado", "Tipo_Envio"]:
+                    if col in filtered_schava.columns:
+                        filtered_schava[col] = (
+                            filtered_schava[col]
+                            .astype(str)
+                            .replace(["nan", "None"], "")
+                            .fillna("")
+                            .str.strip()
+                        )
+
+                if "Hora_Registro" in filtered_schava.columns:
+                    filtered_schava["Hora_Registro_dt"] = pd.to_datetime(
+                        filtered_schava["Hora_Registro"],
+                        errors="coerce",
+                    )
+                    filtered_schava = filtered_schava.sort_values(
+                        by="Hora_Registro_dt",
+                        ascending=False,
+                    ).reset_index(drop=True)
+
+                def _schava_s(value):
+                    return "" if pd.isna(value) else str(value)
+
+                filtered_schava["display_label"] = filtered_schava.apply(
+                    lambda row: (
+                        f"📄 {(_schava_s(row.get('Folio_Factura', '')) or 'Sin Folio')}"
+                        f" - {_schava_s(row.get('Cliente', ''))}"
+                        f" - {_schava_s(row.get('Estado', ''))}"
+                        f" - {_schava_s(row.get('Tipo_Envio', ''))}"
+                    ),
+                    axis=1,
+                )
+                base_option_values_schava = filtered_schava.apply(
+                    lambda row: (
+                        f"{SHEET_PEDIDOS_HISTORICOS}|"
+                        f"{_schava_s(row.get('ID_Pedido', '')) or 'sin_id'}|"
+                        f"{parse_sheet_row_number(row.get('Sheet_Row_Number')) or 'sin_fila'}"
+                    ),
+                    axis=1,
+                )
+                filtered_schava["option_value"] = base_option_values_schava
+                duplicate_mask_schava = filtered_schava["option_value"].duplicated(keep=False)
+                if duplicate_mask_schava.any():
+                    filtered_schava.loc[duplicate_mask_schava, "option_value"] = filtered_schava.loc[duplicate_mask_schava].apply(
+                        lambda row: f"{base_option_values_schava[row.name]}|{row.name}",
+                        axis=1,
+                    )
+
+                option_label_map_schava = dict(zip(filtered_schava["option_value"], filtered_schava["display_label"]))
+                placeholder_schava = "__schava_select_order_placeholder__"
+                option_keys_schava = [placeholder_schava] + list(option_label_map_schava.keys())
+                selected_key_schava = st.selectbox(
+                    "📝 Seleccionar Pedido para Modificar",
+                    option_keys_schava,
+                    format_func=lambda option: "— Selecciona un pedido —" if option == placeholder_schava else option_label_map_schava.get(option, option),
+                    key="schava_datos_select_order",
+                )
+
+                if selected_key_schava != placeholder_schava:
+                    row_schava = filtered_schava[filtered_schava["option_value"] == selected_key_schava].iloc[0]
+                    st.subheader(f"Detalles del Pedido: Folio {row_schava.get('Folio_Factura', 'N/A')}")
+                    col_left_schava, col_right_schava = st.columns(2)
+                    with col_left_schava:
+                        st.markdown("**Fuente:** 📄 datos_pedidos")
+                        st.markdown(f"**Vendedor:** {row_schava.get('Vendedor_Registro', 'No especificado')}")
+                        st.markdown(f"**Cliente:** {row_schava.get('Cliente', 'N/A')}")
+                        st.markdown(f"**Folio de Factura:** {row_schava.get('Folio_Factura', 'N/A')}")
+                    with col_right_schava:
+                        st.markdown(f"**Estado Actual:** {row_schava.get('Estado', 'N/A')}")
+                        st.markdown(f"**Estado de Pago:** {row_schava.get('Estado_Pago', '🔴 No Pagado')}")
+                        st.markdown(f"**Tipo de Envío:** {row_schava.get('Tipo_Envio', 'N/A')}")
+                        st.markdown(f"**Fecha de Entrega:** {row_schava.get('Fecha_Entrega', 'N/A')}")
+                    st.markdown("**Comentario Original:**")
+                    st.write(row_schava.get("Comentario", "N/A"))
+
+                    with st.expander("📎 Ver adjuntos del pedido", expanded=False):
+                        for label_adj, col_adj in (("Adjuntos Originales", "Adjuntos"), ("Adjuntos de Guía", "Adjuntos_Guia"), ("Adjuntos de Modificación/Surtido", "Adjuntos_Surtido")):
+                            adjuntos = [x.strip() for x in str(row_schava.get(col_adj, "")).split(",") if x.strip()]
+                            st.write(f"**{label_adj}:**" if adjuntos else f"**{label_adj}:** Ninguno")
+                            for adjunto in adjuntos:
+                                render_attachment_link(adjunto)
+
+                    current_tipo_schava = str(row_schava.get(TAB2_MODIFICATION_TYPE_COLUMN, "") or "").strip()
+                    tipo_options_schava = ["Por Material", "Nueva Ruta", "Refacturación", "Otro"]
+                    tipo_index_schava = tipo_options_schava.index(current_tipo_schava) if current_tipo_schava in tipo_options_schava else 0
+
+                    with st.form("schava_datos_modify_form", clear_on_submit=False):
+                        tipo_mod_schava = st.selectbox(
+                            "📌 ¿Qué tipo de modificación estás registrando?",
+                            tipo_options_schava,
+                            index=tipo_index_schava,
+                            key="schava_datos_tipo_modificacion",
+                        )
+                        mod_surtido_schava = st.text_area(
+                            "📝 Modificación / comentarios de surtido",
+                            value=str(row_schava.get("Modificacion_Surtido", "") or ""),
+                            key="schava_datos_modificacion_surtido",
+                        )
+                        uploaded_surtido_schava = st.file_uploader(
+                            "📎 Adjuntar archivos de modificación/surtido",
+                            accept_multiple_files=True,
+                            key="schava_datos_uploaded_surtido",
+                        )
+                        uploaded_comprobantes_schava = st.file_uploader(
+                            "💳 Adjuntar comprobantes extra",
+                            accept_multiple_files=True,
+                            key="schava_datos_uploaded_comprobantes",
+                        )
+                        submitted_schava = st.form_submit_button("💾 Guardar cambios en datos_pedidos")
+
+                    if submitted_schava:
+                        feedback_schava = st.empty()
+                        try:
+                            client_schava = build_gspread_client()
+                            sh_schava = client_schava.open_by_key(GOOGLE_SHEET_ID)
+                            worksheet_schava = sh_schava.worksheet(SHEET_PEDIDOS_HISTORICOS)
+                            headers_schava = get_sheet_headers(SHEET_PEDIDOS_HISTORICOS)
+                            if TAB2_MODIFICATION_TYPE_COLUMN not in headers_schava:
+                                headers_schava = headers_schava + [TAB2_MODIFICATION_TYPE_COLUMN]
+                                worksheet_schava.update("A1", [headers_schava], value_input_option="RAW")
+                                get_sheet_headers.clear()
+
+                            row_number_schava = parse_sheet_row_number(row_schava.get("Sheet_Row_Number"))
+                            if row_number_schava is None:
+                                feedback_schava.error("❌ No se encontró la fila real de datos_pedidos para guardar.")
+                                st.stop()
+
+                            all_values_schava = worksheet_schava.get_all_values()
+                            actual_values_schava = all_values_schava[row_number_schava - 1]
+                            if len(actual_values_schava) < len(headers_schava):
+                                actual_values_schava += [""] * (len(headers_schava) - len(actual_values_schava))
+                            actual_row_schava = dict(zip(headers_schava, actual_values_schava[:len(headers_schava)]))
+
+                            updates_schava = []
+                            changes_made_schava = False
+
+                            def schava_col_exists(col):
+                                return col in headers_schava
+
+                            def schava_col_idx(col):
+                                return headers_schava.index(col) + 1
+
+                            fields_schava = {
+                                TAB2_MODIFICATION_TYPE_COLUMN: tipo_mod_schava,
+                                "Modificacion_Surtido": mod_surtido_schava,
+                                "Estado": "✏️ Modificación",
+                                "Completados_Limpiado": "",
+                            }
+                            for col_name_schava, value_schava in fields_schava.items():
+                                if schava_col_exists(col_name_schava) and str(actual_row_schava.get(col_name_schava, "")) != str(value_schava):
+                                    updates_schava.append({
+                                        "range": rowcol_to_a1(row_number_schava, schava_col_idx(col_name_schava)),
+                                        "values": [[value_schava]],
+                                    })
+                                    changes_made_schava = True
+
+                            selected_order_id_schava = str(row_schava.get("ID_Pedido", "") or "").strip()
+                            if uploaded_surtido_schava:
+                                urls_surtido_schava = upload_files_or_fail(
+                                    uploaded_surtido_schava,
+                                    s3_client,
+                                    S3_BUCKET_NAME,
+                                    f"{selected_order_id_schava}/surtido_{uuid.uuid4().hex[:8]}_",
+                                    max_retries=S3_UPLOAD_MAX_RETRIES,
+                                )
+                                if urls_surtido_schava and schava_col_exists("Adjuntos_Surtido"):
+                                    current_urls_schava = [x.strip() for x in str(actual_row_schava.get("Adjuntos_Surtido", "")).split(",") if x.strip()]
+                                    updates_schava.append({
+                                        "range": rowcol_to_a1(row_number_schava, schava_col_idx("Adjuntos_Surtido")),
+                                        "values": [[", ".join(current_urls_schava + urls_surtido_schava)]],
+                                    })
+                                    changes_made_schava = True
+
+                            if uploaded_comprobantes_schava:
+                                urls_comprobantes_schava = upload_files_or_fail(
+                                    uploaded_comprobantes_schava,
+                                    s3_client,
+                                    S3_BUCKET_NAME,
+                                    f"{selected_order_id_schava}/comprobante_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_",
+                                    max_retries=S3_UPLOAD_MAX_RETRIES,
+                                )
+                                if urls_comprobantes_schava and schava_col_exists("Adjuntos"):
+                                    current_adjuntos_schava = [x.strip() for x in str(actual_row_schava.get("Adjuntos", "")).split(",") if x.strip()]
+                                    updates_schava.append({
+                                        "range": rowcol_to_a1(row_number_schava, schava_col_idx("Adjuntos")),
+                                        "values": [[", ".join(current_adjuntos_schava + urls_comprobantes_schava)]],
+                                    })
+                                    changes_made_schava = True
+                                if schava_col_exists("Estado_Pago"):
+                                    updates_schava.append({
+                                        "range": rowcol_to_a1(row_number_schava, schava_col_idx("Estado_Pago")),
+                                        "values": [["✅ Pagado"]],
+                                    })
+                                    changes_made_schava = True
+
+                            id_vendedor_actual_schava = str(st.session_state.get("id_vendedor", "")).strip().upper()
+                            if id_vendedor_actual_schava and schava_col_exists("id_vendedor_Mod"):
+                                existing_ids_schava = [
+                                    entry.strip().upper()
+                                    for entry in str(actual_row_schava.get("id_vendedor_Mod", "")).split(",")
+                                    if entry.strip()
+                                ]
+                                if id_vendedor_actual_schava not in existing_ids_schava:
+                                    updates_schava.append({
+                                        "range": rowcol_to_a1(row_number_schava, schava_col_idx("id_vendedor_Mod")),
+                                        "values": [[", ".join(existing_ids_schava + [id_vendedor_actual_schava])]],
+                                    })
+                                    changes_made_schava = True
+
+                            if updates_schava and schava_col_exists("Fecha_Modificacion"):
+                                updates_schava.append({
+                                    "range": rowcol_to_a1(row_number_schava, schava_col_idx("Fecha_Modificacion")),
+                                    "values": [[datetime.now(timezone("America/Mexico_City")).strftime("%Y-%m-%d %H:%M:%S")]],
+                                })
+                                changes_made_schava = True
+
+                            if changes_made_schava and updates_schava:
+                                safe_batch_update_with_confirmation(worksheet_schava, updates_schava, row_number_schava)
+                                clear_order_related_caches()
+                                cargar_pedidos_combinados.clear()
+                                st.success("✅ Cambios guardados en datos_pedidos.")
+                                st.toast("✅ Pedido actualizado en datos_pedidos", icon="📦")
+                            else:
+                                st.info("ℹ️ No se detectaron cambios nuevos para guardar.")
+                        except Exception as e:
+                            feedback_schava.error(f"❌ Error inesperado al guardar en datos_pedidos: {e}")
 
 
 # --- TAB 3: PENDING PROOF OF PAYMENT ---
