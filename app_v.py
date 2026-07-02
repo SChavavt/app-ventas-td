@@ -5221,6 +5221,7 @@ with tab1:
                             "Depósito en Efectivo",
                             "Tarjeta de Débito",
                             "Tarjeta de Crédito",
+                            "TERMINAL",
                             "Credito TD",
                             "Cheque",
                         ],
