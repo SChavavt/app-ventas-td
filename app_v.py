@@ -55,6 +55,7 @@ TAB1_DRAFT_MAX_AGE_SECONDS = 60 * 60 * 6
 TAB1_PRESERVED_STATE_KEYS: set[str] = {
     "last_selected_vendedor",
     "current_tab_index",
+    "active_app_tab",
     "tipo_envio_selector_global",
 }
 
@@ -4063,47 +4064,56 @@ show_tab_ventas_reportes = (
     or id_vendedor_tabs in TAB1_CDMX_ONLY_VIEW_IDS
     or (id_vendedor_tabs in TAB1_DUAL_VIEW_IDS and tab1_view_mode_tabs == "cdmx")
 )
-tabs_labels = ["🛒 Registrar Nuevo Pedido"]
-if show_tab_ventas_reportes:
-    tabs_labels.append("📊 Ventas y Reportes")
 show_tab_schava_datos_pedidos = id_vendedor_tabs == SCHAVA_USER_ID
-tabs_labels.extend([
-    "✏️ Modificar Pedido Existente",
-    *( ["🧾 SCHAVA datos_pedidos"] if show_tab_schava_datos_pedidos else [] ),
-    "📦 Guías Cargadas",
-    "🔍 Buscar Pedido",
-    "🧾 No Pagados: Comprobante o Crédito",
-    "📁 Casos Especiales",
-    "⏳ Pedidos No Entregados",
-    "⬇️ Descargar Datos",
-])
+APP_TAB_OPTIONS: list[tuple[str, str, bool]] = [
+    ("tab1", "🛒 Registrar Nuevo Pedido", True),
+    ("reportes", "📊 Ventas y Reportes", show_tab_ventas_reportes),
+    ("tab2", "✏️ Modificar Pedido Existente", True),
+    ("schava_datos", "🧾 SCHAVA datos_pedidos", show_tab_schava_datos_pedidos),
+    ("tab5", "📦 Guías Cargadas", True),
+    ("tab8", "🔍 Buscar Pedido", True),
+    ("tab3", "🧾 No Pagados: Comprobante o Crédito", True),
+    ("tab4", "📁 Casos Especiales", True),
+    ("tab6", "⏳ Pedidos No Entregados", True),
+    ("tab7", "⬇️ Descargar Datos", True),
+]
+active_app_tabs = [(tab_key, label) for tab_key, label, enabled in APP_TAB_OPTIONS if enabled]
+tabs_labels = [label for _, label in active_app_tabs]
+tab_key_by_index = {index: tab_key for index, (tab_key, _) in enumerate(active_app_tabs)}
+tab_index_by_key = {tab_key: index for index, (tab_key, _) in enumerate(active_app_tabs)}
 
-# Leer índice de pestaña desde los parámetros de la URL.
-# Si falta o viene inválido, usar la pestaña actual de sesión para evitar rebotes en reruns.
-raw_tab_param = st.query_params.get("tab")
-default_tab: int | None = None
+session_tab = st.session_state.get("current_tab_index", 0)
+if not isinstance(session_tab, int):
+    session_tab = 0
+default_tab = max(0, min(len(tabs_labels) - 1, session_tab)) if tabs_labels else 0
+active_app_tab = st.session_state.get("active_app_tab", tab_key_by_index.get(default_tab, "tab1"))
+if active_app_tab not in tab_index_by_key:
+    active_app_tab = tab_key_by_index.get(default_tab, "tab1")
+st.session_state["active_app_tab"] = active_app_tab
 
-if raw_tab_param is not None:
-    try:
-        default_tab = int(raw_tab_param[0]) if isinstance(raw_tab_param, list) else int(raw_tab_param)
-    except (TypeError, ValueError):
-        default_tab = None
+selected_app_tab = st.segmented_control(
+    "Sección",
+    options=[tab_key for tab_key, _ in active_app_tabs],
+    format_func=dict(active_app_tabs).get,
+    key="active_app_tab",
+    label_visibility="collapsed",
+)
+active_app_tab = selected_app_tab or st.session_state.get("active_app_tab", "tab1")
+default_tab = tab_index_by_key.get(active_app_tab, 0)
+st.session_state["current_tab_index"] = default_tab
 
-if default_tab is None:
-    session_tab = st.session_state.get("current_tab_index")
-    if isinstance(session_tab, int):
-        default_tab = session_tab
-    else:
-        default_tab = 0
+st.markdown(
+    """
+    <style>
+    div[data-baseweb="tab-list"] {
+        display: none;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-if tabs_labels:
-    default_tab = max(0, min(len(tabs_labels) - 1, default_tab))
-else:
-    default_tab = 0
-
-st.session_state.setdefault("current_tab_index", default_tab)
-
-# Crear pestañas y mantener referencia
+# Crear pestañas y mantener referencia; el control segmentado conserva la pestaña activa entre reruns.
 tabs = st.tabs(tabs_labels)
 
 components.html(
